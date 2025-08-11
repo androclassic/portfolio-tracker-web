@@ -1,13 +1,16 @@
 'use client';
 import useSWR, { useSWRConfig } from 'swr';
 import { useMemo, useState } from 'react';
+import { usePortfolio } from '../PortfolioProvider';
 
 const fetcher = (url: string) => fetch(url).then(r=>r.json());
 
 type Tx = { id:number; asset:string; type:'Buy'|'Sell'; priceUsd?:number|null; quantity:number; datetime:string; costUsd?:number|null; proceedsUsd?:number|null; notes?:string|null };
 
 export default function TransactionsPage(){
-  const { data: txs } = useSWR<Tx[]>('/api/transactions', fetcher);
+  const { selectedId } = usePortfolio();
+  const swrKey = selectedId? `/api/transactions?portfolioId=${selectedId}` : null;
+  const { data: txs } = useSWR<Tx[]>(swrKey, fetcher);
   const { mutate } = useSWRConfig();
   const [assetFilter, setAssetFilter] = useState<string>('All');
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc');
@@ -40,15 +43,16 @@ export default function TransactionsPage(){
       quantity: Number(newTx.quantity),
       datetime: newTx.datetime,
       notes: newTx.notes ? newTx.notes : null,
+      portfolioId: selectedId ?? 1,
     };
     const res = await fetch('/api/transactions', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
-    if (res.ok){ setIsOpen(false); setNewTx({ asset:'', type:'Buy', quantity:0, priceUsd:'', datetime:'', notes:'' }); mutate('/api/transactions'); }
+    if (res.ok){ setIsOpen(false); setNewTx({ asset:'', type:'Buy', quantity:0, priceUsd:'', datetime:'', notes:'' }); if (swrKey) mutate(swrKey); }
   }
 
   async function removeTx(id: number){
     if (!confirm('Delete this transaction?')) return;
     await fetch(`/api/transactions?id=${id}`, { method:'DELETE' });
-    mutate('/api/transactions');
+    if (swrKey) mutate(swrKey);
   }
 
   function startEdit(t: Tx){ setEditing(t); }
@@ -67,7 +71,7 @@ export default function TransactionsPage(){
     } as any;
     await fetch('/api/transactions', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
     setEditing(null);
-    mutate('/api/transactions');
+    if (swrKey) mutate(swrKey);
   }
 
   const nf = new Intl.NumberFormat(undefined,{ maximumFractionDigits: 8 });
@@ -89,6 +93,22 @@ export default function TransactionsPage(){
           </label>
         </div>
         <button className="btn btn-primary" onClick={()=>setIsOpen(true)}>Add transaction</button>
+        {selectedId && (
+          <div style={{ display:'inline-flex', gap:8, marginLeft: 8 }}>
+            <form action={`/api/transactions/export?portfolioId=${selectedId}`} method="GET">
+              <button type="submit" className="btn btn-secondary">Export CSV</button>
+            </form>
+            <label className="btn btn-secondary" style={{ cursor:'pointer' }}>
+              Import CSV
+              <input type="file" accept=".csv" style={{ display:'none' }} onChange={async (e)=>{
+                const file = e.target.files?.[0]; if (!file) return;
+                const fd = new FormData(); fd.append('file', file);
+                await fetch(`/api/transactions/import?portfolioId=${selectedId}`, { method:'POST', body: fd });
+                if (swrKey) mutate(swrKey);
+              }} />
+            </label>
+          </div>
+        )}
       </div>
 
       <section className="card">

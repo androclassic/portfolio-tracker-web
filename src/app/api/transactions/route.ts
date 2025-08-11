@@ -18,13 +18,15 @@ const TxSchema = z.object({
 
 const txCache = new TtlCache<string, Transaction[]>(15_000); // 15s cache
 
-export async function GET() {
-  const key = 'transactions:list';
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+  const portfolioId = Number(url.searchParams.get('portfolioId') || '1');
+  const key = `transactions:list:${portfolioId}`;
   const cached = txCache.get(key);
   if (cached) {
     return NextResponse.json(cached, { headers: { 'Cache-Control': 'public, max-age=5, s-maxage=5, stale-while-revalidate=15' } });
   }
-  const rows = await prisma.transaction.findMany({ orderBy: { datetime: 'asc' } });
+  const rows = await prisma.transaction.findMany({ where: ({ ...(Number.isFinite(portfolioId)? { portfolioId } : {}) } as any), orderBy: { datetime: 'asc' } });
   txCache.set(key, rows);
   return NextResponse.json(rows, { headers: { 'Cache-Control': 'public, max-age=5, s-maxage=5, stale-while-revalidate=15' } });
 }
@@ -34,9 +36,10 @@ export async function POST(req: NextRequest) {
   const parsed = TxSchema.safeParse(json);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const { datetime, ...rest } = parsed.data;
-  const created = await prisma.transaction.create({ data: { ...rest, datetime: new Date(datetime) } });
+  const portfolioId = Number((json as any).portfolioId || 1);
+  const created = await prisma.transaction.create({ data: { ...rest, datetime: new Date(datetime), portfolioId: Number.isFinite(portfolioId)? portfolioId : 1 } as any });
   // Invalidate cache
-  try { txCache.delete('transactions:list'); } catch {}
+  try { txCache.clear(); } catch {}
   return NextResponse.json(created, { status: 201 });
 }
 
@@ -47,8 +50,8 @@ export async function PUT(req: NextRequest) {
   const parsed = TxSchema.partial().safeParse(json);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const { datetime, ...rest } = parsed.data as any;
-  const updated = await prisma.transaction.update({ where: { id }, data: { ...rest, ...(datetime? { datetime: new Date(datetime) } : {}) } });
-  try { txCache.delete('transactions:list'); } catch {}
+  const updated = await prisma.transaction.update({ where: { id }, data: { ...rest, ...(datetime? { datetime: new Date(datetime) } : {}) } as any });
+  try { txCache.clear(); } catch {}
   return NextResponse.json(updated);
 }
 
@@ -57,6 +60,6 @@ export async function DELETE(req: NextRequest) {
   const id = Number(url.searchParams.get('id'));
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   await prisma.transaction.delete({ where: { id } });
-  try { txCache.delete('transactions:list'); } catch {}
+  try { txCache.clear(); } catch {}
   return NextResponse.json({ ok: true });
 }

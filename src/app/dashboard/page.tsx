@@ -2,6 +2,7 @@
 import dynamic from 'next/dynamic';
 import useSWR from 'swr';
 import { useEffect, useMemo, useState } from 'react';
+import { usePortfolio } from '../PortfolioProvider';
 
 import type { Layout, Data } from 'plotly.js';
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
@@ -85,7 +86,8 @@ type PricesResp = { prices: Record<string, number> };
 type HistResp = { prices: PricePoint[] };
 
 export default function DashboardPage(){
-  const { data: txs } = useSWR<Tx[]>('/api/transactions', fetcher);
+  const { selectedId } = usePortfolio();
+  const { data: txs } = useSWR<Tx[]>(selectedId? `/api/transactions?portfolioId=${selectedId}` : null, fetcher);
   const [selectedAsset, setSelectedAsset] = useState<string>('');
 
   const assets = useMemo(()=>{
