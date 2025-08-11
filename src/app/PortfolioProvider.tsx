@@ -6,8 +6,8 @@ export type Portfolio = { id: number; name: string };
 
 type PortfolioContextType = {
   portfolios: Portfolio[];
-  selectedId: number | null;
-  setSelectedId: (id: number) => void;
+  selectedId: number | 'all' | null;
+  setSelectedId: (id: number | 'all') => void;
   refresh: () => Promise<void>;
 };
 
@@ -21,23 +21,29 @@ export function usePortfolio() {
 
 export default function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const [portfolios, setPortfolios] = useState<Portfolio[]>([]);
-  const [selectedId, setSelectedIdState] = useState<number | null>(null);
+  const [selectedId, setSelectedIdState] = useState<number | 'all' | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch('/api/portfolios', { cache: 'no-store' });
     if (!res.ok) return;
     const rows = await res.json();
     setPortfolios(rows);
-    const stored = Number(localStorage.getItem('portfolio:selectedId') || '');
+    const raw = localStorage.getItem('portfolio:selectedId');
     const firstId = rows[0]?.id ?? null;
-    setSelectedIdState(Number.isFinite(stored) && rows.some((p: Portfolio) => p.id === stored) ? stored : firstId);
+    if (raw === 'all') {
+      setSelectedIdState('all');
+    } else if (raw && !Number.isNaN(Number(raw)) && rows.some((p: Portfolio) => p.id === Number(raw))) {
+      setSelectedIdState(Number(raw));
+    } else {
+      setSelectedIdState(firstId);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const setSelectedId = useCallback((id: number) => {
+  const setSelectedId = useCallback((id: number | 'all') => {
     setSelectedIdState(id);
-    try { localStorage.setItem('portfolio:selectedId', String(id)); } catch {}
+    try { localStorage.setItem('portfolio:selectedId', id === 'all' ? 'all' : String(id)); } catch {}
   }, []);
 
   const value = useMemo<PortfolioContextType>(() => ({ portfolios, selectedId, setSelectedId, refresh: load }), [portfolios, selectedId, setSelectedId, load]);

@@ -87,7 +87,8 @@ type HistResp = { prices: PricePoint[] };
 
 export default function DashboardPage(){
   const { selectedId } = usePortfolio();
-  const { data: txs } = useSWR<Tx[]>(selectedId? `/api/transactions?portfolioId=${selectedId}` : null, fetcher);
+  const listKey = selectedId === 'all' ? '/api/transactions' : (selectedId? `/api/transactions?portfolioId=${selectedId}` : null);
+  const { data: txs } = useSWR<Tx[]>(listKey, fetcher);
   const [selectedAsset, setSelectedAsset] = useState<string>('');
 
   const assets = useMemo(()=>{

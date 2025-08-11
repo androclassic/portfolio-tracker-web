@@ -35,7 +35,8 @@ export default function PortfolioSelector() {
   return (
     <div style={{ marginLeft: 'auto' }}>
       <label style={{ color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 8 }}>Portfolio
-        <select value={selectedId ?? ''} onChange={e=>setSelectedId(Number(e.target.value))}>
+        <select value={selectedId ?? ''} onChange={e=> setSelectedId(e.target.value === 'all' ? 'all' : Number(e.target.value)) }>
+          <option value="all">All</option>
           {portfolios.map(p=> (<option key={p.id} value={p.id}>{p.name}</option>))}
         </select>
       </label>

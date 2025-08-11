@@ -20,13 +20,15 @@ const txCache = new TtlCache<string, Transaction[]>(15_000); // 15s cache
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const portfolioId = Number(url.searchParams.get('portfolioId') || '1');
-  const key = `transactions:list:${portfolioId}`;
+  const param = url.searchParams.get('portfolioId');
+  const portfolioId = param === null ? 'all' : Number(param);
+  const key = `transactions:list:${String(portfolioId)}`;
   const cached = txCache.get(key);
   if (cached) {
     return NextResponse.json(cached, { headers: { 'Cache-Control': 'public, max-age=5, s-maxage=5, stale-while-revalidate=15' } });
   }
-  const rows = await prisma.transaction.findMany({ where: ({ ...(Number.isFinite(portfolioId)? { portfolioId } : {}) } as any), orderBy: { datetime: 'asc' } });
+  const where = typeof portfolioId === 'number' && Number.isFinite(portfolioId) ? { portfolioId } : {};
+  const rows = await prisma.transaction.findMany({ where: where as any, orderBy: { datetime: 'asc' } });
   txCache.set(key, rows);
   return NextResponse.json(rows, { headers: { 'Cache-Control': 'public, max-age=5, s-maxage=5, stale-while-revalidate=15' } });
 }

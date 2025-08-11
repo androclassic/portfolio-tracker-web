@@ -9,7 +9,7 @@ type Tx = { id:number; asset:string; type:'Buy'|'Sell'; priceUsd?:number|null; q
 
 export default function TransactionsPage(){
   const { selectedId } = usePortfolio();
-  const swrKey = selectedId? `/api/transactions?portfolioId=${selectedId}` : null;
+  const swrKey = selectedId === 'all' ? '/api/transactions' : (selectedId? `/api/transactions?portfolioId=${selectedId}` : null);
   const { data: txs } = useSWR<Tx[]>(swrKey, fetcher);
   const { mutate } = useSWRConfig();
   const [assetFilter, setAssetFilter] = useState<string>('All');
