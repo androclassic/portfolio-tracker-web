@@ -397,9 +397,93 @@ export default function DashboardPage(){
     return { data, layout };
   }, [curr, holdings]);
 
+  // Summary cards: current balance, 24h change, total P/L, top performer 24h
+  const summary = useMemo(() => {
+    const nf0 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+    const nf2 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+    let currentValue = 0;
+    let dayChange = 0;
+    let dayChangePct = 0;
+    let topAsset = '';
+    let topDelta = 0;
+
+    if (curr && curr.prices) {
+      for (const [a, units] of Object.entries(holdings)) {
+        if (units <= 0) continue;
+        const price = curr.prices[a] || 0;
+        currentValue += price * units;
+      }
+    }
+
+    // 24h change uses last two available daily prices from hist
+    if (hist && hist.prices && hist.prices.length > 0) {
+      const dates = Array.from(new Set(hist.prices.map(p=>p.date))).sort();
+      const n = dates.length;
+      if (n >= 2) {
+        const currDate = dates[n-1];
+        const prevDate = dates[n-2];
+        const lastMap = new Map<string, number>();
+        const prevMap = new Map<string, number>();
+        for (const p of hist.prices) {
+          if (p.date === currDate) lastMap.set(p.asset.toUpperCase(), p.price_usd);
+          if (p.date === prevDate) prevMap.set(p.asset.toUpperCase(), p.price_usd);
+        }
+        topDelta = -Infinity; topAsset = '';
+        for (const [a, units] of Object.entries(holdings)) {
+          if (units <= 0) continue; // only assets currently held
+          const cp = lastMap.get(a) ?? 0;
+          const pp = prevMap.get(a) ?? cp;
+          const delta = (cp - pp) * units;
+          dayChange += delta;
+          if (delta > topDelta) { topDelta = delta; topAsset = a; }
+        }
+        if (currentValue > 0) dayChangePct = (dayChange / (currentValue - dayChange)) * 100;
+      }
+    }
+
+    // Total P/L from earlier pnl calc: last realized + unrealized
+    let totalPL = 0;
+    let totalPLPct = 0;
+    if (pnl.dates.length) {
+      const i = pnl.dates.length - 1;
+      totalPL = (pnl.realized[i] || 0) + (pnl.unrealized[i] || 0);
+      if (currentValue - pnl.unrealized[i] !== 0) totalPLPct = (totalPL / (currentValue - pnl.unrealized[i])) * 100;
+    }
+
+    return {
+      currentValue,
+      currentValueText: `$${nf0.format(currentValue)}`,
+      dayChangeText: `${dayChange>=0?'+':''}$${nf2.format(Math.abs(dayChange))}`,
+      dayChangePctText: `${dayChange>=0?'▲':'▼'} ${nf2.format(Math.abs(dayChangePct))}%`,
+      totalPLText: `${totalPL>=0?'+':''}$${nf0.format(Math.abs(totalPL))}`,
+      totalPLPctText: `${totalPL>=0?'▲':'▼'} ${nf2.format(Math.abs(totalPLPct))}%`,
+      topAsset,
+      topDeltaText: topAsset ? `${topDelta>=0?'+':''}$${nf0.format(Math.abs(topDelta))}` : '',
+    };
+  }, [curr, holdings, hist, pnl]);
+
   return (
     <main>
       <h1>Dashboard</h1>
+      <div className="stats" style={{ marginBottom: 16 }}>
+        <div className="stat">
+          <div className="label">Current Balance</div>
+          <div className="value">{summary.currentValueText}</div>
+        </div>
+        <div className="stat">
+          <div className="label">24h Portfolio Change</div>
+          <div className="value" style={{ color: (summary.dayChangeText.startsWith('+')? '#16a34a' : '#dc2626') }}>{summary.dayChangeText} <span style={{ color:'var(--muted)', fontSize: '0.9em' }}>{summary.dayChangePctText}</span></div>
+        </div>
+        <div className="stat">
+          <div className="label">Total Profit / Loss</div>
+          <div className="value" style={{ color: (summary.totalPLText.startsWith('+')? '#16a34a' : '#dc2626') }}>{summary.totalPLText} <span style={{ color:'var(--muted)', fontSize: '0.9em' }}>{summary.totalPLPctText}</span></div>
+        </div>
+        <div className="stat">
+          <div className="label">Top Performer (24h)</div>
+          <div className="value">{summary.topAsset || '—'} {summary.topAsset? <span style={{ color:'#16a34a', marginLeft:8 }}>{summary.topDeltaText}</span> : null}</div>
+        </div>
+      </div>
+
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
         <section className="card">
           <h2>Allocation by current value</h2>
