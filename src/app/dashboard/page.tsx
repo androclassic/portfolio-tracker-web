@@ -140,8 +140,12 @@ export default function DashboardPage(){
     return pos;
   }, [txs]);
 
-  // current prices for allocation pie
-  const symbolsParam = assets.join(',');
+  // current prices for allocation pie (always include BTC for conversion)
+  const symbolsParam = useMemo(()=>{
+    const set = new Set(assets);
+    set.add('BTC');
+    return Array.from(set).join(',');
+  }, [assets]);
   const { data: curr } = useSWR<PricesResp>(assets.length? `/api/prices/current?symbols=${encodeURIComponent(symbolsParam)}`: null, fetcher, { revalidateOnFocus: false });
 
   // daily positions time series
@@ -401,7 +405,9 @@ export default function DashboardPage(){
   const summary = useMemo(() => {
     const nf0 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
     const nf2 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+    const nf6 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 });
     let currentValue = 0;
+    let currentValueBtc = 0;
     let dayChange = 0;
     let dayChangePct = 0;
     let topAsset = '';
@@ -413,6 +419,8 @@ export default function DashboardPage(){
         const price = curr.prices[a] || 0;
         currentValue += price * units;
       }
+      const btcPrice = curr.prices['BTC'] || 0;
+      if (btcPrice > 0) currentValueBtc = currentValue / btcPrice;
     }
 
     // 24h change uses last two available daily prices from hist
@@ -453,6 +461,7 @@ export default function DashboardPage(){
     return {
       currentValue,
       currentValueText: `$${nf0.format(currentValue)}`,
+      currentValueBtcText: currentValueBtc>0? `${nf6.format(currentValueBtc)} BTC` : '',
       dayChangeText: `${dayChange>=0?'+':''}$${nf2.format(Math.abs(dayChange))}`,
       dayChangePctText: `${dayChange>=0?'▲':'▼'} ${nf2.format(Math.abs(dayChangePct))}%`,
       totalPLText: `${totalPL>=0?'+':''}$${nf0.format(Math.abs(totalPL))}`,
@@ -468,7 +477,7 @@ export default function DashboardPage(){
       <div className="stats" style={{ marginBottom: 16 }}>
         <div className="stat">
           <div className="label">Current Balance</div>
-          <div className="value">{summary.currentValueText}</div>
+          <div className="value">{summary.currentValueText} {summary.currentValueBtcText? <span style={{ color:'var(--muted)', marginLeft:8 }}>({summary.currentValueBtcText})</span> : null}</div>
         </div>
         <div className="stat">
           <div className="label">24h Portfolio Change</div>
