@@ -1,8 +1,11 @@
 'use client';
 import useSWR, { useSWRConfig } from 'swr';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
-import Image from 'next/image';
+import AssetInput from '../components/AssetInput';
+import CryptoIcon from '../components/CryptoIcon';
+import { SupportedAsset, ASSET_COLORS as SUPPORTED_ASSET_COLORS } from '../../lib/assets';
+import { getTransactionDefaults, validateTransaction, formatPrice, calculateTransactionValue } from '../../lib/transaction-helpers';
 
 const fetcher = (url: string) => fetch(url).then(r=>r.json());
 
@@ -16,13 +19,20 @@ export default function TransactionsPage(){
   const [assetFilter, setAssetFilter] = useState<string>('All');
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc');
   const [isOpen, setIsOpen] = useState(false);
-  const [newTx, setNewTx] = useState<{ asset: string; type: 'Buy'|'Sell'|string; quantity: number; priceUsd: string; datetime: string; notes?: string }>({ asset:'', type:'Buy', quantity:0, priceUsd:'', datetime:'', notes:'' });
+  const [newTx, setNewTx] = useState<{ asset: string; type: 'Buy'|'Sell'|string; quantity: string; priceUsd: string; datetime: string; notes?: string; selectedAsset: SupportedAsset | null }>({ 
+    asset:'', 
+    type:'Buy', 
+    quantity:'', 
+    priceUsd:'', 
+    datetime:'', 
+    notes:'',
+    selectedAsset: null
+  });
+  const [txErrors, setTxErrors] = useState<string[]>([]);
+  const [isLoadingPrice, setIsLoadingPrice] = useState(false);
   const [editing, setEditing] = useState<Tx|null>(null);
 
-  const ASSET_COLORS: Record<string,string> = useMemo(() => ({
-    BTC: '#f7931a', ETH: '#3c3c3d', ADA: '#0033ad', XRP: '#000000', DOT: '#e6007a', LINK: '#2a5ada', SOL: '#00ffa3', AVAX: '#e84142', SUI: '#6fbcf0', USDT: '#26a17b'
-  }), []);
-  const logoUrl = (sym: string) => `https://cryptoicons.org/api/icon/${sym.toLowerCase()}/32`;
+  const ASSET_COLORS: Record<string,string> = SUPPORTED_ASSET_COLORS;
 
   const assets = useMemo(()=>{
     const s = new Set<string>();
@@ -35,8 +45,75 @@ export default function TransactionsPage(){
     return list.sort((a,b)=> sortDir==='asc' ? new Date(a.datetime).getTime()-new Date(b.datetime).getTime() : new Date(b.datetime).getTime()-new Date(a.datetime).getTime());
   }, [txs, assetFilter, sortDir]);
 
+  // Auto-fill current data when opening modal
+  useEffect(() => {
+    if (isOpen && !newTx.datetime) {
+      getTransactionDefaults(null).then(defaults => {
+        setNewTx(prev => ({
+          ...prev,
+          datetime: defaults.datetime
+        }));
+      });
+    }
+  }, [isOpen, newTx.datetime]);
+
+  // Handle asset selection and auto-fill price
+  const handleAssetSelection = async (asset: SupportedAsset | null, symbol: string) => {
+    setIsLoadingPrice(true);
+    setTxErrors([]);
+    
+    try {
+      const defaults = await getTransactionDefaults(asset);
+      setNewTx(prev => ({
+        ...prev,
+        asset: symbol.toUpperCase(),
+        selectedAsset: asset,
+        priceUsd: defaults.priceUsd,
+        datetime: prev.datetime || defaults.datetime
+      }));
+    } catch (error) {
+      console.error('Failed to get transaction defaults:', error);
+    } finally {
+      setIsLoadingPrice(false);
+    }
+  };
+
+  // Calculate cost/proceeds when quantity or price changes
+  const calculatedValues = useMemo(() => {
+    if (newTx.quantity && newTx.priceUsd) {
+      return calculateTransactionValue(
+        newTx.type as 'Buy' | 'Sell',
+        newTx.quantity,
+        newTx.priceUsd
+      );
+    }
+    return {};
+  }, [newTx.quantity, newTx.priceUsd, newTx.type]);
+
   async function addTx(e: React.FormEvent){
     e.preventDefault();
+    setTxErrors([]);
+    
+    // Validate transaction data
+    const validation = validateTransaction({
+      asset: newTx.asset,
+      type: newTx.type,
+      quantity: newTx.quantity,
+      priceUsd: newTx.priceUsd,
+      datetime: newTx.datetime
+    });
+    
+    if (!validation.isValid) {
+      setTxErrors(validation.errors);
+      return;
+    }
+    
+    // Check if asset is supported
+    if (!newTx.selectedAsset) {
+      setTxErrors(['Please select a supported cryptocurrency from the dropdown']);
+      return;
+    }
+    
     const body = {
       asset: newTx.asset.toUpperCase(),
       type: (newTx.type === 'Sell' ? 'Sell' : 'Buy') as 'Buy'|'Sell',
@@ -45,9 +122,32 @@ export default function TransactionsPage(){
       datetime: newTx.datetime,
       notes: newTx.notes ? newTx.notes : null,
       portfolioId: selectedId ?? 1,
+      // Include calculated values
+      ...calculatedValues
     };
-    const res = await fetch('/api/transactions', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
-    if (res.ok){ setIsOpen(false); setNewTx({ asset:'', type:'Buy', quantity:0, priceUsd:'', datetime:'', notes:'' }); if (swrKey) mutate(swrKey); }
+    
+    try {
+      const res = await fetch('/api/transactions', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+      if (res.ok) { 
+        setIsOpen(false); 
+        setNewTx({ 
+          asset:'', 
+          type:'Buy', 
+          quantity:'', 
+          priceUsd:'', 
+          datetime:'', 
+          notes:'',
+          selectedAsset: null
+        }); 
+        setTxErrors([]);
+        if (swrKey) mutate(swrKey); 
+      } else {
+        const errorData = await res.json();
+        setTxErrors([errorData.error || 'Failed to save transaction']);
+      }
+    } catch {
+      setTxErrors(['Network error. Please try again.']);
+    }
   }
 
   async function removeTx(id: number){
@@ -126,13 +226,10 @@ export default function TransactionsPage(){
                 <td>{df.format(new Date(t.datetime))}</td>
                 <td>
                   <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-                    <Image 
-                      src={logoUrl(t.asset)} 
-                      width={18} 
-                      height={18} 
-                      alt={`${t.asset} logo`} 
-                      style={{ borderRadius: 4, background: '#00000010' }} 
-                      onError={(e)=>{ (e.currentTarget as HTMLImageElement).style.display = 'none'; }} 
+                    <CryptoIcon 
+                      symbol={t.asset} 
+                      size={18}
+                      alt={`${t.asset} logo`}
                     />
                     <span style={{ display:'inline-block', padding:'2px 8px', borderRadius: 12, background: `${(ASSET_COLORS[t.asset.toUpperCase()]||'#555')}22`, color: ASSET_COLORS[t.asset.toUpperCase()]||'#bbb', fontWeight:600 }}>{t.asset.toUpperCase()}</span>
                   </span>
@@ -157,24 +254,108 @@ export default function TransactionsPage(){
 
       {isOpen && (
         <div className="modal-backdrop" onClick={(e)=>{ if (e.target === e.currentTarget) setIsOpen(false); }}>
-          <div className="modal" role="dialog" aria-modal="true">
+          <div className="modal transaction-modal" role="dialog" aria-modal="true">
             <header>
-              <h3>Add transaction</h3>
-              <button className="btn btn-secondary" onClick={()=>setIsOpen(false)}>Close</button>
+              <h3>Add Transaction</h3>
+              <button className="btn btn-secondary" onClick={()=>setIsOpen(false)}>✕</button>
             </header>
-            <form onSubmit={addTx}>
-              <input placeholder="Asset (e.g., BTC)" value={newTx.asset} onChange={e=>setNewTx(v=>({ ...v, asset:e.target.value }))} required />
-              <select value={newTx.type} onChange={e=>setNewTx(v=>({ ...v, type:e.target.value }))}>
-                <option>Buy</option>
-                <option>Sell</option>
-              </select>
-              <input type="number" step="any" placeholder="Quantity" value={newTx.quantity} onChange={e=>setNewTx(v=>({ ...v, quantity:Number(e.target.value) }))} required />
-              <input type="number" step="any" placeholder="Price USD (optional)" value={newTx.priceUsd} onChange={e=>setNewTx(v=>({ ...v, priceUsd:e.target.value }))} />
-              <input type="datetime-local" value={newTx.datetime} onChange={e=>setNewTx(v=>({ ...v, datetime:e.target.value }))} required />
-              <input placeholder="Notes (optional)" value={newTx.notes} onChange={e=>setNewTx(v=>({ ...v, notes:e.target.value }))} />
+            
+            {txErrors.length > 0 && (
+              <div className="error-messages">
+                {txErrors.map((error, i) => (
+                  <div key={i} className="error-message">{error}</div>
+                ))}
+              </div>
+            )}
+            
+            <form onSubmit={addTx} className="transaction-form">
+              <div className="form-group">
+                <label>Cryptocurrency *</label>
+                <AssetInput
+                  value={newTx.asset}
+                  onChange={handleAssetSelection}
+                  placeholder="Search for crypto (e.g., Bitcoin, BTC)"
+                  disabled={isLoadingPrice}
+                />
+                {isLoadingPrice && <div className="loading-indicator">Fetching current price...</div>}
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Type *</label>
+                  <select 
+                    value={newTx.type} 
+                    onChange={e=>setNewTx(v=>({ ...v, type:e.target.value }))}
+                    className="form-select"
+                  >
+                    <option value="Buy">Buy</option>
+                    <option value="Sell">Sell</option>
+                  </select>
+                </div>
+                
+                <div className="form-group">
+                  <label>Quantity *</label>
+                  <input 
+                    type="number" 
+                    step="any" 
+                    placeholder="0.00" 
+                    value={newTx.quantity} 
+                    onChange={e=>setNewTx(v=>({ ...v, quantity:e.target.value }))} 
+                    required 
+                    className="form-input"
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Price USD {newTx.priceUsd && '(auto-filled)'}</label>
+                  <input 
+                    type="number" 
+                    step="any" 
+                    placeholder="0.00" 
+                    value={newTx.priceUsd} 
+                    onChange={e=>setNewTx(v=>({ ...v, priceUsd:e.target.value }))}
+                    className="form-input"
+                  />
+                </div>
+                
+                <div className="form-group">
+                  <label>Date & Time *</label>
+                  <input 
+                    type="datetime-local" 
+                    value={newTx.datetime} 
+                    onChange={e=>setNewTx(v=>({ ...v, datetime:e.target.value }))} 
+                    required 
+                    className="form-input"
+                  />
+                </div>
+              </div>
+
+              {(calculatedValues.costUsd || calculatedValues.proceedsUsd) && (
+                <div className="calculated-value">
+                  <strong>
+                    {newTx.type === 'Buy' ? 'Total Cost' : 'Total Proceeds'}: 
+                    ${formatPrice(calculatedValues.costUsd || calculatedValues.proceedsUsd || 0)}
+                  </strong>
+                </div>
+              )}
+
+              <div className="form-group">
+                <label>Notes</label>
+                <input 
+                  placeholder="Optional notes about this transaction" 
+                  value={newTx.notes || ''} 
+                  onChange={e=>setNewTx(v=>({ ...v, notes:e.target.value }))}
+                  className="form-input"
+                />
+              </div>
+
               <div className="actions">
                 <button type="button" className="btn btn-secondary" onClick={()=>setIsOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save</button>
+                <button type="submit" className="btn btn-primary" disabled={isLoadingPrice}>
+                  {isLoadingPrice ? 'Loading...' : 'Save Transaction'}
+                </button>
               </div>
             </form>
           </div>
@@ -206,6 +387,125 @@ export default function TransactionsPage(){
           </div>
         </div>
       )}
+    <style jsx>{`
+      .transaction-modal {
+        max-width: 600px;
+        width: 100%;
+      }
+
+      .transaction-form {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .form-group label {
+        font-weight: 600;
+        color: var(--text);
+        font-size: 14px;
+      }
+
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      .form-input, .form-select {
+        background: var(--surface);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 14px;
+        transition: border-color 0.2s ease;
+      }
+
+      .form-input:focus, .form-select:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px var(--primary)22;
+      }
+
+      .error-messages {
+        background: #fee2e2;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 16px;
+      }
+
+      .error-message {
+        color: #dc2626;
+        font-size: 14px;
+        margin-bottom: 4px;
+      }
+
+      .error-message:last-child {
+        margin-bottom: 0;
+      }
+
+      .loading-indicator {
+        font-size: 12px;
+        color: var(--muted);
+        font-style: italic;
+        margin-top: 4px;
+      }
+
+      .calculated-value {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        text-align: center;
+        color: var(--primary);
+        font-size: 16px;
+      }
+
+      @media (max-width: 768px) {
+        .transaction-modal {
+          margin: 16px;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
+
+        .form-row {
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+
+        .transaction-form {
+          gap: 16px;
+        }
+
+        .form-input, .form-select {
+          padding: 12px;
+          font-size: 16px; /* Prevent zoom on iOS */
+        }
+      }
+
+      @media (max-width: 480px) {
+        .transaction-modal {
+          margin: 8px;
+          padding: 16px;
+        }
+
+        .form-group label {
+          font-size: 13px;
+        }
+
+        .calculated-value {
+          font-size: 14px;
+          padding: 10px;
+        }
+      }
+    `}</style>
     </main>
   );
 }

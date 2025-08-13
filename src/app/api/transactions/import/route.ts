@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { parse as parseCsv } from 'csv-parse/sync';
 import { parse as parseDateFns, isValid as isValidDate } from 'date-fns';
 import type { Prisma } from '@prisma/client';
+import { validateAssetList } from '@/lib/assets';
+import { getAuthFromRequest } from '@/lib/auth';
 
 function parseFloatSafe(v: unknown): number | null {
   if (v == null) return null;
@@ -61,8 +63,18 @@ function parseDateFlexible(input: unknown): Date | null {
 }
 
 export async function POST(req: NextRequest) {
+  // Authenticate user
+  const auth = await getAuthFromRequest(req);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const url = new URL(req.url);
   const portfolioId = Number(url.searchParams.get('portfolioId') || '1');
+  
+  // Verify portfolio belongs to user
+  const portfolio = await prisma.portfolio.findFirst({ 
+    where: { id: Number.isFinite(portfolioId) ? portfolioId : -1, userId: auth.userId } 
+  });
+  if (!portfolio) return NextResponse.json({ error: 'Invalid portfolio' }, { status: 403 });
   const ct = req.headers.get('content-type') || '';
 
   let csvText = '';
@@ -100,10 +112,21 @@ export async function POST(req: NextRequest) {
   };
 
   const parsed: TxInput[] = [];
-  for (const r of rows) {
+  const allAssets: string[] = [];
+  const invalidRows: Array<{row: number, reason: string}> = [];
+  
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
     const obj = r as Record<string, unknown>;
     const asset = String((obj['asset'] ?? obj['Asset'] ?? '')).trim().toUpperCase();
-    if (!asset) continue;
+    
+    if (!asset) {
+      invalidRows.push({row: i + 1, reason: 'Missing asset'});
+      continue;
+    }
+    
+    allAssets.push(asset);
+    
     const type = normalizeType(obj['type'] ?? obj['Type']);
     const priceUsd = parseFloatSafe(obj['price_usd'] ?? obj['PriceUsd'] ?? obj['Price USD']);
     const qtyParsed = parseFloatSafe(obj['quantity'] ?? obj['Quantity']) || 0;
@@ -113,21 +136,92 @@ export async function POST(req: NextRequest) {
     const costUsd = parseFloatSafe(obj['cost_usd'] ?? obj['CostUsd'] ?? obj['Cost USD']);
     const proceedsUsd = parseFloatSafe(obj['proceeds_usd'] ?? obj['ProceedsUsd'] ?? obj['Proceeds USD']);
     const notes = obj['notes'] != null ? String(obj['notes']) : null;
-    if (!dt) continue;
-    parsed.push({ asset, type, priceUsd: priceUsd ?? null, quantity, datetime: dt, feesUsd: feesUsd ?? null, costUsd: costUsd ?? null, proceedsUsd: proceedsUsd ?? null, notes: notes ?? null, portfolioId: Number.isFinite(portfolioId) ? portfolioId : 1 });
+    
+    if (!dt) {
+      invalidRows.push({row: i + 1, reason: 'Invalid or missing date'});
+      continue;
+    }
+    
+    if (quantity <= 0) {
+      invalidRows.push({row: i + 1, reason: 'Invalid quantity'});
+      continue;
+    }
+    
+    parsed.push({ 
+      asset, 
+      type, 
+      priceUsd: priceUsd ?? null, 
+      quantity, 
+      datetime: dt, 
+      feesUsd: feesUsd ?? null, 
+      costUsd: costUsd ?? null, 
+      proceedsUsd: proceedsUsd ?? null, 
+      notes: notes ?? null, 
+      portfolioId: portfolio.id 
+    });
   }
 
-  if (!parsed.length) return NextResponse.json({ imported: 0 });
+  // Validate assets against supported list
+  const uniqueAssets = [...new Set(allAssets)];
+  const assetValidation = validateAssetList(uniqueAssets);
+  
+  // Filter parsed transactions to only include supported assets
+  const supportedTransactions = parsed.filter(tx => 
+    assetValidation.supported.includes(tx.asset)
+  );
+
+  if (!supportedTransactions.length) {
+    return NextResponse.json({ 
+      imported: 0,
+      warnings: {
+        unsupportedAssets: assetValidation.unsupported,
+        invalidRows: invalidRows,
+        totalRows: rows.length,
+        supportedRows: 0
+      }
+    });
+  }
 
   const chunkSize = 500;
   let imported = 0;
-  for (let i = 0; i < parsed.length; i += chunkSize) {
-    const chunk = parsed.slice(i, i + chunkSize);
+  for (let i = 0; i < supportedTransactions.length; i += chunkSize) {
+    const chunk = supportedTransactions.slice(i, i + chunkSize);
     const res = await prisma.transaction.createMany({ data: chunk as Prisma.TransactionCreateManyInput[] });
     imported += res.count;
   }
 
-  return NextResponse.json({ imported });
+  // Prepare response with import summary
+  const response: {
+    imported: number;
+    totalRows: number;
+    processedRows: number;
+    supportedRows: number;
+    warnings?: {
+      unsupportedAssets: string[];
+      invalidRows: Array<{row: number, reason: string}>;
+      message: string;
+    };
+  } = { 
+    imported,
+    totalRows: rows.length,
+    processedRows: parsed.length,
+    supportedRows: supportedTransactions.length
+  };
+
+  // Add warnings if there are issues
+  if (assetValidation.unsupported.length > 0 || invalidRows.length > 0) {
+    response.warnings = {
+      unsupportedAssets: assetValidation.unsupported,
+      invalidRows: invalidRows,
+      message: `${assetValidation.unsupported.length > 0 ? 
+        `Unsupported cryptocurrencies: ${assetValidation.unsupported.join(', ')}. ` : ''
+      }${invalidRows.length > 0 ? 
+        `${invalidRows.length} rows had invalid data. ` : ''
+      }Only supported cryptocurrencies were imported.`
+    };
+  }
+
+  return NextResponse.json(response);
 }
 
 
