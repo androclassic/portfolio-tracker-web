@@ -34,3 +34,16 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## Docker deployment
+
+Build and run with Docker Compose (uses SQLite persisted to a volume):
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+The app will be available at http://localhost:3000. Data is stored in the `app_data` volume under `/data/dev.db` inside the container.
+
+The container runs `prisma migrate deploy` on startup to apply any pending migrations.
