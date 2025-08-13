@@ -24,15 +24,31 @@ export default function PortfolioProvider({ children }: { children: React.ReactN
   const [selectedId, setSelectedIdState] = useState<number | 'all' | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch('/api/portfolios', { cache: 'no-store' });
-    if (!res.ok) return;
-    const rows = await res.json();
-    setPortfolios(rows);
+    let loaded: Portfolio[] = [];
+    try {
+      const res = await fetch('/api/portfolios', { cache: 'no-store' });
+      const ct = res.headers.get('content-type') || '';
+      
+      // Handle authentication errors gracefully
+      if (res.status === 401) {
+        console.log('Portfolio API: Not authenticated, setting empty portfolios');
+        setPortfolios([]);
+        setSelectedIdState(null);
+        return;
+      }
+      
+      if (!res.ok || !ct.includes('application/json')) return;
+      loaded = await res.json();
+      setPortfolios(loaded);
+    } catch (err) {
+      console.log('Portfolio API error:', err);
+      return;
+    }
     const raw = localStorage.getItem('portfolio:selectedId');
-    const firstId = rows[0]?.id ?? null;
+    const firstId = loaded[0]?.id ?? null;
     if (raw === 'all') {
       setSelectedIdState('all');
-    } else if (raw && !Number.isNaN(Number(raw)) && rows.some((p: Portfolio) => p.id === Number(raw))) {
+    } else if (raw && !Number.isNaN(Number(raw)) && loaded.some((p: Portfolio) => p.id === Number(raw))) {
       setSelectedIdState(Number(raw));
     } else {
       setSelectedIdState(firstId);

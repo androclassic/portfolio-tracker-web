@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { TtlCache } from '@/lib/cache';
 import type { Transaction } from '@prisma/client';
-import type { Prisma } from '@prisma/client';
+import { getAuthFromRequest } from '@/lib/auth';
 
 const TxSchema = z.object({
   asset: z.string().min(1),
@@ -23,39 +23,50 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const param = url.searchParams.get('portfolioId');
   const portfolioId = param === null ? 'all' : Number(param);
+  const auth = getAuthFromRequest(req);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const key = `transactions:list:${String(portfolioId)}`;
   const cached = txCache.get(key);
   if (cached) {
     return NextResponse.json(cached, { headers: { 'Cache-Control': 'public, max-age=5, s-maxage=5, stale-while-revalidate=15' } });
   }
-  const where = typeof portfolioId === 'number' && Number.isFinite(portfolioId) ? { portfolioId } : {};
-  const rows = await prisma.transaction.findMany({ where: where as Prisma.TransactionWhereInput, orderBy: { datetime: 'asc' } });
+  const whereBase: any = { portfolio: { userId: auth.userId } };
+  const where = typeof portfolioId === 'number' && Number.isFinite(portfolioId) ? { ...whereBase, portfolioId } : whereBase;
+  const rows = await prisma.transaction.findMany({ where, orderBy: { datetime: 'asc' } });
   txCache.set(key, rows);
   return NextResponse.json(rows, { headers: { 'Cache-Control': 'public, max-age=5, s-maxage=5, stale-while-revalidate=15' } });
 }
 
 export async function POST(req: NextRequest) {
+  const auth = getAuthFromRequest(req);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const json = await req.json();
   const parsed = TxSchema.safeParse(json);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const { datetime, ...rest } = parsed.data;
-  const portfolioId = Number((json as { portfolioId?: number } | null)?.portfolioId || 1);
-  const data: Prisma.TransactionCreateInput = { ...rest, datetime: new Date(datetime), portfolioId: Number.isFinite(portfolioId)? portfolioId : 1 } as unknown as Prisma.TransactionCreateInput;
-  const created = await prisma.transaction.create({ data });
+  const portfolioId = Number((json as any).portfolioId || 1);
+  // Ensure portfolio belongs to the authenticated user
+  const portfolio = await prisma.portfolio.findFirst({ where: { id: Number.isFinite(portfolioId)? portfolioId : -1, userId: auth.userId } });
+  if (!portfolio) return NextResponse.json({ error: 'Invalid portfolio' }, { status: 403 });
+  const created = await prisma.transaction.create({ data: { ...rest, datetime: new Date(datetime), portfolioId: portfolio.id } as any });
   // Invalidate cache
   try { txCache.clear(); } catch {}
   return NextResponse.json(created, { status: 201 });
 }
 
 export async function PUT(req: NextRequest) {
+  const auth = getAuthFromRequest(req);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const json = await req.json();
   const id = Number(json?.id);
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const parsed = TxSchema.partial().safeParse(json);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const { datetime, ...rest } = parsed.data as Partial<Transaction> & { datetime?: string };
-  const data: Prisma.TransactionUpdateInput = { ...rest, ...(datetime? { datetime: new Date(datetime) } : {}) } as unknown as Prisma.TransactionUpdateInput;
-  const updated = await prisma.transaction.update({ where: { id }, data });
+  const { datetime, ...rest } = parsed.data as any;
+  // Ensure the transaction belongs to the authenticated user's portfolio
+  const existing = await prisma.transaction.findFirst({ where: { id, portfolio: { userId: auth.userId } } });
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  const updated = await prisma.transaction.update({ where: { id }, data: { ...rest, ...(datetime? { datetime: new Date(datetime) } : {}) } as any });
   try { txCache.clear(); } catch {}
   return NextResponse.json(updated);
 }
@@ -64,6 +75,10 @@ export async function DELETE(req: NextRequest) {
   const url = new URL(req.url);
   const id = Number(url.searchParams.get('id'));
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+  const auth = getAuthFromRequest(req);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const existing = await prisma.transaction.findFirst({ where: { id, portfolio: { userId: auth.userId } } });
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   await prisma.transaction.delete({ where: { id } });
   try { txCache.clear(); } catch {}
   return NextResponse.json({ ok: true });
