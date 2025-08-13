@@ -1,7 +1,7 @@
 'use client';
 import dynamic from 'next/dynamic';
 import useSWR from 'swr';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
 
 import type { Layout, Data } from 'plotly.js';
@@ -77,7 +77,7 @@ async function fetchHistoricalWithLocalCache(symbols: string[], startUnixSec: nu
   return { prices: merged };
 }
 
-type Tx = { id:number; asset:string; type:'Buy'|'Sell'; priceUsd?:number|null; quantity:number; datetime:string; costUsd?:number|null; proceedsUsd?:number|null };
+type Tx = { id:number; asset:string; type:'Buy'|'Sell'; priceUsd?:number|null; quantity:number; datetime:string; costUsd?:number|null; proceedsUsd?:number|null; notes?: string | null };
 
 type PricePoint = { date: string; asset: string; price_usd: number };
 
@@ -111,10 +111,10 @@ export default function DashboardPage(){
     USDT: '#26a17b',
   }), []);
 
-  function colorFor(asset: string): string {
+  const colorFor = useCallback((asset: string): string => {
     const key = asset.toUpperCase();
     return ASSET_COLORS[key] || '#9aa3b2';
-  }
+  }, [ASSET_COLORS]);
 
   function withAlpha(hex: string, alpha: number): string {
     // hex like #rrggbb
@@ -182,7 +182,7 @@ export default function DashboardPage(){
       const a = t.asset.toUpperCase();
       const day = new Date(new Date(t.datetime).getFullYear(), new Date(t.datetime).getMonth(), new Date(t.datetime).getDate());
       const key = day.toISOString().slice(0,10) + '|' + a;
-      const note = (t as any).notes ? String((t as any).notes).trim() : '';
+      const note = t.notes ? String(t.notes).trim() : '';
       if (!note) continue;
       const prev = map.get(key);
       map.set(key, prev ? `${prev}\n• ${note}` : `• ${note}`);
@@ -241,7 +241,7 @@ export default function DashboardPage(){
     // Add invisible total line just for unified hover
     traces.push({ x: dates, y: totals, type:'scatter', mode:'lines', name:'Total', line:{ width:0 }, hovertemplate: 'Total: %{y:.2f}<extra></extra>', showlegend:false } as Data);
     return { x: [], series: traces };
-  }, [hist, dailyPos, assets]);
+  }, [hist, dailyPos, assets, colorFor]);
 
   // PnL over time (realized/unrealized split)
   const pnl = useMemo(() => {
@@ -388,7 +388,7 @@ export default function DashboardPage(){
     })());
     const layout: Partial<Layout> = { autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' } };
     return { data, layout };
-  }, [dailyPos, selectedAsset]);
+  }, [dailyPos, selectedAsset, colorFor, notesByDayAsset]);
 
   const allocationFigure = useMemo(()=>{
     if (!curr || !curr.prices) return { data:[], layout:{} };
@@ -399,7 +399,7 @@ export default function DashboardPage(){
     const data: Data[] = [{ type:'pie', labels, values: points.map(p=>p.value), hole:0.45, marker: { colors: labels.map(colorFor) } } as unknown as Data];
     const layout: Partial<Layout> = { autosize:true, height:320, margin:{ t:30, r:10, l:10, b:10 } };
     return { data, layout };
-  }, [curr, holdings]);
+  }, [curr, holdings, colorFor]);
 
   // Summary cards: current balance, 24h change, total P/L, top performer 24h
   const summary = useMemo(() => {
@@ -504,7 +504,7 @@ export default function DashboardPage(){
             data={[
               { x: pnl.dates, y: pnl.realized, type:'scatter', mode:'lines', name:'Realized' },
               { x: pnl.dates, y: pnl.unrealized, type:'scatter', mode:'lines', name:'Unrealized' },
-            ] as any}
+            ] as Data[]}
             layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' } }}
             style={{ width:'100%' }}
           />
@@ -528,7 +528,7 @@ export default function DashboardPage(){
             data={[
               { x: costVsPrice.dates, y: costVsPrice.avgCost, type:'scatter', mode:'lines', name:'Avg cost', line: { color: '#888888', dash: 'dot' } },
               { x: costVsPrice.dates, y: costVsPrice.price, type:'scatter', mode:'lines', name:'Market price', line: { color: colorFor(selectedAsset||'') } },
-            ] as any}
+            ] as Data[]}
             layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' } }}
             style={{ width:'100%' }}
           />

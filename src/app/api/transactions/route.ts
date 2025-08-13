@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { TtlCache } from '@/lib/cache';
 import type { Transaction } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 
 const TxSchema = z.object({
   asset: z.string().min(1),
@@ -28,7 +29,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(cached, { headers: { 'Cache-Control': 'public, max-age=5, s-maxage=5, stale-while-revalidate=15' } });
   }
   const where = typeof portfolioId === 'number' && Number.isFinite(portfolioId) ? { portfolioId } : {};
-  const rows = await prisma.transaction.findMany({ where: where as any, orderBy: { datetime: 'asc' } });
+  const rows = await prisma.transaction.findMany({ where: where as Prisma.TransactionWhereInput, orderBy: { datetime: 'asc' } });
   txCache.set(key, rows);
   return NextResponse.json(rows, { headers: { 'Cache-Control': 'public, max-age=5, s-maxage=5, stale-while-revalidate=15' } });
 }
@@ -38,8 +39,9 @@ export async function POST(req: NextRequest) {
   const parsed = TxSchema.safeParse(json);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const { datetime, ...rest } = parsed.data;
-  const portfolioId = Number((json as any).portfolioId || 1);
-  const created = await prisma.transaction.create({ data: { ...rest, datetime: new Date(datetime), portfolioId: Number.isFinite(portfolioId)? portfolioId : 1 } as any });
+  const portfolioId = Number((json as { portfolioId?: number } | null)?.portfolioId || 1);
+  const data: Prisma.TransactionCreateInput = { ...rest, datetime: new Date(datetime), portfolioId: Number.isFinite(portfolioId)? portfolioId : 1 } as unknown as Prisma.TransactionCreateInput;
+  const created = await prisma.transaction.create({ data });
   // Invalidate cache
   try { txCache.clear(); } catch {}
   return NextResponse.json(created, { status: 201 });
@@ -51,8 +53,9 @@ export async function PUT(req: NextRequest) {
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const parsed = TxSchema.partial().safeParse(json);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const { datetime, ...rest } = parsed.data as any;
-  const updated = await prisma.transaction.update({ where: { id }, data: { ...rest, ...(datetime? { datetime: new Date(datetime) } : {}) } as any });
+  const { datetime, ...rest } = parsed.data as Partial<Transaction> & { datetime?: string };
+  const data: Prisma.TransactionUpdateInput = { ...rest, ...(datetime? { datetime: new Date(datetime) } : {}) } as unknown as Prisma.TransactionUpdateInput;
+  const updated = await prisma.transaction.update({ where: { id }, data });
   try { txCache.clear(); } catch {}
   return NextResponse.json(updated);
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { parse as parseCsv } from 'csv-parse/sync';
 import { parse as parseDateFns, isValid as isValidDate } from 'date-fns';
+import type { Prisma } from '@prisma/client';
 
 function parseFloatSafe(v: unknown): number | null {
   if (v == null) return null;
@@ -47,10 +48,10 @@ function parseDateFlexible(input: unknown): Date | null {
     const m = raw.match(re);
     if (m) {
       if (re === candidates[0]) {
-        const [_, y, mo, d, hh = '00', mm = '00', ss = '00'] = m;
+        const [, y, mo, d, hh = '00', mm = '00', ss = '00'] = m;
         return new Date(Number(y), Number(mo) - 1, Number(d), Number(hh), Number(mm), Number(ss));
       } else {
-        const [_, mo, d, y, hh = '00', mm = '00'] = m;
+        const [, mo, d, y, hh = '00', mm = '00'] = m;
         const yy = Number((String(y).length === 2) ? `20${y}` : y);
         return new Date(yy, Number(mo) - 1, Number(d), Number(hh), Number(mm));
       }
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
 
   if (!csvText.trim()) return NextResponse.json({ error: 'Empty CSV' }, { status: 400 });
 
-  const rows = parseCsv(csvText, { columns: true, skip_empty_lines: true });
+  const rows = parseCsv(csvText, { columns: true, skip_empty_lines: true }) as Array<Record<string, unknown>>;
 
   type TxInput = {
     asset: string;
@@ -99,18 +100,19 @@ export async function POST(req: NextRequest) {
   };
 
   const parsed: TxInput[] = [];
-  for (const r of rows as any[]) {
-    const asset = String(r.asset || r.Asset || '').trim().toUpperCase();
+  for (const r of rows) {
+    const obj = r as Record<string, unknown>;
+    const asset = String((obj['asset'] ?? obj['Asset'] ?? '')).trim().toUpperCase();
     if (!asset) continue;
-    const type = normalizeType(r.type || r.Type);
-    const priceUsd = parseFloatSafe(r.price_usd ?? r.PriceUsd ?? r['Price USD']);
-    const qtyParsed = parseFloatSafe(r.quantity ?? r.Quantity) || 0;
+    const type = normalizeType(obj['type'] ?? obj['Type']);
+    const priceUsd = parseFloatSafe(obj['price_usd'] ?? obj['PriceUsd'] ?? obj['Price USD']);
+    const qtyParsed = parseFloatSafe(obj['quantity'] ?? obj['Quantity']) || 0;
     const quantity = Math.abs(qtyParsed);
-    const dt = parseDateFlexible(r.datetime ?? r.Date ?? r.Datetime ?? r.date ?? r.timestamp ?? r.Time ?? r.TimeStamp);
-    const feesUsd = parseFloatSafe(r.fees_usd ?? r.FeesUsd ?? r['Fees USD']);
-    const costUsd = parseFloatSafe(r.cost_usd ?? r.CostUsd ?? r['Cost USD']);
-    const proceedsUsd = parseFloatSafe(r.proceeds_usd ?? r.ProceedsUsd ?? r['Proceeds USD']);
-    const notes = r.notes ? String(r.notes) : null;
+    const dt = parseDateFlexible(obj['datetime'] ?? obj['Date'] ?? obj['Datetime'] ?? obj['date'] ?? obj['timestamp'] ?? obj['Time'] ?? obj['TimeStamp']);
+    const feesUsd = parseFloatSafe(obj['fees_usd'] ?? obj['FeesUsd'] ?? obj['Fees USD']);
+    const costUsd = parseFloatSafe(obj['cost_usd'] ?? obj['CostUsd'] ?? obj['Cost USD']);
+    const proceedsUsd = parseFloatSafe(obj['proceeds_usd'] ?? obj['ProceedsUsd'] ?? obj['Proceeds USD']);
+    const notes = obj['notes'] != null ? String(obj['notes']) : null;
     if (!dt) continue;
     parsed.push({ asset, type, priceUsd: priceUsd ?? null, quantity, datetime: dt, feesUsd: feesUsd ?? null, costUsd: costUsd ?? null, proceedsUsd: proceedsUsd ?? null, notes: notes ?? null, portfolioId: Number.isFinite(portfolioId) ? portfolioId : 1 });
   }
@@ -121,7 +123,7 @@ export async function POST(req: NextRequest) {
   let imported = 0;
   for (let i = 0; i < parsed.length; i += chunkSize) {
     const chunk = parsed.slice(i, i + chunkSize);
-    const res = await prisma.transaction.createMany({ data: chunk as any });
+    const res = await prisma.transaction.createMany({ data: chunk as Prisma.TransactionCreateManyInput[] });
     imported += res.count;
   }
 

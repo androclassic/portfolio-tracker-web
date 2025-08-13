@@ -68,7 +68,7 @@ export default function TransactionsPage(){
       quantity: editing.quantity,
       datetime: editing.datetime,
       notes: editing.notes ?? null,
-    } as any;
+    };
     await fetch('/api/transactions', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
     setEditing(null);
     if (swrKey) mutate(swrKey);

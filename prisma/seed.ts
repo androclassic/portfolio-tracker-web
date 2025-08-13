@@ -59,7 +59,7 @@ async function main() {
     const proceedsUsd = parseFloatSafe(r.proceeds_usd);
     const notes = r.notes ? String(r.notes) : null;
     if (dt && asset && quantity >= 0) {
-      acc.push({ asset, type, priceUsd: priceUsd ?? undefined, quantity, datetime: dt, feesUsd: feesUsd ?? undefined, costUsd: costUsd ?? undefined, proceedsUsd: proceedsUsd ?? undefined, notes: notes ?? undefined });
+      acc.push({ asset, type, priceUsd: priceUsd ?? undefined, quantity, datetime: dt, feesUsd: feesUsd ?? undefined, costUsd: costUsd ?? undefined, proceedsUsd: proceedsUsd ?? undefined, notes: notes ?? undefined, portfolioId: 1 });
     }
     return acc;
   }, []);
