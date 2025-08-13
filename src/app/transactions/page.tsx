@@ -2,6 +2,7 @@
 import useSWR, { useSWRConfig } from 'swr';
 import { useMemo, useState } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
+import Image from 'next/image';
 
 const fetcher = (url: string) => fetch(url).then(r=>r.json());
 
@@ -124,7 +125,14 @@ export default function TransactionsPage(){
                 <td>{df.format(new Date(t.datetime))}</td>
                 <td>
                   <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
-                    <img src={logoUrl(t.asset)} width={18} height={18} alt="" style={{ borderRadius: 4, background: '#00000010' }} onError={(e)=>{ (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+                    <Image 
+                      src={logoUrl(t.asset)} 
+                      width={18} 
+                      height={18} 
+                      alt={`${t.asset} logo`} 
+                      style={{ borderRadius: 4, background: '#00000010' }} 
+                      onError={(e)=>{ (e.currentTarget as HTMLImageElement).style.display = 'none'; }} 
+                    />
                     <span style={{ display:'inline-block', padding:'2px 8px', borderRadius: 12, background: `${(ASSET_COLORS[t.asset.toUpperCase()]||'#555')}22`, color: ASSET_COLORS[t.asset.toUpperCase()]||'#bbb', fontWeight:600 }}>{t.asset.toUpperCase()}</span>
                   </span>
                 </td>

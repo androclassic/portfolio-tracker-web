@@ -1,8 +1,8 @@
 'use client';
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function LoginPage() {
+function LoginForm() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -65,7 +65,7 @@ export default function LoginPage() {
         } catch {}
         setError(msg);
       }
-    } catch (err) {
+    } catch {
       setError('Network error. Please try again.');
     } finally {
       setLoading(false);
@@ -185,6 +185,21 @@ export default function LoginPage() {
         }
       `}</style>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <main className="container" style={{ maxWidth: 420 }}>
+        <h1>Sign in</h1>
+        <div className="card" style={{ textAlign: 'center', padding: '2rem' }}>
+          Loading...
+        </div>
+      </main>
+    }>
+      <LoginForm />
+    </Suspense>
   );
 }
 

@@ -31,6 +31,7 @@
     "@eslint/eslintrc": "^3",
     "@types/bcryptjs": "^2.4.6",
     "@types/csv-parse": "^1.1.12",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20.19.10",
     "@types/plotly.js": "^3.0.3",
     "@types/react": "^19",

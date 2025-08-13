@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 export async function POST(req: NextRequest) {
   const { username, password, passwordHash } = await req.json();
   if (!username || (!password && !passwordHash)) return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });
-  const exists = await prisma.user.findUnique({ where: { username } as any });
+  const exists = await prisma.user.findUnique({ where: { username } });
   if (exists) return NextResponse.json({ error: 'User already exists' }, { status: 400 });
   
   // Handle both legacy plain text passwords and new client-side hashed passwords
