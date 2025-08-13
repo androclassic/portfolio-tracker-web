@@ -7,6 +7,17 @@ import DynamicHeader from './DynamicHeader';
 
 const inter = Inter({ subsets: ['latin'] });
 
+export const metadata = {
+  title: 'Portfolio Tracker',
+  description: 'Track your cryptocurrency portfolio',
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+};
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">

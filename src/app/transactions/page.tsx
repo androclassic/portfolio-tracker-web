@@ -113,12 +113,13 @@ export default function TransactionsPage(){
       </div>
 
       <section className="card">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Date</th><th>Asset</th><th>Type</th><th>Quantity</th><th>Price USD</th><th>Cost USD</th><th>Proceeds USD</th><th>Notes</th><th></th>
-            </tr>
-          </thead>
+        <div className="table-wrapper">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Date</th><th>Asset</th><th>Type</th><th>Quantity</th><th>Price USD</th><th>Cost USD</th><th>Proceeds USD</th><th>Notes</th><th></th>
+              </tr>
+            </thead>
           <tbody>
             {filtered.map(t=> (
               <tr key={t.id}>
@@ -151,6 +152,7 @@ export default function TransactionsPage(){
             {filtered.length===0 && (<tr><td colSpan={8}>No transactions</td></tr>)}
           </tbody>
         </table>
+        </div>
       </section>
 
       {isOpen && (

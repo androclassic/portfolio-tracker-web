@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Suspense } from 'react';
 import PortfolioSelector from './PortfolioSelector';
+import ThemeToggle from './ThemeToggle';
 
 export default function DynamicHeader() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -66,6 +67,7 @@ export default function DynamicHeader() {
             <Link href="/register">Register</Link>
           </>
         )}
+        <ThemeToggle />
       </nav>
       {isAuthenticated && (
         <Suspense fallback={<div>Loading portfolio...</div>}>

@@ -10,8 +10,22 @@
   --accent:#7bdff2;
 }
 
+/* Light theme - manual override */
+:root[data-theme="light"]{
+  --bg:#f7f8fb;
+  --surface:#ffffff;
+  --card:#ffffff;
+  --text:#14161a;
+  --muted:#5a6474;
+  --border:#e5e8ef;
+  --primary:#3b82f6;
+  --primary-600:#2563eb;
+  --accent:#06b6d4;
+}
+
+/* Light theme - system preference */
 @media (prefers-color-scheme: light){
-  :root{
+  :root:not([data-theme]){
     --bg:#f7f8fb;
     --surface:#ffffff;
     --card:#ffffff;
@@ -22,6 +36,19 @@
     --primary-600:#2563eb;
     --accent:#06b6d4;
   }
+}
+
+/* Dark theme override */
+:root[data-theme="dark"]{
+  --bg:#0b0c10;
+  --surface:#111217;
+  --card:#151823;
+  --text:#e8eaf0;
+  --muted:#9aa3b2;
+  --border:#232737;
+  --primary:#6c9ef8;
+  --primary-600:#5a86d6;
+  --accent:#7bdff2;
 }
 
 *{box-sizing:border-box}
@@ -70,9 +97,139 @@ select,input{background:var(--surface);color:var(--text);border:1px solid var(--
 .btn-secondary{background:transparent;color:var(--text);border-color:var(--border)}
 .btn-secondary:hover{background:rgba(125,125,125,.08)}
 
+/* Theme toggle */
+.theme-toggle{
+  min-width:auto;
+  padding:8px 12px;
+  font-size:0.9rem;
+  transition: all 0.2s ease;
+}
+.theme-toggle .theme-icon{
+  font-size:1.1rem;
+  margin-right:4px;
+}
+.theme-toggle:hover{
+  transform:scale(1.05);
+}
+
+/* Mobile improvements */
+@media (max-width: 768px) {
+  .topnav{
+    padding:12px 16px;
+    flex-wrap:wrap;
+  }
+  .nav{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+  .nav a{
+    margin-left:0;
+    padding:6px 8px;
+    font-size:0.9rem;
+  }
+  .container{
+    padding:16px;
+  }
+  .theme-toggle .theme-label{
+    display:none;
+  }
+  .theme-toggle{
+    padding:8px;
+    min-width:40px;
+  }
+}
+
+@media (max-width: 480px) {
+  .topnav{
+    padding:10px 12px;
+  }
+  .brand{
+    font-size:1.1rem;
+  }
+  .nav a{
+    padding:4px 6px;
+    font-size:0.85rem;
+  }
+  .container{
+    padding:12px;
+  }
+  .card{
+    padding:12px;
+  }
+}
+
+/* Table mobile optimization */
+@media (max-width: 768px) {
+  .table-wrapper{
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    margin:0 -16px;
+    padding:0 16px;
+  }
+  .table{
+    min-width:600px;
+  }
+  .table thead th,
+  .table tbody td{
+    padding:8px 6px;
+    font-size:0.85rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .table{
+    min-width:500px;
+  }
+  .table thead th,
+  .table tbody td{
+    padding:6px 4px;
+    font-size:0.8rem;
+  }
+  .btn{
+    padding:6px 10px;
+    font-size:0.85rem;
+  }
+  .toolbar{
+    flex-direction:column;
+    align-items:stretch;
+    gap:12px;
+  }
+  .filters{
+    flex-wrap:wrap;
+    gap:8px;
+  }
+}
+
 /* Modal styles */
 .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px}
 .modal{background:var(--surface);color:var(--text);padding:18px;border-radius:14px;max-width:560px;width:100%;border:1px solid var(--border);box-shadow:0 10px 40px rgba(0,0,0,.35)}
 .modal header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .modal form{display:grid;gap:10px}
 .modal .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+
+/* Chart mobile optimization */
+@media (max-width: 768px) {
+  .js-plotly-plot{
+    min-height:250px !important;
+  }
+  .js-plotly-plot .plotly{
+    height:250px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .modal{
+    margin:16px;
+    padding:16px;
+  }
+  .modal .actions{
+    flex-direction:column;
+  }
+  .js-plotly-plot{
+    min-height:200px !important;
+  }
+  .js-plotly-plot .plotly{
+    height:200px !important;
+  }
+}
