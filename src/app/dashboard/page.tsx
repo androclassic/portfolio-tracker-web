@@ -3,6 +3,7 @@ import dynamic from 'next/dynamic';
 import useSWR from 'swr';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
+import { getAssetColor } from '@/lib/assets';
 
 import type { Layout, Data } from 'plotly.js';
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
@@ -97,24 +98,9 @@ export default function DashboardPage(){
     return Array.from(s).sort();
   }, [txs]);
 
-  // Brand colors by asset symbol (uppercase)
-  const ASSET_COLORS: Record<string, string> = useMemo(() => ({
-    BTC: '#f7931a',
-    ETH: '#3c3c3d',
-    ADA: '#0033ad',
-    XRP: '#000000',
-    DOT: '#e6007a',
-    LINK: '#2a5ada',
-    SOL: '#00ffa3',
-    AVAX: '#e84142',
-    SUI: '#6fbcf0',
-    USDT: '#26a17b',
-  }), []);
-
   const colorFor = useCallback((asset: string): string => {
-    const key = asset.toUpperCase();
-    return ASSET_COLORS[key] || '#9aa3b2';
-  }, [ASSET_COLORS]);
+    return getAssetColor(asset);
+  }, []);
 
   function withAlpha(hex: string, alpha: number): string {
     // hex like #rrggbb

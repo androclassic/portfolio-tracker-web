@@ -2,9 +2,10 @@
 import useSWR, { useSWRConfig } from 'swr';
 import { useMemo, useState, useEffect } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
+import { getAssetColor } from '@/lib/assets';
 import AssetInput from '../components/AssetInput';
 import CryptoIcon from '../components/CryptoIcon';
-import { SupportedAsset, ASSET_COLORS as SUPPORTED_ASSET_COLORS } from '../../lib/assets';
+import { SupportedAsset } from '../../lib/assets';
 import { getTransactionDefaults, validateTransaction, formatPrice, calculateTransactionValue } from '../../lib/transaction-helpers';
 
 const fetcher = (url: string) => fetch(url).then(r=>r.json());
@@ -32,7 +33,7 @@ export default function TransactionsPage(){
   const [isLoadingPrice, setIsLoadingPrice] = useState(false);
   const [editing, setEditing] = useState<Tx|null>(null);
 
-  const ASSET_COLORS: Record<string,string> = SUPPORTED_ASSET_COLORS;
+  // Using centralized asset colors from lib/assets
 
   const assets = useMemo(()=>{
     const s = new Set<string>();
@@ -239,7 +240,7 @@ export default function TransactionsPage(){
                       size={18}
                       alt={`${t.asset} logo`}
                     />
-                    <span style={{ display:'inline-block', padding:'2px 8px', borderRadius: 12, background: `${(ASSET_COLORS[t.asset.toUpperCase()]||'#555')}22`, color: ASSET_COLORS[t.asset.toUpperCase()]||'#bbb', fontWeight:600 }}>{t.asset.toUpperCase()}</span>
+                    <span style={{ display:'inline-block', padding:'2px 8px', borderRadius: 12, background: `${getAssetColor(t.asset)}22`, color: getAssetColor(t.asset), fontWeight:600 }}>{t.asset.toUpperCase()}</span>
                   </span>
                 </td>
                 <td>{t.type}</td>
