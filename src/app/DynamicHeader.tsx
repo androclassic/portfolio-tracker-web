@@ -9,6 +9,7 @@ import ThemeToggle from './ThemeToggle';
 export default function DynamicHeader() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     // Check authentication status by making a request to a protected endpoint
@@ -37,6 +38,47 @@ export default function DynamicHeader() {
     return () => window.removeEventListener('auth-changed', handleAuthChange);
   }, []);
 
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    
+    setLoggingOut(true);
+    
+    try {
+      // Call logout API
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      
+      if (response.ok) {
+        // Clear local state immediately
+        setIsAuthenticated(false);
+        
+        // Notify other components about logout
+        window.dispatchEvent(new CustomEvent('auth-changed'));
+        
+        // Small delay to let components clear their state, then redirect
+        setTimeout(() => {
+          window.location.href = '/login';
+        }, 100);
+      } else {
+        console.error('Logout failed');
+        // Still try to clear local state and redirect
+        setIsAuthenticated(false);
+        window.dispatchEvent(new CustomEvent('auth-changed'));
+        window.location.href = '/login';
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Still try to clear local state and redirect
+      setIsAuthenticated(false);
+      window.dispatchEvent(new CustomEvent('auth-changed'));
+      window.location.href = '/login';
+    } finally {
+      setLoggingOut(false);
+    }
+  };
+
   if (loading) {
     // Show a minimal header while checking auth
     return (
@@ -57,12 +99,14 @@ export default function DynamicHeader() {
           <>
             <Link href="/dashboard">Dashboard</Link>
             <Link href="/transactions">Transactions</Link>
-            <form action="/api/auth/logout" method="POST" style={{ display:'inline' }} onSubmit={() => {
-              // Notify components about logout to clear data
-              window.dispatchEvent(new CustomEvent('auth-changed'));
-            }}>
-              <button className="btn btn-secondary" style={{ marginLeft: 8 }} type="submit">Logout</button>
-            </form>
+            <button 
+              className="btn btn-secondary" 
+              style={{ marginLeft: 8 }} 
+              onClick={handleLogout}
+              disabled={loggingOut}
+            >
+              {loggingOut ? 'Logging out...' : 'Logout'}
+            </button>
           </>
         ) : (
           <>
