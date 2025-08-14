@@ -91,6 +91,10 @@ export default function DashboardPage(){
   const listKey = selectedId === 'all' ? '/api/transactions' : (selectedId? `/api/transactions?portfolioId=${selectedId}` : null);
   const { data: txs, mutate } = useSWR<Tx[]>(listKey, fetcher);
   const [selectedAsset, setSelectedAsset] = useState<string>('');
+  const [selectedPnLAsset, setSelectedPnLAsset] = useState<string>('ALL');
+  const [selectedBtcChart, setSelectedBtcChart] = useState<string>('ratio'); // 'ratio' | 'accumulation'
+  const [selectedAltcoin, setSelectedAltcoin] = useState<string>('ALL');
+  const [selectedProfitAsset, setSelectedProfitAsset] = useState<string>('ALL');
 
   const assets = useMemo(()=>{
     const s = new Set<string>();
@@ -240,7 +244,7 @@ export default function DashboardPage(){
     return { x: [], series: traces };
   }, [hist, dailyPos, assets, colorFor]);
 
-  // PnL over time (realized/unrealized split)
+  // PnL over time (realized/unrealized split) - supports filtering by asset
   const pnl = useMemo(() => {
     if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0) {
       return { dates: [] as string[], realized: [] as number[], unrealized: [] as number[] };
@@ -250,10 +254,16 @@ export default function DashboardPage(){
 
     const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
 
+    // Filter transactions by selected asset if not 'ALL'
+    const filteredTxs = selectedPnLAsset === 'ALL' ? txs : txs.filter(t => t.asset.toUpperCase() === selectedPnLAsset);
+    
+    // Filter assets for calculation
+    const relevantAssets = selectedPnLAsset === 'ALL' ? assets : [selectedPnLAsset];
+
     // Prepare transactions grouped by date per asset with unit price
     type TxEnriched = { asset: string; type: 'Buy'|'Sell'; units: number; unitPrice: number };
     const txByDate = new Map<string, TxEnriched[]>();
-    for (const t of txs) {
+    for (const t of filteredTxs) {
       const asset = t.asset.toUpperCase();
       const day = new Date(new Date(t.datetime).getFullYear(), new Date(t.datetime).getMonth(), new Date(t.datetime).getDate()).toISOString().slice(0, 10);
       const key = day;
@@ -297,7 +307,7 @@ export default function DashboardPage(){
       // Compute unrealized = market value - remaining cost value
       let marketValue = 0;
       let remainingCost = 0;
-      for (const a of assets) {
+      for (const a of relevantAssets) {
         const units = heldUnits.get(a) || 0;
         const cost = heldCost.get(a) || 0;
         const price = priceMap.get(d + '|' + a) || 0;
@@ -309,7 +319,7 @@ export default function DashboardPage(){
     }
 
     return { dates, realized: realizedSeries, unrealized: unrealizedSeries };
-  }, [hist, txs, assets]);
+  }, [hist, txs, assets, selectedPnLAsset]);
 
   // Cost basis vs market price for selected asset
   const costVsPrice = useMemo(() => {
@@ -468,6 +478,336 @@ export default function DashboardPage(){
     };
   }, [curr, holdings, hist, pnl]);
 
+  // BTC Ratio Chart - tracks portfolio BTC value over time
+  const btcRatio = useMemo(() => {
+    if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0) {
+      return { dates: [] as string[], btcValue: [] as number[], btcPercentage: [] as number[] };
+    }
+    
+    const priceMap = new Map<string, number>();
+    for (const p of hist.prices) priceMap.set(p.date + '|' + p.asset.toUpperCase(), p.price_usd);
+    
+    const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
+    const btcValue: number[] = [];
+    const btcPercentage: number[] = [];
+    
+    for (const date of dates) {
+      let totalValue = 0;
+      let btcValueForDate = 0;
+      
+      // Calculate total portfolio value and BTC value for this date
+      for (const asset of assets) {
+        const price = priceMap.get(date + '|' + asset) || 0;
+        const units = holdings[asset] || 0;
+        const assetValue = price * units;
+        totalValue += assetValue;
+        
+        if (asset === 'BTC') {
+          btcValueForDate = assetValue;
+        }
+      }
+      
+      btcValue.push(btcValueForDate);
+      btcPercentage.push(totalValue > 0 ? (btcValueForDate / totalValue) * 100 : 0);
+    }
+    
+    return { dates, btcValue, btcPercentage };
+  }, [hist, assets, holdings]);
+
+  // Altcoin vs BTC Performance Chart
+  const altcoinVsBtc = useMemo(() => {
+    if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0) {
+      return { dates: [] as string[], performance: {} as Record<string, number[]> };
+    }
+    
+    const priceMap = new Map<string, number>();
+    for (const p of hist.prices) priceMap.set(p.date + '|' + p.asset.toUpperCase(), p.price_usd);
+    
+    const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
+    const performance: Record<string, number[]> = {};
+    
+    // Calculate daily positions for each asset
+    const dailyPositions = new Map<string, Record<string, number>>();
+    
+    // Initialize positions for each date
+    for (const date of dates) {
+      dailyPositions.set(date, {});
+    }
+    
+    // Calculate cumulative positions for each asset over time
+    for (const asset of assets) {
+      let currentPosition = 0;
+      
+      for (const date of dates) {
+        // Find all transactions for this asset up to this date
+        const relevantTxs = txs.filter(tx => 
+          tx.asset.toUpperCase() === asset && 
+          new Date(tx.datetime).toISOString().slice(0, 10) <= date
+        );
+        
+        // Calculate position for this asset up to this date
+        currentPosition = relevantTxs.reduce((pos, tx) => {
+          const quantity = Math.abs(tx.quantity);
+          return pos + (tx.type === 'Buy' ? quantity : -quantity);
+        }, 0);
+        
+        dailyPositions.get(date)![asset] = currentPosition;
+      }
+    }
+    
+    // Calculate BTC value of holdings for each altcoin
+    for (const asset of assets) {
+      if (asset === 'BTC') continue; // Skip BTC itself
+      
+      const assetPerformance: number[] = [];
+      for (const date of dates) {
+        const assetPrice = priceMap.get(date + '|' + asset) || 0;
+        const btcPrice = priceMap.get(date + '|' + 'BTC') || 0;
+        const position = dailyPositions.get(date)?.[asset] || 0;
+        
+        if (btcPrice > 0 && position > 0) {
+          // Calculate how much BTC your holdings of this altcoin are worth
+          const assetValueUsd = position * assetPrice;
+          const btcEquivalent = assetValueUsd / btcPrice;
+          assetPerformance.push(btcEquivalent);
+        } else {
+          assetPerformance.push(0);
+        }
+      }
+      performance[asset] = assetPerformance;
+    }
+    
+    return { dates, performance };
+  }, [hist, assets, txs]);
+
+  // Profit-Taking Opportunities Chart
+  const profitOpportunities = useMemo(() => {
+    if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0) {
+      return { dates: [] as string[], opportunities: {} as Record<string, { price: number[], signal: number[], altcoinPnL: number[], btcPnL: number[] }> };
+    }
+    
+    const priceMap = new Map<string, number>();
+    for (const p of hist.prices) priceMap.set(p.date + '|' + p.asset.toUpperCase(), p.price_usd);
+    
+    const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
+    const opportunities: Record<string, { price: number[], signal: number[], altcoinPnL: number[], btcPnL: number[] }> = {};
+    
+    for (const asset of assets) {
+      if (asset === 'BTC') continue; // Skip BTC
+      
+      const prices: number[] = [];
+      const signals: number[] = [];
+      const altcoinPnL: number[] = [];
+      const btcPnL: number[] = [];
+      
+      for (let i = 0; i < dates.length; i++) {
+        const date = dates[i];
+        const currentPrice = priceMap.get(date + '|' + asset) || 0;
+        const currentBtcPrice = priceMap.get(date + '|' + 'BTC') || 0;
+        prices.push(currentPrice);
+        
+        // Calculate cumulative position and cost basis for this asset up to this date
+        const relevantTxs = txs.filter(tx => 
+          tx.asset.toUpperCase() === asset && 
+          new Date(tx.datetime).toISOString().slice(0, 10) <= date
+        );
+        
+        let totalQuantity = 0;
+        let totalCostUsd = 0;
+        
+        for (const tx of relevantTxs) {
+          const quantity = Math.abs(tx.quantity);
+          if (tx.type === 'Buy') {
+            totalQuantity += quantity;
+            totalCostUsd += quantity * (tx.priceUsd || 0);
+          } else {
+            totalQuantity -= quantity;
+            // For sells, reduce cost basis proportionally
+            if (totalQuantity > 0) {
+              const avgCost = totalCostUsd / (totalQuantity + quantity);
+              totalCostUsd -= quantity * avgCost;
+            }
+          }
+        }
+        
+        // Calculate current altcoin PnL
+        const currentValueUsd = totalQuantity * currentPrice;
+        const altcoinPnLValue = currentValueUsd - totalCostUsd;
+        altcoinPnL.push(altcoinPnLValue);
+        
+        // Calculate what BTC PnL would be if we had bought BTC instead
+        let btcPnLValue = 0;
+        if (totalCostUsd > 0 && currentBtcPrice > 0) {
+          // Calculate how much BTC we could have bought with the same USD at the time of transactions
+          let totalBtcQuantity = 0;
+          let totalBtcCostUsd = 0;
+          
+          for (const tx of relevantTxs) {
+            const quantity = Math.abs(tx.quantity);
+            const txDate = new Date(tx.datetime).toISOString().slice(0, 10);
+            const btcPriceAtTx = priceMap.get(txDate + '|' + 'BTC') || currentBtcPrice; // Use BTC price at transaction time
+            
+            if (tx.type === 'Buy') {
+              const costUsd = quantity * (tx.priceUsd || 0);
+              const btcQuantity = costUsd / btcPriceAtTx;
+              totalBtcQuantity += btcQuantity;
+              totalBtcCostUsd += costUsd;
+            } else {
+              // For sells, reduce BTC position proportionally
+              if (totalBtcQuantity > 0) {
+                const avgBtcCost = totalBtcCostUsd / totalBtcQuantity;
+                const costUsd = quantity * (tx.priceUsd || 0);
+                const btcQuantity = costUsd / btcPriceAtTx;
+                totalBtcQuantity -= btcQuantity;
+                totalBtcCostUsd -= btcQuantity * avgBtcCost;
+              }
+            }
+          }
+          
+          // Calculate current BTC value using current BTC price
+          const currentBtcValueUsd = totalBtcQuantity * currentBtcPrice;
+          btcPnLValue = currentBtcValueUsd - totalBtcCostUsd;
+        }
+        btcPnL.push(btcPnLValue);
+        
+        // Profit-taking signal: when altcoin PnL > BTC PnL
+        const signal = altcoinPnLValue > btcPnLValue && altcoinPnLValue > 0 ? 1 : 0;
+        signals.push(signal);
+      }
+      
+      opportunities[asset] = { price: prices, signal: signals, altcoinPnL, btcPnL };
+    }
+    
+    return { dates, opportunities };
+  }, [hist, assets, txs]);
+
+  // BTC Accumulation Chart
+  const btcAccumulation = useMemo(() => {
+    if (!txs || txs.length === 0 || !hist || !hist.prices) {
+      return { dates: [] as string[], btcHeld: [] as number[], altcoinBtcValue: [] as number[] };
+    }
+    
+    // Create a map of BTC prices by date for accurate conversion
+    const btcPriceMap = new Map<string, number>();
+    for (const p of hist.prices) {
+      if (p.asset.toUpperCase() === 'BTC') {
+        btcPriceMap.set(p.date, p.price_usd);
+      }
+    }
+    
+    // Get all unique dates from historical prices
+    const allDates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
+    const btcHeld: number[] = [];
+    const altcoinBtcValue: number[] = [];
+    
+    for (const date of allDates) {
+      // Calculate BTC holdings for this date
+      const btcTxs = txs.filter(tx => 
+        tx.asset.toUpperCase() === 'BTC' && 
+        new Date(tx.datetime).toISOString().slice(0, 10) <= date
+      );
+      
+      const currentBtcHeld = btcTxs.reduce((total, tx) => {
+        const quantity = Math.abs(tx.quantity);
+        return total + (tx.type === 'Buy' ? quantity : -quantity);
+      }, 0);
+      
+      // Calculate BTC value of altcoin holdings for this date
+      let totalAltcoinBtcValue = 0;
+      const btcPrice = btcPriceMap.get(date) || 50000; // Fallback to $50k
+      
+      for (const asset of assets) {
+        if (asset === 'BTC') continue; // Skip BTC itself
+        
+        // Get position for this asset up to this date
+        const assetTxs = txs.filter(tx => 
+          tx.asset.toUpperCase() === asset && 
+          new Date(tx.datetime).toISOString().slice(0, 10) <= date
+        );
+        
+        const position = assetTxs.reduce((total, tx) => {
+          const quantity = Math.abs(tx.quantity);
+          return total + (tx.type === 'Buy' ? quantity : -quantity);
+        }, 0);
+        
+        if (position > 0) {
+          // Get asset price for this date
+          const assetPrice = hist.prices.find(p => 
+            p.date === date && p.asset.toUpperCase() === asset
+          )?.price_usd || 0;
+          
+          if (assetPrice > 0 && btcPrice > 0) {
+            const assetValueUsd = position * assetPrice;
+            const btcEquivalent = assetValueUsd / btcPrice;
+            totalAltcoinBtcValue += btcEquivalent;
+          }
+        }
+      }
+      
+      btcHeld.push(currentBtcHeld);
+      altcoinBtcValue.push(totalAltcoinBtcValue);
+    }
+    
+    return { dates: allDates, btcHeld, altcoinBtcValue };
+  }, [txs, hist, assets]);
+
+  // Correlation Heatmap
+  const correlationHeatmap = useMemo(() => {
+    if (!hist || !hist.prices || assets.length < 2) {
+      return { assets: [] as string[], correlations: [] as number[][] };
+    }
+    
+    const priceMap = new Map<string, number[]>();
+    const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
+    
+    // Get price series for each asset
+    for (const asset of assets) {
+      const prices: number[] = [];
+      for (const date of dates) {
+        const price = hist.prices.find(p => p.date === date && p.asset.toUpperCase() === asset)?.price_usd || 0;
+        prices.push(price);
+      }
+      priceMap.set(asset, prices);
+    }
+    
+    // Calculate correlations
+    const correlations: number[][] = [];
+    for (const asset1 of assets) {
+      const row: number[] = [];
+      for (const asset2 of assets) {
+        const prices1 = priceMap.get(asset1) || [];
+        const prices2 = priceMap.get(asset2) || [];
+        
+        if (prices1.length === prices2.length && prices1.length > 1) {
+          const correlation = calculateCorrelation(prices1, prices2);
+          row.push(correlation);
+        } else {
+          row.push(0);
+        }
+      }
+      correlations.push(row);
+    }
+    
+    return { assets, correlations };
+  }, [hist, assets]);
+
+  // Helper function for correlation calculation
+  function calculateCorrelation(x: number[], y: number[]): number {
+    const n = x.length;
+    if (n !== y.length || n === 0) return 0;
+    
+    const sumX = x.reduce((a, b) => a + b, 0);
+    const sumY = y.reduce((a, b) => a + b, 0);
+    const sumXY = x.reduce((a, b, i) => a + b * y[i], 0);
+    const sumX2 = x.reduce((a, b) => a + b * b, 0);
+    const sumY2 = y.reduce((a, b) => a + b * b, 0);
+    
+    const numerator = n * sumXY - sumX * sumY;
+    const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+    
+    return denominator === 0 ? 0 : numerator / denominator;
+  }
+
   return (
     <main>
       <h1>Dashboard</h1>
@@ -497,6 +837,14 @@ export default function DashboardPage(){
         </section>
         <section className="card">
           <h2>PnL over time</h2>
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
+              <select value={selectedPnLAsset} onChange={e=>setSelectedPnLAsset(e.target.value)}>
+                <option value="ALL">All Assets (Portfolio)</option>
+                {assets.map(a=> (<option key={a} value={a}>{a}</option>))}
+              </select>
+            </label>
+          </div>
           <Plot
             data={[
               { x: pnl.dates, y: pnl.realized, type:'scatter', mode:'lines', name:'Realized' },
@@ -535,6 +883,186 @@ export default function DashboardPage(){
         <h2>Portfolio value over time (stacked)</h2>
         <Plot data={stacked.series} layout={{ autosize:true, height:340, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, hovermode: 'x unified' }} style={{ width:'100%' }} />
       </section>
+
+      {/* BTC Maximization Charts */}
+      <div className="grid grid-2" style={{ marginTop: 16, marginBottom: 16 }}>
+        <section className="card">
+          <h2>BTC Ratio & Accumulation</h2>
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Chart Type
+              <select value={selectedBtcChart} onChange={e=>setSelectedBtcChart(e.target.value)}>
+                <option value="ratio">BTC Ratio (%)</option>
+                <option value="accumulation">BTC Accumulation</option>
+              </select>
+            </label>
+          </div>
+          {selectedBtcChart === 'ratio' ? (
+            <Plot
+              data={[
+                { x: btcRatio.dates, y: btcRatio.btcPercentage, type:'scatter', mode:'lines', name:'BTC % of Portfolio', line: { color: '#f7931a' } },
+              ] as Data[]}
+              layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, yaxis: { title: { text: 'BTC % of Portfolio' } } }}
+              style={{ width:'100%' }}
+            />
+          ) : (
+            <Plot
+              data={[
+                { 
+                  x: btcAccumulation.dates, 
+                  y: btcAccumulation.btcHeld, 
+                  type: 'scatter', 
+                  mode: 'lines', 
+                  name: 'BTC Held', 
+                  line: { color: '#f7931a' },
+                  fill: 'tonexty',
+                  fillcolor: 'rgba(247, 147, 26, 0.3)'
+                },
+                { 
+                  x: btcAccumulation.dates, 
+                  y: btcAccumulation.altcoinBtcValue, 
+                  type: 'scatter', 
+                  mode: 'lines', 
+                  name: 'Altcoin BTC Value', 
+                  line: { color: '#16a34a' },
+                  fill: 'tonexty',
+                  fillcolor: 'rgba(22, 163, 74, 0.3)'
+                },
+                { 
+                  x: btcAccumulation.dates, 
+                  y: btcAccumulation.dates.map((_, i) => 
+                    (btcAccumulation.btcHeld[i] || 0) + (btcAccumulation.altcoinBtcValue[i] || 0)
+                  ), 
+                  type: 'scatter', 
+                  mode: 'lines', 
+                  name: 'Total Portfolio BTC', 
+                  line: { color: '#3b82f6', width: 3 },
+                  fill: 'tonexty',
+                  fillcolor: 'rgba(59, 130, 246, 0.1)'
+                }
+              ] as Data[]}
+              layout={{ 
+                autosize: true, 
+                height: 320, 
+                margin: { t: 30, r: 10, l: 40, b: 40 }, 
+                legend: { orientation: 'h' }, 
+                yaxis: { title: { text: 'BTC Amount' } },
+                hovermode: 'x unified'
+              }}
+              style={{ width:'100%' }}
+            />
+          )}
+        </section>
+        <section className="card">
+          <h2>Altcoin Holdings BTC Value</h2>
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
+              <select value={selectedAltcoin} onChange={e=>setSelectedAltcoin(e.target.value)}>
+                <option value="ALL">All Altcoins</option>
+                {assets.filter(a => a !== 'BTC').map(a=> (<option key={a} value={a}>{a}</option>))}
+              </select>
+            </label>
+          </div>
+          <Plot
+            data={
+              selectedAltcoin === 'ALL' 
+                ? assets.filter(a => a !== 'BTC').map(asset => ({
+                    x: altcoinVsBtc.dates,
+                    y: altcoinVsBtc.performance[asset] || [],
+                    type: 'scatter' as const,
+                    mode: 'lines' as const,
+                    name: asset,
+                    line: { color: colorFor(asset) }
+                  }))
+                : [{
+                    x: altcoinVsBtc.dates,
+                    y: altcoinVsBtc.performance[selectedAltcoin] || [],
+                    type: 'scatter' as const,
+                    mode: 'lines' as const,
+                    name: selectedAltcoin,
+                    line: { color: colorFor(selectedAltcoin) }
+                  }]
+            }
+            layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, yaxis: { title: { text: 'BTC Value of Holdings' } } }}
+            style={{ width:'100%' }}
+          />
+        </section>
+      </div>
+
+      <div className="grid grid-2" style={{ marginBottom: 16 }}>
+        <section className="card">
+          <h2>Profit-Taking Opportunities (Altcoin vs BTC PnL)</h2>
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
+              <select value={selectedProfitAsset} onChange={e=>setSelectedProfitAsset(e.target.value)}>
+                <option value="ALL">All Assets</option>
+                {assets.filter(a => a !== 'BTC').map(a=> (<option key={a} value={a}>{a}</option>))}
+              </select>
+            </label>
+          </div>
+          <Plot
+            data={[
+              ...(selectedProfitAsset !== 'ALL' ? [
+                {
+                  x: profitOpportunities.dates,
+                  y: profitOpportunities.opportunities[selectedProfitAsset]?.altcoinPnL || [],
+                  type: 'scatter' as const,
+                  mode: 'lines' as const,
+                  name: `${selectedProfitAsset} PnL`,
+                  line: { color: colorFor(selectedProfitAsset) }
+                },
+                {
+                  x: profitOpportunities.dates,
+                  y: profitOpportunities.opportunities[selectedProfitAsset]?.btcPnL || [],
+                  type: 'scatter' as const,
+                  mode: 'lines' as const,
+                  name: 'BTC PnL (if bought instead)',
+                  line: { color: '#f7931a', dash: 'dash' }
+                }
+              ] : [
+                ...assets.filter(a => a !== 'BTC').map(asset => ({
+                  x: profitOpportunities.dates,
+                  y: profitOpportunities.opportunities[asset]?.altcoinPnL || [],
+                  type: 'scatter' as const,
+                  mode: 'lines' as const,
+                  name: `${asset} PnL`,
+                  line: { color: colorFor(asset) }
+                }))
+              ])
+            ] as Data[]}
+            layout={{ 
+              autosize: true, 
+              height: 320, 
+              margin: { t: 30, r: 10, l: 40, b: 40 }, 
+              legend: { orientation: 'h' }, 
+              yaxis: { title: { text: 'PnL (USD)' } },
+              hovermode: 'x unified'
+            }}
+            style={{ width:'100%' }}
+          />
+        </section>
+        <section className="card">
+          <h2>Asset Correlation Heatmap</h2>
+          <Plot
+            data={[
+              {
+                z: correlationHeatmap.correlations,
+                x: correlationHeatmap.assets,
+                y: correlationHeatmap.assets,
+                type: 'heatmap',
+                colorscale: 'RdBu'
+              } as Data
+            ]}
+            layout={{ 
+              autosize: true, 
+              height: 320, 
+              margin: { t: 30, r: 10, l: 40, b: 40 },
+              xaxis: { title: { text: 'Assets' } },
+              yaxis: { title: { text: 'Assets' } }
+            }}
+            style={{ width:'100%' }}
+          />
+        </section>
+      </div>
     </main>
   );
 }
