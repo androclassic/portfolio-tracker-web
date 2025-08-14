@@ -8,7 +8,7 @@ function LoginForm() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const router = useRouter();
+  // const router = useRouter(); // Not needed since we use window.location.href
   const sp = useSearchParams();
   const rawRedirect = sp.get('redirect') || '/dashboard';
   const redirect = (rawRedirect.startsWith('/api') || rawRedirect === '/login' || rawRedirect === '/register') ? '/dashboard' : rawRedirect;
@@ -41,16 +41,10 @@ function LoginForm() {
         // Notify the header that auth state changed
         window.dispatchEvent(new CustomEvent('auth-changed'));
         
-        // Show success message briefly, then redirect
+        // Show success message briefly, then redirect with hard refresh
         setTimeout(() => {
-          // Use router for smooth navigation
-          router.push(redirect);
-          // Fallback to hard navigation if needed
-          setTimeout(() => {
-            if (window.location.pathname === '/login') {
-              window.location.href = redirect;
-            }
-          }, 500);
+          // Use hard navigation to ensure fresh data load
+          window.location.href = redirect;
         }, 800);
       } else {
         let msg = 'Login failed';

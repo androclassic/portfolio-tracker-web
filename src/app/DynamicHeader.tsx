@@ -57,7 +57,10 @@ export default function DynamicHeader() {
           <>
             <Link href="/dashboard">Dashboard</Link>
             <Link href="/transactions">Transactions</Link>
-            <form action="/api/auth/logout" method="POST" style={{ display:'inline' }}>
+            <form action="/api/auth/logout" method="POST" style={{ display:'inline' }} onSubmit={() => {
+              // Notify components about logout to clear data
+              window.dispatchEvent(new CustomEvent('auth-changed'));
+            }}>
               <button className="btn btn-secondary" style={{ marginLeft: 8 }} type="submit">Logout</button>
             </form>
           </>

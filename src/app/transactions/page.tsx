@@ -140,7 +140,9 @@ export default function TransactionsPage(){
           selectedAsset: null
         }); 
         setTxErrors([]);
-        if (swrKey) mutate(swrKey); 
+        if (swrKey) mutate(swrKey);
+        // Notify other components that transaction data changed
+        window.dispatchEvent(new CustomEvent('transactions-changed')); 
       } else {
         const errorData = await res.json();
         setTxErrors([errorData.error || 'Failed to save transaction']);
@@ -154,6 +156,8 @@ export default function TransactionsPage(){
     if (!confirm('Delete this transaction?')) return;
     await fetch(`/api/transactions?id=${id}`, { method:'DELETE' });
     if (swrKey) mutate(swrKey);
+    // Notify other components that transaction data changed
+    window.dispatchEvent(new CustomEvent('transactions-changed'));
   }
 
   function startEdit(t: Tx){ setEditing(t); }
@@ -173,6 +177,8 @@ export default function TransactionsPage(){
     await fetch('/api/transactions', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
     setEditing(null);
     if (swrKey) mutate(swrKey);
+    // Notify other components that transaction data changed
+    window.dispatchEvent(new CustomEvent('transactions-changed'));
   }
 
   const nf = new Intl.NumberFormat(undefined,{ maximumFractionDigits: 8 });
@@ -206,6 +212,8 @@ export default function TransactionsPage(){
                 const fd = new FormData(); fd.append('file', file);
                 await fetch(`/api/transactions/import?portfolioId=${selectedId}`, { method:'POST', body: fd });
                 if (swrKey) mutate(swrKey);
+                // Notify other components that transaction data changed
+                window.dispatchEvent(new CustomEvent('transactions-changed'));
               }} />
             </label>
           </div>

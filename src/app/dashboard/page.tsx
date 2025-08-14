@@ -88,7 +88,7 @@ type HistResp = { prices: PricePoint[] };
 export default function DashboardPage(){
   const { selectedId } = usePortfolio();
   const listKey = selectedId === 'all' ? '/api/transactions' : (selectedId? `/api/transactions?portfolioId=${selectedId}` : null);
-  const { data: txs } = useSWR<Tx[]>(listKey, fetcher);
+  const { data: txs, mutate } = useSWR<Tx[]>(listKey, fetcher);
   const [selectedAsset, setSelectedAsset] = useState<string>('');
 
   const assets = useMemo(()=>{
@@ -128,6 +128,17 @@ export default function DashboardPage(){
   useEffect(()=>{
     if (assets.length && !selectedAsset) setSelectedAsset(assets[0]);
   }, [assets, selectedAsset]);
+
+  // Listen for transaction changes and refresh dashboard data
+  useEffect(() => {
+    const handleTransactionChange = () => {
+      console.log('Transactions changed, refreshing dashboard data...');
+      if (listKey) mutate();
+    };
+
+    window.addEventListener('transactions-changed', handleTransactionChange);
+    return () => window.removeEventListener('transactions-changed', handleTransactionChange);
+  }, [listKey, mutate]);
 
   const holdings = useMemo(()=>{
     const pos: Record<string, number> = {};

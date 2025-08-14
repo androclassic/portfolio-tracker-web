@@ -37,8 +37,12 @@ export default function PortfolioProvider({ children }: { children: React.ReactN
         return;
       }
       
-      if (!res.ok || !ct.includes('application/json')) return;
+      if (!res.ok || !ct.includes('application/json')) {
+        console.log('Portfolio API failed:', { status: res.status, statusText: res.statusText, contentType: ct });
+        return;
+      }
       loaded = await res.json();
+      console.log('Portfolio API success:', loaded);
       setPortfolios(loaded);
     } catch (err) {
       console.log('Portfolio API error:', err);
@@ -56,6 +60,21 @@ export default function PortfolioProvider({ children }: { children: React.ReactN
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Listen for auth changes and refresh portfolios
+  useEffect(() => {
+    const handleAuthChange = () => {
+      console.log('Auth changed, refreshing portfolios...');
+      // Clear current data first in case of logout
+      setPortfolios([]);
+      setSelectedIdState(null);
+      // Then reload (will be empty if logged out, or fresh data if logged in)
+      load();
+    };
+
+    window.addEventListener('auth-changed', handleAuthChange);
+    return () => window.removeEventListener('auth-changed', handleAuthChange);
+  }, [load]);
 
   const setSelectedId = useCallback((id: number | 'all') => {
     setSelectedIdState(id);
