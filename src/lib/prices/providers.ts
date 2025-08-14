@@ -1,15 +1,15 @@
 import axios from 'axios';
 
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
-  BTC: 'bitcoin', ETH: 'ethereum', ADA: 'cardano', SOL: 'solana', DOT: 'polkadot', XRP: 'ripple', LINK: 'chainlink', AVAX: 'avalanche-2', USDT: 'tether', SUI: 'sui',
+  BTC: 'bitcoin', ETH: 'ethereum', ADA: 'cardano', SOL: 'solana', DOT: 'polkadot', XRP: 'ripple', LINK: 'chainlink', AVAX: 'avalanche-2', USDT: 'tether', USDC: 'usd-coin', SUI: 'sui', MATIC: 'matic-network', BNB: 'binancecoin', DOGE: 'dogecoin', SHIB: 'shiba-inu', TRX: 'tron', ICP: 'internet-computer', UNI: 'uniswap', LTC: 'litecoin', ATOM: 'cosmos',
 };
 
 const SYMBOL_TO_COINCAP: Record<string, string> = {
-  BTC: 'bitcoin', ETH: 'ethereum', ADA: 'cardano', SOL: 'solana', DOT: 'polkadot', XRP: 'xrp', LINK: 'chainlink', AVAX: 'avalanche', USDT: 'tether', SUI: 'sui',
+  BTC: 'bitcoin', ETH: 'ethereum', ADA: 'cardano', SOL: 'solana', DOT: 'polkadot', XRP: 'xrp', LINK: 'chainlink', AVAX: 'avalanche', USDT: 'tether', USDC: 'usd-coin', SUI: 'sui', MATIC: 'matic-network', BNB: 'binance-coin', DOGE: 'dogecoin', SHIB: 'shiba-inu', TRX: 'tron', ICP: 'internet-computer', UNI: 'uniswap', LTC: 'litecoin', ATOM: 'cosmos',
 };
 
 const SYMBOL_TO_BINANCE_PAIR: Record<string, string> = {
-  BTC: 'BTCUSDT', ETH: 'ETHUSDT', ADA: 'ADAUSDT', SOL: 'SOLUSDT', DOT: 'DOTUSDT', XRP: 'XRPUSDT', LINK: 'LINKUSDT', AVAX: 'AVAXUSDT', USDT: 'USDTUSDT', SUI: 'SUIUSDT',
+  BTC: 'BTCUSDT', ETH: 'ETHUSDT', ADA: 'ADAUSDT', SOL: 'SOLUSDT', DOT: 'DOTUSDT', XRP: 'XRPUSDT', LINK: 'LINKUSDT', AVAX: 'AVAXUSDT', SUI: 'SUIUSDT', BNB: 'BNBUSDT', DOGE: 'DOGEUSDT', USDC: 'USDCUSDT', MATIC: 'MATICUSDT', SHIB: 'SHIBUSDT', TRX: 'TRXUSDT', UNI: 'UNIUSDT', LTC: 'LTCUSDT', ATOM: 'ATOMUSDT',
 };
 
 export type CurrentPrices = Record<string, number>;
@@ -158,6 +158,6 @@ export class CoinCapProvider implements PriceProvider {
   }
 }
 
-export const DEFAULT_PROVIDERS: PriceProvider[] = [new BinanceProvider(), new CoinGeckoProvider(), new CoinCapProvider()];
+export const DEFAULT_PROVIDERS: PriceProvider[] = [new CoinGeckoProvider(), new BinanceProvider(), new CoinCapProvider()];
 
 
