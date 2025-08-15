@@ -95,6 +95,7 @@ export default function DashboardPage(){
   const [selectedBtcChart, setSelectedBtcChart] = useState<string>('ratio'); // 'ratio' | 'accumulation'
   const [selectedAltcoin, setSelectedAltcoin] = useState<string>('ALL');
   const [selectedProfitAsset, setSelectedProfitAsset] = useState<string>('ALL');
+  const [heatmapTimeframe, setHeatmapTimeframe] = useState<string>('24h'); // 'current' | '24h' | '7d' | '30d'
 
   const assets = useMemo(()=>{
     const s = new Set<string>();
@@ -621,11 +622,12 @@ export default function DashboardPage(){
             totalQuantity += quantity;
             totalCostUsd += quantity * (tx.priceUsd || 0);
           } else {
-            totalQuantity -= quantity;
-            // For sells, reduce cost basis proportionally
+            // For sells, use average cost method
             if (totalQuantity > 0) {
-              const avgCost = totalCostUsd / (totalQuantity + quantity);
-              totalCostUsd -= quantity * avgCost;
+              const currentAvgCost = totalCostUsd / totalQuantity;
+              const unitsToSell = Math.min(quantity, totalQuantity);
+              totalCostUsd -= unitsToSell * currentAvgCost;
+              totalQuantity -= unitsToSell;
             }
           }
         }
@@ -637,7 +639,8 @@ export default function DashboardPage(){
         
         // Calculate what BTC PnL would be if we had bought BTC instead
         let btcPnLValue = 0;
-        if (totalCostUsd > 0 && currentBtcPrice > 0) {
+        // Only calculate BTC PnL if we currently have a position in this altcoin
+        if (totalQuantity > 0 && totalCostUsd > 0 && currentBtcPrice > 0) {
           // Calculate how much BTC we could have bought with the same USD at the time of transactions
           let totalBtcQuantity = 0;
           let totalBtcCostUsd = 0;
@@ -653,13 +656,14 @@ export default function DashboardPage(){
               totalBtcQuantity += btcQuantity;
               totalBtcCostUsd += costUsd;
             } else {
-              // For sells, reduce BTC position proportionally
+              // For sells, reduce BTC position using average cost method
               if (totalBtcQuantity > 0) {
-                const avgBtcCost = totalBtcCostUsd / totalBtcQuantity;
+                const currentAvgBtcCost = totalBtcCostUsd / totalBtcQuantity;
                 const costUsd = quantity * (tx.priceUsd || 0);
-                const btcQuantity = costUsd / btcPriceAtTx;
-                totalBtcQuantity -= btcQuantity;
-                totalBtcCostUsd -= btcQuantity * avgBtcCost;
+                const btcQuantityToSell = costUsd / btcPriceAtTx;
+                const unitsToSell = Math.min(btcQuantityToSell, totalBtcQuantity);
+                totalBtcCostUsd -= unitsToSell * currentAvgBtcCost;
+                totalBtcQuantity -= unitsToSell;
               }
             }
           }
@@ -791,6 +795,88 @@ export default function DashboardPage(){
     return { assets, correlations };
   }, [hist, assets]);
 
+  // Portfolio Gains/Losses Heatmap
+  const portfolioHeatmap = useMemo(() => {
+    if (!txs || txs.length === 0 || !hist || !hist.prices) {
+      return { assets: [] as string[], pnlValues: [] as number[], colors: [] as string[] };
+    }
+    
+    const priceMap = new Map<string, number>();
+    for (const p of hist.prices) priceMap.set(p.date + '|' + p.asset.toUpperCase(), p.price_usd);
+    
+    // Get the most recent date for current prices
+    const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
+    const latestDate = dates[dates.length - 1];
+    
+    // Calculate reference date based on timeframe
+    let referenceDate = latestDate;
+    if (heatmapTimeframe !== 'current') {
+      const daysBack = heatmapTimeframe === '24h' ? 1 : heatmapTimeframe === '7d' ? 7 : 30;
+      const referenceIndex = Math.max(0, dates.length - daysBack - 1);
+      referenceDate = dates[referenceIndex];
+    }
+    
+    const heatmapData: { asset: string; pnl: number; color: string }[] = [];
+    
+    for (const asset of assets) {
+      // Calculate current position and cost basis for this asset
+      const assetTxs = txs.filter(tx => tx.asset.toUpperCase() === asset);
+      
+      let totalQuantity = 0;
+      let totalCostUsd = 0;
+      
+      for (const tx of assetTxs) {
+        const quantity = Math.abs(tx.quantity);
+        if (tx.type === 'Buy') {
+          totalQuantity += quantity;
+          totalCostUsd += quantity * (tx.priceUsd || 0);
+        } else {
+          // For sells, use average cost method
+          if (totalQuantity > 0) {
+            const currentAvgCost = totalCostUsd / totalQuantity;
+            const unitsToSell = Math.min(quantity, totalQuantity);
+            totalCostUsd -= unitsToSell * currentAvgCost;
+            totalQuantity -= unitsToSell;
+          }
+        }
+      }
+      
+      // Calculate PnL based on timeframe
+      let pnl: number;
+      if (heatmapTimeframe === 'current') {
+        // Current total PnL
+        const currentPrice = priceMap.get(latestDate + '|' + asset) || 0;
+        const currentValueUsd = totalQuantity * currentPrice;
+        pnl = currentValueUsd - totalCostUsd;
+      } else {
+        // PnL change over the specified period
+        const currentPrice = priceMap.get(latestDate + '|' + asset) || 0;
+        const referencePrice = priceMap.get(referenceDate + '|' + asset) || currentPrice;
+        const currentValueUsd = totalQuantity * currentPrice;
+        const referenceValueUsd = totalQuantity * referencePrice;
+        pnl = currentValueUsd - referenceValueUsd;
+      }
+      
+      // Determine color based on PnL (green for positive, red for negative)
+      const color = pnl >= 0 ? '#16a34a' : '#dc2626';
+      
+      heatmapData.push({
+        asset,
+        pnl,
+        color
+      });
+    }
+    
+    // Sort by absolute PnL value (largest first)
+    heatmapData.sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
+    
+    return {
+      assets: heatmapData.map(d => d.asset),
+      pnlValues: heatmapData.map(d => d.pnl),
+      colors: heatmapData.map(d => d.color)
+    };
+  }, [txs, hist, assets, heatmapTimeframe]);
+
   // Helper function for correlation calculation
   function calculateCorrelation(x: number[], y: number[]): number {
     const n = x.length;
@@ -830,13 +916,186 @@ export default function DashboardPage(){
         </div>
       </div>
 
+      {/* Portfolio Gains/Losses Heatmap */}
+      <section className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h2>Portfolio Gains/Losses Heatmap</h2>
+            <button 
+              onClick={() => alert(`Portfolio Gains/Losses Heatmap
+
+This heatmap shows the profit and loss (PnL) for each asset in your portfolio.
+
+• Block size represents the magnitude of gains/losses
+• Green blocks = positive PnL (profits)
+• Red blocks = negative PnL (losses)
+• Larger blocks = bigger gains or losses
+
+Timeframe options:
+• Total PnL: Cumulative profit/loss since purchase
+• 24h/7d/30d: PnL change over the specified period
+
+Hover over blocks to see exact PnL values.`)}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                cursor: 'pointer',
+                fontSize: '16px',
+                color: '#666',
+                padding: '4px'
+              }}
+              title="Chart Information"
+            >
+              ℹ️
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button 
+              onClick={() => setHeatmapTimeframe('current')}
+              style={{ 
+                padding: '4px 12px', 
+                border: '1px solid #ddd', 
+                borderRadius: '4px', 
+                background: heatmapTimeframe === 'current' ? '#007bff' : '#fff',
+                color: heatmapTimeframe === 'current' ? '#fff' : '#333',
+                cursor: 'pointer'
+              }}
+            >
+              Total PnL
+            </button>
+            <button 
+              onClick={() => setHeatmapTimeframe('24h')}
+              style={{ 
+                padding: '4px 12px', 
+                border: '1px solid #ddd', 
+                borderRadius: '4px', 
+                background: heatmapTimeframe === '24h' ? '#007bff' : '#fff',
+                color: heatmapTimeframe === '24h' ? '#fff' : '#333',
+                cursor: 'pointer'
+              }}
+            >
+              24h
+            </button>
+            <button 
+              onClick={() => setHeatmapTimeframe('7d')}
+              style={{ 
+                padding: '4px 12px', 
+                border: '1px solid #ddd', 
+                borderRadius: '4px', 
+                background: heatmapTimeframe === '7d' ? '#007bff' : '#fff',
+                color: heatmapTimeframe === '7d' ? '#fff' : '#333',
+                cursor: 'pointer'
+              }}
+            >
+              7d
+            </button>
+            <button 
+              onClick={() => setHeatmapTimeframe('30d')}
+              style={{ 
+                padding: '4px 12px', 
+                border: '1px solid #ddd', 
+                borderRadius: '4px', 
+                background: heatmapTimeframe === '30d' ? '#007bff' : '#fff',
+                color: heatmapTimeframe === '30d' ? '#fff' : '#333',
+                cursor: 'pointer'
+              }}
+            >
+              30d
+            </button>
+          </div>
+        </div>
+        <Plot
+          data={[
+            {
+              type: 'treemap',
+              labels: portfolioHeatmap.assets,
+              parents: portfolioHeatmap.assets.map(() => ''),
+              values: portfolioHeatmap.pnlValues.map(Math.abs),
+              text: portfolioHeatmap.assets.map((asset, i) => 
+                `${asset}<br>${portfolioHeatmap.pnlValues[i] >= 0 ? '+' : ''}${portfolioHeatmap.pnlValues[i].toLocaleString('en-US', { 
+                  style: 'currency', 
+                  currency: 'USD',
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 0
+                })}`
+              ),
+              textinfo: 'label+text',
+              hovertemplate: '<b>%{label}</b><br>PnL: %{text}<extra></extra>',
+              marker: {
+                colors: portfolioHeatmap.colors,
+                line: { width: 1, color: '#ffffff' }
+              }
+            }
+          ] as Data[]}
+                      layout={{
+              autosize: true,
+              height: 400,
+              margin: { t: 30, r: 10, l: 10, b: 10 }
+            }}
+          style={{ width: '100%' }}
+        />
+      </section>
+
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
         <section className="card">
-          <h2>Allocation by current value</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <h2>Allocation by current value</h2>
+            <button 
+              onClick={() => alert(`Allocation by Current Value
+
+This pie chart shows how your portfolio is distributed across different assets.
+
+• Each slice represents an asset's percentage of your total portfolio value
+• The size of each slice shows the relative value of that asset
+• Hover over slices to see exact percentages and values
+• Colors are assigned to each asset for easy identification
+
+This helps you understand your portfolio diversification and concentration.`)}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                cursor: 'pointer',
+                fontSize: '16px',
+                color: '#666',
+                padding: '4px'
+              }}
+              title="Chart Information"
+            >
+              ℹ️
+            </button>
+          </div>
           <Plot data={allocationFigure.data} layout={allocationFigure.layout} style={{ width:'100%' }} />
         </section>
         <section className="card">
-          <h2>PnL over time</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <h2>PnL over time</h2>
+            <button 
+              onClick={() => alert(`PnL Over Time
+
+This chart shows your profit and loss (PnL) over time, split into realized and unrealized gains/losses.
+
+• Realized PnL: Profits/losses from completed transactions (buys/sells)
+• Unrealized PnL: Current paper gains/losses on held positions
+• Green lines = positive PnL (profits)
+• Red lines = negative PnL (losses)
+• Total PnL = Realized + Unrealized
+
+Use the asset filter to view PnL for specific assets or the entire portfolio.
+
+This helps track your trading performance and understand when gains were realized vs. held.`)}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                cursor: 'pointer',
+                fontSize: '16px',
+                color: '#666',
+                padding: '4px'
+              }}
+              title="Chart Information"
+            >
+              ℹ️
+            </button>
+          </div>
           <div style={{ marginBottom: 8 }}>
             <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
               <select value={selectedPnLAsset} onChange={e=>setSelectedPnLAsset(e.target.value)}>
@@ -857,7 +1116,33 @@ export default function DashboardPage(){
       </div>
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
         <section className="card">
-          <h2>Positions over time (by asset)</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <h2>Positions over time (by asset)</h2>
+            <button 
+              onClick={() => alert(`Positions Over Time
+
+This chart shows how your holdings in each asset have changed over time.
+
+• Each line represents the quantity of an asset you hold
+• Vertical jumps occur when you buy or sell
+• Flat lines indicate no trading activity
+• Use the asset filter to focus on specific assets
+• Hover over points to see exact quantities and dates
+
+This helps visualize your trading activity and position sizing over time.`)}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                cursor: 'pointer',
+                fontSize: '16px',
+                color: '#666',
+                padding: '4px'
+              }}
+              title="Chart Information"
+            >
+              ℹ️
+            </button>
+          </div>
           <div style={{ marginBottom: 8 }}>
             <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
               <select value={selectedAsset} onChange={e=>setSelectedAsset(e.target.value)}>
@@ -868,7 +1153,33 @@ export default function DashboardPage(){
           <Plot data={positionsFigure.data} layout={positionsFigure.layout} style={{ width:'100%' }} />
         </section>
         <section className="card">
-          <h2>Average cost vs market price ({selectedAsset || '...'})</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <h2>Average cost vs market price ({selectedAsset || '...'})</h2>
+            <button 
+              onClick={() => alert(`Average Cost vs Market Price
+
+This chart compares your average purchase price with the current market price.
+
+• Dotted line = Your average cost basis (what you paid on average)
+• Solid line = Current market price
+• When market price > average cost = you're in profit
+• When market price < average cost = you're at a loss
+• The gap between lines shows your profit/loss per unit
+
+This helps you understand your entry points and current profit margins.`)}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                cursor: 'pointer',
+                fontSize: '16px',
+                color: '#666',
+                padding: '4px'
+              }}
+              title="Chart Information"
+            >
+              ℹ️
+            </button>
+          </div>
           <Plot
             data={[
               { x: costVsPrice.dates, y: costVsPrice.avgCost, type:'scatter', mode:'lines', name:'Avg cost', line: { color: '#888888', dash: 'dot' } },
@@ -880,14 +1191,71 @@ export default function DashboardPage(){
         </section>
       </div>
       <section className="card" style={{ marginTop: 16 }}>
-        <h2>Portfolio value over time (stacked)</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <h2>Portfolio value over time (stacked)</h2>
+          <button 
+            onClick={() => alert(`Portfolio Value Over Time (Stacked)
+
+This chart shows your total portfolio value broken down by asset over time.
+
+• Each colored area represents an asset's contribution to total value
+• The height of each area shows the USD value of that asset
+• The total height = your complete portfolio value
+• Stacked areas show how your portfolio composition has evolved
+• Hover to see exact values for each asset at any point
+
+This helps visualize portfolio growth and asset allocation changes over time.`)}
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              cursor: 'pointer',
+              fontSize: '16px',
+              color: '#666',
+              padding: '4px'
+            }}
+            title="Chart Information"
+          >
+            ℹ️
+          </button>
+        </div>
         <Plot data={stacked.series} layout={{ autosize:true, height:340, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, hovermode: 'x unified' }} style={{ width:'100%' }} />
       </section>
 
       {/* BTC Maximization Charts */}
       <div className="grid grid-2" style={{ marginTop: 16, marginBottom: 16 }}>
         <section className="card">
-          <h2>BTC Ratio & Accumulation</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <h2>BTC Ratio & Accumulation</h2>
+            <button 
+              onClick={() => alert(`BTC Ratio & Accumulation
+
+This chart shows your Bitcoin strategy metrics over time.
+
+BTC Ratio (%):
+• Shows what percentage of your portfolio is in Bitcoin
+• Higher % = more Bitcoin-focused strategy
+• Lower % = more diversified into altcoins
+
+BTC Accumulation:
+• Blue area = Actual BTC holdings
+• Orange area = BTC value of altcoin holdings
+• Total height = Total BTC equivalent value
+• Helps visualize your "BTC maximization" strategy
+
+Use the chart type selector to switch between views.`)}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                cursor: 'pointer',
+                fontSize: '16px',
+                color: '#666',
+                padding: '4px'
+              }}
+              title="Chart Information"
+            >
+              ℹ️
+            </button>
+          </div>
           <div style={{ marginBottom: 8 }}>
             <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Chart Type
               <select value={selectedBtcChart} onChange={e=>setSelectedBtcChart(e.target.value)}>
@@ -990,7 +1358,35 @@ export default function DashboardPage(){
 
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
         <section className="card">
-          <h2>Profit-Taking Opportunities (Altcoin vs BTC PnL)</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <h2>Profit-Taking Opportunities (Altcoin vs BTC PnL)</h2>
+            <button 
+              onClick={() => alert(`Profit-Taking Opportunities
+
+This chart compares your altcoin PnL vs what BTC PnL would be if you had bought Bitcoin instead.
+
+• Solid line = Your altcoin PnL (actual performance)
+• Dashed line = BTC PnL (what you would have made with BTC)
+• When altcoin line > BTC line = altcoin outperforming BTC
+• When BTC line > altcoin line = BTC would have been better
+• Only shows comparison when you have an active position
+
+This helps identify when to take profits on altcoins vs holding BTC longer.
+
+Use the asset selector to compare different altcoins.`)}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                cursor: 'pointer',
+                fontSize: '16px',
+                color: '#666',
+                padding: '4px'
+              }}
+              title="Chart Information"
+            >
+              ℹ️
+            </button>
+          </div>
           <div style={{ marginBottom: 8 }}>
             <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
               <select value={selectedProfitAsset} onChange={e=>setSelectedProfitAsset(e.target.value)}>
@@ -1041,7 +1437,39 @@ export default function DashboardPage(){
           />
         </section>
         <section className="card">
-          <h2>Asset Correlation Heatmap</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <h2>Asset Correlation Heatmap</h2>
+            <button 
+              onClick={() => alert(`Asset Correlation Heatmap
+
+This heatmap shows how correlated your assets are with each other.
+
+• Dark red = Strong positive correlation (assets move together)
+• Dark blue = Strong negative correlation (assets move opposite)
+• Light colors = Weak correlation (assets move independently)
+• Diagonal = Always 1.0 (perfect correlation with itself)
+
+Correlation ranges:
+• 0.7 to 1.0 = Strong positive correlation
+• 0.3 to 0.7 = Moderate positive correlation
+• -0.3 to 0.3 = Weak correlation
+• -0.7 to -0.3 = Moderate negative correlation
+• -1.0 to -0.7 = Strong negative correlation
+
+This helps understand portfolio diversification and risk.`)}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                cursor: 'pointer',
+                fontSize: '16px',
+                color: '#666',
+                padding: '4px'
+              }}
+              title="Chart Information"
+            >
+              ℹ️
+            </button>
+          </div>
           <Plot
             data={[
               {
