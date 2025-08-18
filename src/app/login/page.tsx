@@ -71,31 +71,14 @@ function LoginForm() {
     return (
       <main className="container" style={{ maxWidth: 420 }}>
         <div className="card" style={{ textAlign: 'center', padding: '2rem' }}>
-          <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>✅</div>
-          <h2 style={{ color: '#16a34a', marginBottom: '1rem' }}>Login Successful!</h2>
-          <p style={{ color: '#6b7280' }}>Redirecting to your dashboard...</p>
-          <div style={{ 
-            width: '100%', 
-            height: '4px', 
-            backgroundColor: '#e5e7eb', 
-            borderRadius: '2px', 
-            marginTop: '1rem',
-            overflow: 'hidden'
-          }}>
-            <div style={{
-              width: '100%',
-              height: '100%',
-              backgroundColor: '#16a34a',
-              animation: 'loading 0.8s ease-in-out'
-            }}></div>
+          <div style={{ fontSize: '2.25rem', marginBottom: '0.75rem' }}>✅</div>
+          <h2 style={{ color: 'var(--success)', marginBottom: '0.5rem' }}>Login Successful!</h2>
+          <p className="muted">Redirecting to your dashboard...</p>
+          <div style={{ marginTop: '1rem', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span className="loading-spinner" />
+            <span className="muted">Loading</span>
           </div>
         </div>
-        <style jsx>{`
-          @keyframes loading {
-            from { width: 0%; }
-            to { width: 100%; }
-          }
-        `}</style>
       </main>
     );
   }
@@ -103,6 +86,7 @@ function LoginForm() {
   return (
     <main className="container" style={{ maxWidth: 420 }}>
       <h1>Sign in</h1>
+      <p className="subtitle">Welcome back. Please enter your credentials.</p>
       <form className="card" onSubmit={onSubmit} style={{ display:'grid', gap:10 }}>
         <input 
           placeholder="Username" 
@@ -143,27 +127,12 @@ function LoginForm() {
             type="submit" 
             className="btn btn-primary" 
             disabled={loading}
-            style={{ 
-              opacity: loading ? 0.8 : 1,
-              minWidth: '100px',
-              position: 'relative'
-            }}
+            style={{ minWidth: '110px' }}
           >
             {loading ? (
               <>
-                <span style={{ opacity: 0 }}>Login</span>
-                <div style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  transform: 'translate(-50%, -50%)',
-                  width: '16px',
-                  height: '16px',
-                  border: '2px solid #ffffff',
-                  borderTop: '2px solid transparent',
-                  borderRadius: '50%',
-                  animation: 'spin 1s linear infinite'
-                }}></div>
+                <span className="loading-spinner" />
+                Loading
               </>
             ) : (
               'Login'
@@ -171,13 +140,6 @@ function LoginForm() {
           </button>
         </div>
       </form>
-      
-      <style jsx>{`
-        @keyframes spin {
-          0% { transform: translate(-50%, -50%) rotate(0deg); }
-          100% { transform: translate(-50%, -50%) rotate(360deg); }
-        }
-      `}</style>
     </main>
   );
 }

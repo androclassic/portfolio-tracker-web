@@ -83,44 +83,48 @@ export default function DynamicHeader() {
     // Show a minimal header while checking auth
     return (
       <header className="topnav">
-        <div className="brand">Portfolio Tracker</div>
-        <nav className="nav">
-          <div style={{ opacity: 0.6 }}>Loading...</div>
-        </nav>
+        <div className="topnav-inner container">
+          <div className="brand">Portfolio Tracker</div>
+          <nav className="nav">
+            <div style={{ opacity: 0.6 }}>Loading...</div>
+          </nav>
+        </div>
       </header>
     );
   }
 
   return (
     <header className="topnav">
-      <div className="brand">Portfolio Tracker</div>
-      <nav className="nav">
-        {isAuthenticated ? (
-          <>
-            <Link href="/dashboard">Dashboard</Link>
-            <Link href="/transactions">Transactions</Link>
-            <button 
-              className="btn btn-secondary" 
-              style={{ marginLeft: 8 }} 
-              onClick={handleLogout}
-              disabled={loggingOut}
-            >
-              {loggingOut ? 'Logging out...' : 'Logout'}
-            </button>
-          </>
-        ) : (
-          <>
-            <Link href="/login">Login</Link>
-            <Link href="/register">Register</Link>
-          </>
+      <div className="topnav-inner container">
+        <div className="brand">Portfolio Tracker</div>
+        <nav className="nav">
+          {isAuthenticated ? (
+            <>
+              <Link href="/dashboard">Dashboard</Link>
+              <Link href="/transactions">Transactions</Link>
+              <button 
+                className="btn btn-secondary" 
+                style={{ marginLeft: 8 }} 
+                onClick={handleLogout}
+                disabled={loggingOut}
+              >
+                {loggingOut ? 'Logging out...' : 'Logout'}
+              </button>
+            </>
+          ) : (
+            <>
+              <Link href="/login">Login</Link>
+              <Link href="/register">Register</Link>
+            </>
+          )}
+          <ThemeToggle />
+        </nav>
+        {isAuthenticated && (
+          <Suspense fallback={<div>Loading portfolio...</div>}>
+            <PortfolioSelector />
+          </Suspense>
         )}
-        <ThemeToggle />
-      </nav>
-      {isAuthenticated && (
-        <Suspense fallback={<div>Loading portfolio...</div>}>
-          <PortfolioSelector />
-        </Suspense>
-      )}
+      </div>
     </header>
   );
 }

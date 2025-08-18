@@ -5,7 +5,7 @@ import SWRProvider from './SWRProvider';
 import PortfolioProvider from './PortfolioProvider';
 import DynamicHeader from './DynamicHeader';
 
-const inter = Inter({ subsets: ['latin'] });
+const inter = Inter({ subsets: ['latin'], display: 'swap' });
 
 export const metadata = {
   title: 'Portfolio Tracker',

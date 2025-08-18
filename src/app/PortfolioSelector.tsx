@@ -45,21 +45,28 @@ export default function PortfolioSelector() {
       {isOpen && (
         <div className="modal-backdrop" onClick={(e)=>{ if (e.target === e.currentTarget) setIsOpen(false); }}>
           <div className="modal" role="dialog" aria-modal="true">
-            <header>
-              <h3>Manage portfolios</h3>
-              <button className="btn btn-secondary" onClick={()=>setIsOpen(false)}>Close</button>
-            </header>
+            <div className="card-header">
+              <div className="card-title">
+                <h3>Manage portfolios</h3>
+              </div>
+              <div className="card-actions">
+                <button className="btn btn-secondary btn-sm" onClick={()=>setIsOpen(false)}>
+                  <span style={{ marginRight: 6 }}>✕</span>
+                  Close
+                </button>
+              </div>
+            </div>
             <section style={{ display:'grid', gap:10 }}>
               {portfolios.map(p=> (
                 <div key={p.id} style={{ display:'flex', alignItems:'center', gap:8 }}>
                   <input value={renameMap[p.id]||''} onChange={e=>setRenameMap(m=>({ ...m, [p.id]: e.target.value }))} />
-                  <button className="btn btn-secondary" onClick={()=>rename(p.id)}>Rename</button>
-                  <button className="btn btn-secondary" onClick={()=>remove(p.id)}>Delete</button>
+                  <button className="btn btn-secondary btn-sm" onClick={()=>rename(p.id)}>Rename</button>
+                  <button className="btn btn-danger btn-sm" onClick={()=>remove(p.id)}>Delete</button>
                 </div>
               ))}
               <form onSubmit={createPortfolio} style={{ display:'flex', gap:8 }}>
                 <input placeholder="New portfolio name" value={newName} onChange={e=>setNewName(e.target.value)} />
-                <button className="btn btn-primary" type="submit">Add</button>
+                <button className="btn btn-primary btn-sm" type="submit">Add</button>
               </form>
             </section>
           </div>

@@ -189,7 +189,12 @@ export default function TransactionsPage(){
 
   return (
     <main>
-      <h1>Transactions</h1>
+      <div style={{ marginBottom: '2rem' }}>
+        <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          Transaction Management
+        </h1>
+        <p className="subtitle">Track and manage all your cryptocurrency transactions with precision</p>
+      </div>
       <div className="toolbar">
         <div className="filters">
           <label>Asset
@@ -202,25 +207,45 @@ export default function TransactionsPage(){
             </select>
           </label>
         </div>
-        <button className="btn btn-primary" onClick={()=>setIsOpen(true)}>Add transaction</button>
-        {selectedId && (
-          <div style={{ display:'inline-flex', gap:8, marginLeft: 8 }}>
-            <form action={`/api/transactions/export?portfolioId=${selectedId}`} method="GET">
-              <button type="submit" className="btn btn-secondary">Export CSV</button>
-            </form>
-            <label className="btn btn-secondary" style={{ cursor:'pointer' }}>
-              Import CSV
-              <input type="file" accept=".csv" style={{ display:'none' }} onChange={async (e)=>{
-                const file = e.target.files?.[0]; if (!file) return;
-                const fd = new FormData(); fd.append('file', file);
-                await fetch(`/api/transactions/import?portfolioId=${selectedId}`, { method:'POST', body: fd });
-                if (swrKey) mutate(swrKey);
-                // Notify other components that transaction data changed
-                window.dispatchEvent(new CustomEvent('transactions-changed'));
-              }} />
-            </label>
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button 
+            className="btn btn-primary" 
+            onClick={()=>setIsOpen(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+          >
+            <span>➕</span>
+            Add Transaction
+          </button>
+          {selectedId && (
+            <>
+              <form action={`/api/transactions/export?portfolioId=${selectedId}`} method="GET">
+                <button 
+                  type="submit" 
+                  className="btn btn-success"
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                >
+                  <span>📊</span>
+                  Export CSV
+                </button>
+              </form>
+              <label 
+                className="btn btn-secondary" 
+                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                <span>📁</span>
+                Import CSV
+                <input type="file" accept=".csv" style={{ display:'none' }} onChange={async (e)=>{
+                  const file = e.target.files?.[0]; if (!file) return;
+                  const fd = new FormData(); fd.append('file', file);
+                  await fetch(`/api/transactions/import?portfolioId=${selectedId}`, { method:'POST', body: fd });
+                  if (swrKey) mutate(swrKey);
+                  // Notify other components that transaction data changed
+                  window.dispatchEvent(new CustomEvent('transactions-changed'));
+                }} />
+              </label>
+            </>
+          )}
+        </div>
       </div>
 
       <section className="card">
@@ -252,12 +277,28 @@ export default function TransactionsPage(){
                 <td>{t.proceedsUsd!=null? nf.format(t.proceedsUsd): ''}</td>
                 <td>{t.notes||''}</td>
                 <td style={{ whiteSpace:'nowrap' }}>
-                  <button className="btn btn-secondary" onClick={()=>startEdit(t)}>Edit</button>
-                  <button className="btn btn-secondary" onClick={()=>removeTx(t.id)} style={{ marginLeft: 6 }}>Delete</button>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <button 
+                      className="btn btn-secondary btn-sm" 
+                      onClick={()=>startEdit(t)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                    >
+                      <span style={{ fontSize: '0.8rem' }}>✏️</span>
+                      Edit
+                    </button>
+                    <button 
+                      className="btn btn-danger btn-sm" 
+                      onClick={()=>removeTx(t.id)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                    >
+                      <span style={{ fontSize: '0.8rem' }}>🗑️</span>
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
-            {filtered.length===0 && (<tr><td colSpan={8}>No transactions</td></tr>)}
+            {filtered.length===0 && (<tr><td colSpan={9}>No transactions</td></tr>)}
           </tbody>
         </table>
         </div>
@@ -266,10 +307,11 @@ export default function TransactionsPage(){
       {isOpen && (
         <div className="modal-backdrop" onClick={(e)=>{ if (e.target === e.currentTarget) setIsOpen(false); }}>
           <div className="modal transaction-modal" role="dialog" aria-modal="true">
-            <header>
-              <h3>Add Transaction</h3>
-              <button className="btn btn-secondary" onClick={()=>setIsOpen(false)}>✕</button>
-            </header>
+            <div className="card-header">
+              <div className="card-title">
+                <h3>Add Transaction</h3>
+              </div>
+            </div>
             
             {txErrors.length > 0 && (
               <div className="error-messages">
@@ -281,19 +323,28 @@ export default function TransactionsPage(){
             
             <form onSubmit={addTx} className="transaction-form">
               <div className="form-group">
-                <label>Cryptocurrency *</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  Cryptocurrency *
+                </label>
                 <AssetInput
                   value={newTx.asset}
                   onChange={handleAssetSelection}
                   placeholder="Search for crypto (e.g., Bitcoin, BTC)"
                   disabled={isLoadingPrice}
                 />
-                {isLoadingPrice && <div className="loading-indicator">Fetching current price...</div>}
+                {isLoadingPrice && (
+                  <div className="loading-indicator" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span className="loading-spinner"></span>
+                    Fetching current price...
+                  </div>
+                )}
               </div>
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Type *</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    Transaction Type *
+                  </label>
                   <select 
                     value={newTx.type} 
                     onChange={e=>setNewTx(v=>({ ...v, type:e.target.value }))}
@@ -305,7 +356,9 @@ export default function TransactionsPage(){
                 </div>
                 
                 <div className="form-group">
-                  <label>Quantity *</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    Quantity *
+                  </label>
                   <input 
                     type="number" 
                     step="any" 
@@ -320,7 +373,9 @@ export default function TransactionsPage(){
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Price USD {newTx.priceUsd && '(auto-filled)'}</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    Price USD {newTx.priceUsd && <span className="badge badge-info">Auto-filled</span>}
+                  </label>
                   <input 
                     type="number" 
                     step="any" 
@@ -332,7 +387,9 @@ export default function TransactionsPage(){
                 </div>
                 
                 <div className="form-group">
-                  <label>Date & Time *</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    Date & Time *
+                  </label>
                   <input 
                     type="datetime-local" 
                     value={newTx.datetime} 
@@ -344,7 +401,14 @@ export default function TransactionsPage(){
               </div>
 
               {(calculatedValues.costUsd || calculatedValues.proceedsUsd) && (
-                <div className="calculated-value">
+                <div className="calculated-value" style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '0.5rem',
+                  background: newTx.type === 'Buy' ? 'var(--danger-50)' : 'var(--success-50)',
+                  color: newTx.type === 'Buy' ? 'var(--danger)' : 'var(--success)',
+                  border: `1px solid ${newTx.type === 'Buy' ? 'var(--danger)' : 'var(--success)'}22`,
+                }}>
                   <strong>
                     {newTx.type === 'Buy' ? 'Total Cost' : 'Total Proceeds'}: 
                     ${formatPrice(calculatedValues.costUsd || calculatedValues.proceedsUsd || 0)}
@@ -353,7 +417,9 @@ export default function TransactionsPage(){
               )}
 
               <div className="form-group">
-                <label>Notes</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  Notes
+                </label>
                 <input 
                   placeholder="Optional notes about this transaction" 
                   value={newTx.notes || ''} 
@@ -363,9 +429,28 @@ export default function TransactionsPage(){
               </div>
 
               <div className="actions">
-                <button type="button" className="btn btn-secondary" onClick={()=>setIsOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={isLoadingPrice}>
-                  {isLoadingPrice ? 'Loading...' : 'Save Transaction'}
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={()=>setIsOpen(false)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn btn-primary" 
+                  disabled={isLoadingPrice}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                >
+                  {isLoadingPrice ? (
+                    <>
+                      <span className="loading-spinner"></span>
+                      Loading...
+                    </>
+                  ) : (
+                    'Save Transaction'
+                  )}
                 </button>
               </div>
             </form>
@@ -376,10 +461,17 @@ export default function TransactionsPage(){
       {editing && (
         <div className="modal-backdrop" onClick={(e)=>{ if (e.target === e.currentTarget) setEditing(null); }}>
           <div className="modal" role="dialog" aria-modal="true">
-            <header>
-              <h3>Edit transaction</h3>
-              <button className="btn btn-secondary" onClick={()=>setEditing(null)}>Close</button>
-            </header>
+            <div className="card-header">
+              <div className="card-title">
+                <h3>Edit transaction</h3>
+              </div>
+              <div className="card-actions">
+                <button className="btn btn-secondary btn-sm" onClick={()=>setEditing(null)}>
+                  <span style={{ marginRight: 6 }}>✕</span>
+                  Close
+                </button>
+              </div>
+            </div>
             <form onSubmit={saveEdit}>
               <input placeholder="Asset" value={editing.asset} onChange={e=>setEditing(v=> v? { ...v, asset:e.target.value } : v)} required />
               <select value={editing.type} onChange={e=>setEditing(v=> v? { ...v, type:e.target.value as 'Buy'|'Sell' } : v)}>

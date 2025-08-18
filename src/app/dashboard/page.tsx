@@ -858,8 +858,8 @@ export default function DashboardPage(){
 
       {/* Portfolio Gains/Losses Heatmap */}
       <section className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="card-header">
+          <div className="card-title">
             <h2>Portfolio Gains/Losses Heatmap</h2>
             <button 
               onClick={() => alert(`Portfolio Gains/Losses Heatmap
@@ -876,72 +876,19 @@ Timeframe options:
 • 24h/7d/30d: PnL change over the specified period
 
 Hover over blocks to see exact PnL values.`)}
-              style={{ 
-                background: 'none', 
-                border: 'none', 
-                cursor: 'pointer',
-                fontSize: '16px',
-                color: '#666',
-                padding: '4px'
-              }}
+              className="icon-btn"
               title="Chart Information"
             >
               ℹ️
             </button>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button 
-              onClick={() => setHeatmapTimeframe('current')}
-              style={{ 
-                padding: '4px 12px', 
-                border: '1px solid #ddd', 
-                borderRadius: '4px', 
-                background: heatmapTimeframe === 'current' ? '#007bff' : '#fff',
-                color: heatmapTimeframe === 'current' ? '#fff' : '#333',
-                cursor: 'pointer'
-              }}
-            >
-              Total PnL
-            </button>
-            <button 
-              onClick={() => setHeatmapTimeframe('24h')}
-              style={{ 
-                padding: '4px 12px', 
-                border: '1px solid #ddd', 
-                borderRadius: '4px', 
-                background: heatmapTimeframe === '24h' ? '#007bff' : '#fff',
-                color: heatmapTimeframe === '24h' ? '#fff' : '#333',
-                cursor: 'pointer'
-              }}
-            >
-              24h
-            </button>
-            <button 
-              onClick={() => setHeatmapTimeframe('7d')}
-              style={{ 
-                padding: '4px 12px', 
-                border: '1px solid #ddd', 
-                borderRadius: '4px', 
-                background: heatmapTimeframe === '7d' ? '#007bff' : '#fff',
-                color: heatmapTimeframe === '7d' ? '#fff' : '#333',
-                cursor: 'pointer'
-              }}
-            >
-              7d
-            </button>
-            <button 
-              onClick={() => setHeatmapTimeframe('30d')}
-              style={{ 
-                padding: '4px 12px', 
-                border: '1px solid #ddd', 
-                borderRadius: '4px', 
-                background: heatmapTimeframe === '30d' ? '#007bff' : '#fff',
-                color: heatmapTimeframe === '30d' ? '#fff' : '#333',
-                cursor: 'pointer'
-              }}
-            >
-              30d
-            </button>
+          <div className="card-actions">
+            <div className="segmented">
+              <button className={heatmapTimeframe === 'current' ? 'active' : ''} onClick={() => setHeatmapTimeframe('current')}>Total PnL</button>
+              <button className={heatmapTimeframe === '24h' ? 'active' : ''} onClick={() => setHeatmapTimeframe('24h')}>24h</button>
+              <button className={heatmapTimeframe === '7d' ? 'active' : ''} onClick={() => setHeatmapTimeframe('7d')}>7d</button>
+              <button className={heatmapTimeframe === '30d' ? 'active' : ''} onClick={() => setHeatmapTimeframe('30d')}>30d</button>
+            </div>
           </div>
         </div>
         {(loadingTxs || loadingHist) && (
@@ -986,10 +933,11 @@ Hover over blocks to see exact PnL values.`)}
 
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
         <section className="card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <h2>Allocation by current value</h2>
-            <button 
-              onClick={() => alert(`Allocation by Current Value
+          <div className="card-header">
+            <div className="card-title">
+              <h2>Allocation by current value</h2>
+              <button 
+                onClick={() => alert(`Allocation by Current Value
 
 This pie chart shows how your portfolio is distributed across different assets.
 
@@ -999,18 +947,12 @@ This pie chart shows how your portfolio is distributed across different assets.
 • Colors are assigned to each asset for easy identification
 
 This helps you understand your portfolio diversification and concentration.`)}
-              style={{ 
-                background: 'none', 
-                border: 'none', 
-                cursor: 'pointer',
-                fontSize: '16px',
-                color: '#666',
-                padding: '4px'
-              }}
-              title="Chart Information"
-            >
-              ℹ️
-            </button>
+                className="icon-btn"
+                title="Chart Information"
+              >
+                ℹ️
+              </button>
+            </div>
           </div>
           {(loadingCurr && assets.length>0) && (
             <div style={{ padding: 16, color: 'var(--muted)' }}>Loading allocation...</div>
@@ -1023,10 +965,11 @@ This helps you understand your portfolio diversification and concentration.`)}
           )}
         </section>
         <section className="card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <h2>PnL over time</h2>
-            <button 
-              onClick={() => alert(`PnL Over Time
+          <div className="card-header">
+            <div className="card-title">
+              <h2>PnL over time</h2>
+              <button 
+                onClick={() => alert(`PnL Over Time
 
 This chart shows your profit and loss (PnL) over time, split into realized and unrealized gains/losses.
 
@@ -1039,18 +982,12 @@ This chart shows your profit and loss (PnL) over time, split into realized and u
 Use the asset filter to view PnL for specific assets or the entire portfolio.
 
 This helps track your trading performance and understand when gains were realized vs. held.`)}
-              style={{ 
-                background: 'none', 
-                border: 'none', 
-                cursor: 'pointer',
-                fontSize: '16px',
-                color: '#666',
-                padding: '4px'
-              }}
-              title="Chart Information"
-            >
-              ℹ️
-            </button>
+                className="icon-btn"
+                title="Chart Information"
+              >
+                ℹ️
+              </button>
+            </div>
           </div>
           <div style={{ marginBottom: 8 }}>
             <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
@@ -1080,10 +1017,11 @@ This helps track your trading performance and understand when gains were realize
       </div>
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
         <section className="card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <h2>Positions over time (by asset)</h2>
-            <button 
-              onClick={() => alert(`Positions Over Time
+          <div className="card-header">
+            <div className="card-title">
+              <h2>Positions over time (by asset)</h2>
+              <button 
+                onClick={() => alert(`Positions Over Time
 
 This chart shows how your holdings in each asset have changed over time.
 
@@ -1094,18 +1032,12 @@ This chart shows how your holdings in each asset have changed over time.
 • Hover over points to see exact quantities and dates
 
 This helps visualize your trading activity and position sizing over time.`)}
-              style={{ 
-                background: 'none', 
-                border: 'none', 
-                cursor: 'pointer',
-                fontSize: '16px',
-                color: '#666',
-                padding: '4px'
-              }}
-              title="Chart Information"
-            >
-              ℹ️
-            </button>
+                className="icon-btn"
+                title="Chart Information"
+              >
+                ℹ️
+              </button>
+            </div>
           </div>
           <div style={{ marginBottom: 8 }}>
             <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
@@ -1125,10 +1057,11 @@ This helps visualize your trading activity and position sizing over time.`)}
           )}
         </section>
         <section className="card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <h2>Average cost vs market price ({selectedAsset || '...'})</h2>
-            <button 
-              onClick={() => alert(`Average Cost vs Market Price
+          <div className="card-header">
+            <div className="card-title">
+              <h2>Average cost vs market price ({selectedAsset || '...'})</h2>
+              <button 
+                onClick={() => alert(`Average Cost vs Market Price
 
 This chart compares your average purchase price with the current market price.
 
@@ -1139,18 +1072,12 @@ This chart compares your average purchase price with the current market price.
 • The gap between lines shows your profit/loss per unit
 
 This helps you understand your entry points and current profit margins.`)}
-              style={{ 
-                background: 'none', 
-                border: 'none', 
-                cursor: 'pointer',
-                fontSize: '16px',
-                color: '#666',
-                padding: '4px'
-              }}
-              title="Chart Information"
-            >
-              ℹ️
-            </button>
+                className="icon-btn"
+                title="Chart Information"
+              >
+                ℹ️
+              </button>
+            </div>
           </div>
           {(loadingHist || !selectedAsset) && (
             <div style={{ padding: 16, color: 'var(--muted)' }}>Loading cost vs price...</div>
@@ -1171,10 +1098,11 @@ This helps you understand your entry points and current profit margins.`)}
         </section>
       </div>
       <section className="card" style={{ marginTop: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <h2>Portfolio value over time (stacked)</h2>
-          <button 
-            onClick={() => alert(`Portfolio Value Over Time (Stacked)
+        <div className="card-header">
+          <div className="card-title">
+            <h2>Portfolio value over time (stacked)</h2>
+            <button 
+              onClick={() => alert(`Portfolio Value Over Time (Stacked)
 
 This chart shows your total portfolio value broken down by asset over time.
 
@@ -1185,18 +1113,12 @@ This chart shows your total portfolio value broken down by asset over time.
 • Hover to see exact values for each asset at any point
 
 This helps visualize portfolio growth and asset allocation changes over time.`)}
-            style={{ 
-              background: 'none', 
-              border: 'none', 
-              cursor: 'pointer',
-              fontSize: '16px',
-              color: '#666',
-              padding: '4px'
-            }}
-            title="Chart Information"
-          >
-            ℹ️
-          </button>
+              className="icon-btn"
+              title="Chart Information"
+            >
+              ℹ️
+            </button>
+          </div>
         </div>
         {loadingHist && (
           <div style={{ padding: 16, color: 'var(--muted)' }}>Loading portfolio value...</div>
@@ -1212,10 +1134,11 @@ This helps visualize portfolio growth and asset allocation changes over time.`)}
       {/* BTC Maximization Charts */}
       <div className="grid grid-2" style={{ marginTop: 16, marginBottom: 16 }}>
         <section className="card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <h2>BTC Ratio & Accumulation</h2>
-            <button 
-              onClick={() => alert(`BTC Ratio & Accumulation
+          <div className="card-header">
+            <div className="card-title">
+              <h2>BTC Ratio & Accumulation</h2>
+              <button 
+                onClick={() => alert(`BTC Ratio & Accumulation
 
 This chart shows your Bitcoin strategy metrics over time.
 
@@ -1231,18 +1154,12 @@ BTC Accumulation:
 • Helps visualize your "BTC maximization" strategy
 
 Use the chart type selector to switch between views.`)}
-              style={{ 
-                background: 'none', 
-                border: 'none', 
-                cursor: 'pointer',
-                fontSize: '16px',
-                color: '#666',
-                padding: '4px'
-              }}
-              title="Chart Information"
-            >
-              ℹ️
-            </button>
+                className="icon-btn"
+                title="Chart Information"
+              >
+                ℹ️
+              </button>
+            </div>
           </div>
           <div style={{ marginBottom: 8 }}>
             <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Chart Type
@@ -1357,10 +1274,11 @@ Use the chart type selector to switch between views.`)}
 
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
         <section className="card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <h2>Profit-Taking Opportunities (Altcoin vs BTC PnL)</h2>
-            <button 
-              onClick={() => alert(`Profit-Taking Opportunities
+          <div className="card-header">
+            <div className="card-title">
+              <h2>Profit-Taking Opportunities (Altcoin vs BTC PnL)</h2>
+              <button 
+                onClick={() => alert(`Profit-Taking Opportunities
 
 This chart compares your altcoin PnL vs what BTC PnL would be if you had bought Bitcoin instead.
 
@@ -1373,18 +1291,12 @@ This chart compares your altcoin PnL vs what BTC PnL would be if you had bought 
 This helps identify when to take profits on altcoins vs holding BTC longer.
 
 Use the asset selector to compare different altcoins.`)}
-              style={{ 
-                background: 'none', 
-                border: 'none', 
-                cursor: 'pointer',
-                fontSize: '16px',
-                color: '#666',
-                padding: '4px'
-              }}
-              title="Chart Information"
-            >
-              ℹ️
-            </button>
+                className="icon-btn"
+                title="Chart Information"
+              >
+                ℹ️
+              </button>
+            </div>
           </div>
           <div style={{ marginBottom: 8 }}>
             <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
@@ -1444,10 +1356,11 @@ Use the asset selector to compare different altcoins.`)}
           )}
         </section>
         <section className="card">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <h2>Asset Correlation Heatmap</h2>
-            <button 
-              onClick={() => alert(`Asset Correlation Heatmap
+          <div className="card-header">
+            <div className="card-title">
+              <h2>Asset Correlation Heatmap</h2>
+              <button 
+                onClick={() => alert(`Asset Correlation Heatmap
 
 This heatmap shows how correlated your assets are with each other.
 
@@ -1464,18 +1377,12 @@ Correlation ranges:
 • -1.0 to -0.7 = Strong negative correlation
 
 This helps understand portfolio diversification and risk.`)}
-              style={{ 
-                background: 'none', 
-                border: 'none', 
-                cursor: 'pointer',
-                fontSize: '16px',
-                color: '#666',
-                padding: '4px'
-              }}
-              title="Chart Information"
-            >
-              ℹ️
-            </button>
+                className="icon-btn"
+                title="Chart Information"
+              >
+                ℹ️
+              </button>
+            </div>
           </div>
           {(loadingHist || assets.length < 2) && (
             <div style={{ padding: 16, color: 'var(--muted)' }}>Loading correlation...</div>
