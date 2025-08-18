@@ -6,11 +6,13 @@ import { getAssetColor } from '@/lib/assets';
 import AssetInput from '../components/AssetInput';
 import CryptoIcon from '../components/CryptoIcon';
 import { SupportedAsset } from '../../lib/assets';
+import { jsonFetcher } from '@/lib/swr-fetcher';
+import type { Transaction as Tx } from '@/lib/types';
 import { getTransactionDefaults, validateTransaction, formatPrice, calculateTransactionValue } from '../../lib/transaction-helpers';
 
-const fetcher = (url: string) => fetch(url).then(r=>r.json());
+const fetcher = jsonFetcher;
 
-type Tx = { id:number; asset:string; type:'Buy'|'Sell'; priceUsd?:number|null; quantity:number; datetime:string; costUsd?:number|null; proceedsUsd?:number|null; notes?:string|null };
+// Transaction type moved to lib/types
 
 export default function TransactionsPage(){
   const { selectedId } = usePortfolio();

@@ -3,6 +3,7 @@
 import { SWRConfig, useSWRConfig } from 'swr';
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
+import { clearHistCaches } from '@/lib/prices-cache';
 
 function SWREventBridge(){
   const { mutate } = useSWRConfig();
@@ -10,14 +11,7 @@ function SWREventBridge(){
   useEffect(()=>{
     const onTxChange = () => {
       // Clear any local historical caches so charts recompute from fresh prices
-      try {
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (k && k.startsWith('hist:')) {
-            localStorage.removeItem(k);
-          }
-        }
-      } catch {}
+      clearHistCaches();
       // Revalidate any keys related to transactions, prices, and historical data
       mutate(
         (key: unknown) => typeof key === 'string' && (
