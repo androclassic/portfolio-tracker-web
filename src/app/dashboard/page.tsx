@@ -89,7 +89,7 @@ type HistResp = { prices: PricePoint[] };
 export default function DashboardPage(){
   const { selectedId } = usePortfolio();
   const listKey = selectedId === 'all' ? '/api/transactions' : (selectedId? `/api/transactions?portfolioId=${selectedId}` : null);
-  const { data: txs, mutate } = useSWR<Tx[]>(listKey, fetcher);
+  const { data: txs, mutate, isLoading: loadingTxs } = useSWR<Tx[]>(listKey, fetcher);
   const [selectedAsset, setSelectedAsset] = useState<string>('');
   const [selectedPnLAsset, setSelectedPnLAsset] = useState<string>('ALL');
   const [selectedBtcChart, setSelectedBtcChart] = useState<string>('ratio'); // 'ratio' | 'accumulation'
@@ -148,7 +148,7 @@ export default function DashboardPage(){
     set.add('BTC');
     return Array.from(set).join(',');
   }, [assets]);
-  const { data: curr } = useSWR<PricesResp>(assets.length? `/api/prices/current?symbols=${encodeURIComponent(symbolsParam)}`: null, fetcher, { revalidateOnFocus: false });
+  const { data: curr, isLoading: loadingCurr } = useSWR<PricesResp>(assets.length? `/api/prices/current?symbols=${encodeURIComponent(symbolsParam)}`: null, fetcher, { revalidateOnFocus: false });
 
   // daily positions time series
   const dailyPos = useMemo(()=>{
@@ -202,7 +202,7 @@ export default function DashboardPage(){
   }, [txs]);
 
   const histKey = dateRange && assets.length ? `hist:${JSON.stringify({ symbols: assets, start: dateRange.start, end: dateRange.end })}` : null;
-  const { data: hist } = useSWR<HistResp>(
+  const { data: hist, isLoading: loadingHist } = useSWR<HistResp>(
     histKey,
     async (key: string) => {
       const parsed = JSON.parse(key.slice(5)) as { symbols: string[]; start: number; end: number };
@@ -401,10 +401,21 @@ export default function DashboardPage(){
   const allocationFigure = useMemo(()=>{
     if (!curr || !curr.prices) return { data:[], layout:{} };
     const points = Object.entries(holdings)
-      .map(([a, units])=> ({ asset: a, value: curr.prices![a] ? curr.prices![a] * units : 0 }))
+      .map(([a, units])=> {
+        const price = curr.prices![a] || 0;
+        return { asset: a, units, value: price * units };
+      })
       .filter(p=> p.value>0);
     const labels = points.map(p=>p.asset);
-    const data: Data[] = [{ type:'pie', labels, values: points.map(p=>p.value), hole:0.45, marker: { colors: labels.map(colorFor) } } as unknown as Data];
+    const data: Data[] = [{ 
+      type:'pie', 
+      labels, 
+      values: points.map(p=>p.value), 
+      customdata: points.map(p=> [p.units]),
+      hovertemplate: '<b>%{label}</b><br>Holdings: %{customdata[0]:.6f}<br>Value: %{value:$,.2f}<extra></extra>',
+      hole:0.45, 
+      marker: { colors: labels.map(colorFor) } 
+    } as unknown as Data];
     const layout: Partial<Layout> = { autosize:true, height:320, margin:{ t:30, r:10, l:10, b:10 } };
     return { data, layout };
   }, [curr, holdings, colorFor]);
@@ -1004,6 +1015,13 @@ Hover over blocks to see exact PnL values.`)}
             </button>
           </div>
         </div>
+        {(loadingTxs || loadingHist) && (
+          <div style={{ padding: 16, color: 'var(--muted)' }}>Loading heatmap...</div>
+        )}
+        {!loadingTxs && !loadingHist && portfolioHeatmap.assets.length === 0 && (
+          <div style={{ padding: 16, color: 'var(--muted)' }}>No data to display yet</div>
+        )}
+        {!loadingTxs && !loadingHist && portfolioHeatmap.assets.length > 0 && (
         <Plot
           data={[
             {
@@ -1034,6 +1052,7 @@ Hover over blocks to see exact PnL values.`)}
             }}
           style={{ width: '100%' }}
         />
+        )}
       </section>
 
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
@@ -1064,7 +1083,15 @@ This helps you understand your portfolio diversification and concentration.`)}
               ℹ️
             </button>
           </div>
-          <Plot data={allocationFigure.data} layout={allocationFigure.layout} style={{ width:'100%' }} />
+          {(loadingCurr && assets.length>0) && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading allocation...</div>
+          )}
+          {!loadingCurr && allocationFigure.data.length === 0 && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>No allocation data</div>
+          )}
+          {!loadingCurr && allocationFigure.data.length > 0 && (
+            <Plot data={allocationFigure.data} layout={allocationFigure.layout} style={{ width:'100%' }} />
+          )}
         </section>
         <section className="card">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -1104,6 +1131,13 @@ This helps track your trading performance and understand when gains were realize
               </select>
             </label>
           </div>
+          {(loadingTxs || loadingHist) && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading PnL...</div>
+          )}
+          {!loadingTxs && !loadingHist && pnl.dates.length === 0 && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>No PnL data</div>
+          )}
+          {!loadingTxs && !loadingHist && pnl.dates.length > 0 && (
           <Plot
             data={[
               { x: pnl.dates, y: pnl.realized, type:'scatter', mode:'lines', name:'Realized' },
@@ -1112,6 +1146,7 @@ This helps track your trading performance and understand when gains were realize
             layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' } }}
             style={{ width:'100%' }}
           />
+          )}
         </section>
       </div>
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
@@ -1150,7 +1185,15 @@ This helps visualize your trading activity and position sizing over time.`)}
               </select>
             </label>
           </div>
-          <Plot data={positionsFigure.data} layout={positionsFigure.layout} style={{ width:'100%' }} />
+          {loadingTxs && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading positions...</div>
+          )}
+          {!loadingTxs && positionsFigure.data.length === 0 && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>No positions to show</div>
+          )}
+          {!loadingTxs && positionsFigure.data.length > 0 && (
+            <Plot data={positionsFigure.data} layout={positionsFigure.layout} style={{ width:'100%' }} />
+          )}
         </section>
         <section className="card">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -1180,6 +1223,13 @@ This helps you understand your entry points and current profit margins.`)}
               ℹ️
             </button>
           </div>
+          {(loadingHist || !selectedAsset) && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading cost vs price...</div>
+          )}
+          {!loadingHist && costVsPrice.dates.length === 0 && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>No data for selected asset</div>
+          )}
+          {!loadingHist && costVsPrice.dates.length > 0 && (
           <Plot
             data={[
               { x: costVsPrice.dates, y: costVsPrice.avgCost, type:'scatter', mode:'lines', name:'Avg cost', line: { color: '#888888', dash: 'dot' } },
@@ -1188,6 +1238,7 @@ This helps you understand your entry points and current profit margins.`)}
             layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' } }}
             style={{ width:'100%' }}
           />
+          )}
         </section>
       </div>
       <section className="card" style={{ marginTop: 16 }}>
@@ -1218,7 +1269,15 @@ This helps visualize portfolio growth and asset allocation changes over time.`)}
             ℹ️
           </button>
         </div>
-        <Plot data={stacked.series} layout={{ autosize:true, height:340, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, hovermode: 'x unified' }} style={{ width:'100%' }} />
+        {loadingHist && (
+          <div style={{ padding: 16, color: 'var(--muted)' }}>Loading portfolio value...</div>
+        )}
+        {!loadingHist && stacked.series.length === 0 && (
+          <div style={{ padding: 16, color: 'var(--muted)' }}>No historical data</div>
+        )}
+        {!loadingHist && stacked.series.length > 0 && (
+          <Plot data={stacked.series} layout={{ autosize:true, height:340, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, hovermode: 'x unified' }} style={{ width:'100%' }} />
+        )}
       </section>
 
       {/* BTC Maximization Charts */}
@@ -1264,7 +1323,10 @@ Use the chart type selector to switch between views.`)}
               </select>
             </label>
           </div>
-          {selectedBtcChart === 'ratio' ? (
+          {(loadingHist || loadingTxs) && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading BTC charts...</div>
+          )}
+          {!loadingHist && !loadingTxs && (selectedBtcChart === 'ratio' ? (
             <Plot
               data={[
                 { x: btcRatio.dates, y: btcRatio.btcPercentage, type:'scatter', mode:'lines', name:'BTC % of Portfolio', line: { color: '#f7931a' } },
@@ -1318,7 +1380,7 @@ Use the chart type selector to switch between views.`)}
               }}
               style={{ width:'100%' }}
             />
-          )}
+          ))}
         </section>
         <section className="card">
           <h2>Altcoin Holdings BTC Value</h2>
@@ -1330,6 +1392,13 @@ Use the chart type selector to switch between views.`)}
               </select>
             </label>
           </div>
+          {(loadingHist || loadingTxs) && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading performance...</div>
+          )}
+          {!loadingHist && !loadingTxs && altcoinVsBtc.dates.length === 0 && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>No performance data</div>
+          )}
+          {!loadingHist && !loadingTxs && altcoinVsBtc.dates.length > 0 && (
           <Plot
             data={
               selectedAltcoin === 'ALL' 
@@ -1353,6 +1422,7 @@ Use the chart type selector to switch between views.`)}
             layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, yaxis: { title: { text: 'BTC Value of Holdings' } } }}
             style={{ width:'100%' }}
           />
+          )}
         </section>
       </div>
 
@@ -1395,6 +1465,13 @@ Use the asset selector to compare different altcoins.`)}
               </select>
             </label>
           </div>
+          {(loadingHist || loadingTxs) && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading opportunities...</div>
+          )}
+          {!loadingHist && !loadingTxs && profitOpportunities.dates.length === 0 && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>No opportunities data</div>
+          )}
+          {!loadingHist && !loadingTxs && profitOpportunities.dates.length > 0 && (
           <Plot
             data={[
               ...(selectedProfitAsset !== 'ALL' ? [
@@ -1435,6 +1512,7 @@ Use the asset selector to compare different altcoins.`)}
             }}
             style={{ width:'100%' }}
           />
+          )}
         </section>
         <section className="card">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -1470,6 +1548,13 @@ This helps understand portfolio diversification and risk.`)}
               ℹ️
             </button>
           </div>
+          {(loadingHist || assets.length < 2) && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading correlation...</div>
+          )}
+          {!loadingHist && correlationHeatmap.assets.length < 2 && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>Not enough assets for correlation</div>
+          )}
+          {!loadingHist && correlationHeatmap.assets.length >= 2 && (
           <Plot
             data={[
               {
@@ -1489,6 +1574,7 @@ This helps understand portfolio diversification and risk.`)}
             }}
             style={{ width:'100%' }}
           />
+          )}
         </section>
       </div>
     </main>
