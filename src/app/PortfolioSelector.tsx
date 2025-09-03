@@ -11,6 +11,20 @@ export default function PortfolioSelector() {
 
   useEffect(()=>{ setRenameMap(Object.fromEntries(portfolios.map(p=> [p.id, p.name]))); }, [portfolios]);
 
+  // Add escape key handler
+  useEffect(() => {
+    if (!isOpen) return;
+    
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+    
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen]);
+
   async function createPortfolio(e: React.FormEvent){
     e.preventDefault();
     if (!newName.trim()) return;

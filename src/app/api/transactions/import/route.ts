@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { parse as parseCsv } from 'csv-parse/sync';
 import { parse as parseDateFns, isValid as isValidDate } from 'date-fns';
 import type { Prisma } from '@prisma/client';
-import { validateAssetList } from '@/lib/assets';
+image.pngimport { validateAssetList, isFiatCurrency } from '@/lib/assets';
 import { getAuthFromRequest } from '@/lib/auth';
 
 function parseFloatSafe(v: unknown): number | null {
@@ -160,6 +160,7 @@ export async function POST(req: NextRequest) {
       invalidRows.push({row: i + 1, reason: 'Missing asset'});
       continue;
     }
+    
     allAssets.push(asset);
     const costUsd = parseFloatSafe(obj['cost_usd'] ?? obj['CostUsd'] ?? obj['Cost USD']);
     const proceedsUsd = parseFloatSafe(obj['proceeds_usd'] ?? obj['ProceedsUsd'] ?? obj['Proceeds USD']);
@@ -192,9 +193,9 @@ export async function POST(req: NextRequest) {
   const uniqueAssets = [...new Set(allAssets)];
   const assetValidation = validateAssetList(uniqueAssets);
   
-  // Filter parsed transactions: allow supported crypto assets, and always allow USD for cash flows
+  // Filter parsed transactions: allow supported crypto assets, and always allow fiat currencies
   const supportedTransactions = parsed.filter(tx => 
-    tx.asset === 'USD' || assetValidation.supported.includes(tx.asset)
+    isFiatCurrency(tx.asset) || assetValidation.supported.includes(tx.asset)
   );
 
   if (!supportedTransactions.length) {

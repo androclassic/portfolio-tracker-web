@@ -5,7 +5,7 @@ export interface SupportedAsset {
   symbol: string;
   name: string;
   marketCapRank: number;
-  category: 'major' | 'altcoin' | 'stablecoin';
+  category: 'major' | 'altcoin' | 'stablecoin' | 'fiat';
 }
 
 export const SUPPORTED_ASSETS: SupportedAsset[] = [
@@ -29,6 +29,10 @@ export const SUPPORTED_ASSETS: SupportedAsset[] = [
   { symbol: 'LTC', name: 'Litecoin', marketCapRank: 18, category: 'altcoin' },
   { symbol: 'ATOM', name: 'Cosmos', marketCapRank: 19, category: 'altcoin' },
   { symbol: 'SUI', name: 'Sui', marketCapRank: 20, category: 'altcoin' },
+  // Fiat currencies
+  { symbol: 'USD', name: 'US Dollar', marketCapRank: 0, category: 'fiat' },
+  { symbol: 'EUR', name: 'Euro', marketCapRank: 0, category: 'fiat' },
+  { symbol: 'RON', name: 'Romanian Leu', marketCapRank: 0, category: 'fiat' },
 ];
 
 // Create lookup maps for efficient searching
@@ -117,6 +121,10 @@ export const ASSET_COLORS: Record<string, string> = {
   LTC: '#bfbbbb',
   ATOM: '#2e3148',
   SUI: '#6fbcf0',
+  // Fiat currency colors
+  USD: '#16a34a',
+  EUR: '#3b82f6',
+  RON: '#dc2626',
 };
 
 export function getAssetColor(symbol: string): string {
@@ -162,4 +170,34 @@ function getCoinGeckoId(symbol: string): string {
   };
   
   return coinGeckoMap[symbol.toUpperCase()] || symbol.toLowerCase();
+}
+
+// Fiat currency conversion rates (base: USD)
+export const FIAT_RATES: Record<string, number> = {
+  USD: 1.0,
+  EUR: 0.85, // Approximate EUR/USD rate
+  RON: 4.5,  // Approximate RON/USD rate
+};
+
+// Convert between fiat currencies
+export function convertFiat(amount: number, fromCurrency: string, toCurrency: string): number {
+  if (fromCurrency === toCurrency) return amount;
+  
+  const fromRate = FIAT_RATES[fromCurrency.toUpperCase()] || 1;
+  const toRate = FIAT_RATES[toCurrency.toUpperCase()] || 1;
+  
+  // Convert to USD first, then to target currency
+  const usdAmount = amount / fromRate;
+  return usdAmount * toRate;
+}
+
+// Get all supported fiat currencies
+export function getFiatCurrencies(): string[] {
+  return SUPPORTED_ASSETS.filter(asset => asset.category === 'fiat').map(asset => asset.symbol);
+}
+
+// Check if an asset is fiat
+export function isFiatCurrency(symbol: string): boolean {
+  const asset = getAssetBySymbol(symbol);
+  return asset?.category === 'fiat';
 }
