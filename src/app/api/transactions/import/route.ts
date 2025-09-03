@@ -14,9 +14,12 @@ function parseFloatSafe(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function normalizeType(v: unknown): 'Buy' | 'Sell' {
+function normalizeType(v: unknown): 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal' {
   const s = String(v || '').toLowerCase();
-  return s === 'sell' ? 'Sell' : 'Buy';
+  if (s === 'sell') return 'Sell';
+  if (s === 'deposit') return 'Deposit';
+  if (s === 'withdrawal' || s === 'withdraw') return 'Withdrawal';
+  return 'Buy';
 }
 
 function parseDateFlexible(input: unknown): Date | null {
@@ -97,10 +100,11 @@ export async function POST(req: NextRequest) {
   if (!csvText.trim()) return NextResponse.json({ error: 'Empty CSV' }, { status: 400 });
 
   const rows = parseCsv(csvText, { columns: true, skip_empty_lines: true }) as Array<Record<string, unknown>>;
+  const isTradingView = rows.length > 0 && ['Symbol','Side','Qty','Fill Price','Closing Time'].every(k => Object.prototype.hasOwnProperty.call(rows[0], k));
 
   type TxInput = {
     asset: string;
-    type: 'Buy' | 'Sell';
+    type: 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal';
     priceUsd?: number | null;
     quantity: number;
     datetime: Date;
@@ -118,24 +122,47 @@ export async function POST(req: NextRequest) {
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     const obj = r as Record<string, unknown>;
-    const asset = String((obj['asset'] ?? obj['Asset'] ?? '')).trim().toUpperCase();
+    let asset = '';
+    let type: 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal' = 'Buy';
+    let priceUsd: number | null = null;
+    let quantity = 0;
+    let dt: Date | null = null;
+    let feesUsd: number | null = null;
+    let notes: string | null = null;
+
+    if (isTradingView) {
+      // TradingView columns: Symbol, Side, Qty, Fill Price, Commission, Closing Time
+      const sym = String(obj['Symbol'] || '').trim();
+      if (!sym) {
+        invalidRows.push({row: i + 1, reason: 'Missing Symbol'});
+        continue;
+      }
+      if (sym === '$CASH') asset = 'USD'; else asset = sym.toUpperCase().endsWith('USD') ? sym.toUpperCase().slice(0, -3) : sym.toUpperCase();
+      type = normalizeType(obj['Side']);
+      priceUsd = parseFloatSafe(obj['Fill Price']);
+      const qtyParsed = parseFloatSafe(obj['Qty']) || 0;
+      quantity = Math.abs(qtyParsed);
+      dt = parseDateFlexible(obj['Closing Time']);
+      feesUsd = parseFloatSafe(obj['Commission']);
+      notes = null;
+    } else {
+      asset = String((obj['asset'] ?? obj['Asset'] ?? '')).trim().toUpperCase();
+      type = normalizeType(obj['type'] ?? obj['Type']);
+      priceUsd = parseFloatSafe(obj['price_usd'] ?? obj['PriceUsd'] ?? obj['Price USD']);
+      const qtyParsed = parseFloatSafe(obj['quantity'] ?? obj['Quantity']) || 0;
+      quantity = Math.abs(qtyParsed);
+      dt = parseDateFlexible(obj['datetime'] ?? obj['Date'] ?? obj['Datetime'] ?? obj['date'] ?? obj['timestamp'] ?? obj['Time'] ?? obj['TimeStamp']);
+      feesUsd = parseFloatSafe(obj['fees_usd'] ?? obj['FeesUsd'] ?? obj['Fees USD']);
+      notes = obj['notes'] != null ? String(obj['notes']) : null;
+    }
     
     if (!asset) {
       invalidRows.push({row: i + 1, reason: 'Missing asset'});
       continue;
     }
-    
     allAssets.push(asset);
-    
-    const type = normalizeType(obj['type'] ?? obj['Type']);
-    const priceUsd = parseFloatSafe(obj['price_usd'] ?? obj['PriceUsd'] ?? obj['Price USD']);
-    const qtyParsed = parseFloatSafe(obj['quantity'] ?? obj['Quantity']) || 0;
-    const quantity = Math.abs(qtyParsed);
-    const dt = parseDateFlexible(obj['datetime'] ?? obj['Date'] ?? obj['Datetime'] ?? obj['date'] ?? obj['timestamp'] ?? obj['Time'] ?? obj['TimeStamp']);
-    const feesUsd = parseFloatSafe(obj['fees_usd'] ?? obj['FeesUsd'] ?? obj['Fees USD']);
     const costUsd = parseFloatSafe(obj['cost_usd'] ?? obj['CostUsd'] ?? obj['Cost USD']);
     const proceedsUsd = parseFloatSafe(obj['proceeds_usd'] ?? obj['ProceedsUsd'] ?? obj['Proceeds USD']);
-    const notes = obj['notes'] != null ? String(obj['notes']) : null;
     
     if (!dt) {
       invalidRows.push({row: i + 1, reason: 'Invalid or missing date'});
@@ -150,7 +177,7 @@ export async function POST(req: NextRequest) {
     parsed.push({ 
       asset, 
       type, 
-      priceUsd: priceUsd ?? null, 
+      priceUsd: (type==='Buy' || type==='Sell') ? (priceUsd ?? null) : null, 
       quantity, 
       datetime: dt, 
       feesUsd: feesUsd ?? null, 
@@ -165,9 +192,9 @@ export async function POST(req: NextRequest) {
   const uniqueAssets = [...new Set(allAssets)];
   const assetValidation = validateAssetList(uniqueAssets);
   
-  // Filter parsed transactions to only include supported assets
+  // Filter parsed transactions: allow supported crypto assets, and always allow USD for cash flows
   const supportedTransactions = parsed.filter(tx => 
-    assetValidation.supported.includes(tx.asset)
+    tx.asset === 'USD' || assetValidation.supported.includes(tx.asset)
   );
 
   if (!supportedTransactions.length) {

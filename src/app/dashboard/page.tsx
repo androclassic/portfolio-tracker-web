@@ -28,7 +28,7 @@ export default function DashboardPage(){
 
   const assets = useMemo(()=>{
     const s = new Set<string>();
-    (txs||[]).forEach(t=> s.add(t.asset.toUpperCase()));
+    (txs||[]).forEach(t=> { const a=t.asset.toUpperCase(); if (a!== 'USD') s.add(a); });
     return Array.from(s).sort();
   }, [txs]);
 
@@ -65,6 +65,8 @@ export default function DashboardPage(){
     if (!txs) return pos;
     for (const t of txs){
       const a = t.asset.toUpperCase();
+      if (a==='USD') continue;
+      if (!(t.type==='Buy' || t.type==='Sell')) continue;
       const q = Math.abs(t.quantity);
       pos[a] = (pos[a]||0) + (t.type === 'Buy' ? q : -q);
     }
@@ -82,7 +84,8 @@ export default function DashboardPage(){
   // daily positions time series
   const dailyPos = useMemo(()=>{
     if (!txs || txs.length===0) return [] as { date:string; asset:string; position:number }[];
-    const rows = txs.map(t=> ({ asset: t.asset.toUpperCase(), date: new Date(t.datetime) , signed: (t.type==='Buy'? 1 : -1) * Math.abs(t.quantity) }));
+    const rows = txs.filter(t=> t.asset.toUpperCase() !== 'USD' && (t.type==='Buy' || t.type==='Sell'))
+      .map(t=> ({ asset: t.asset.toUpperCase(), date: new Date(t.datetime) , signed: (t.type==='Buy'? 1 : -1) * Math.abs(t.quantity) }));
     // group by day and asset
     const byKey = new Map<string, number>();
     for (const r of rows){
@@ -185,7 +188,8 @@ export default function DashboardPage(){
     const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
 
     // Filter transactions by selected asset if not 'ALL'
-    const filteredTxs = selectedPnLAsset === 'ALL' ? txs : txs.filter(t => t.asset.toUpperCase() === selectedPnLAsset);
+    const filteredTxs = (selectedPnLAsset === 'ALL' ? txs : txs.filter(t => t.asset.toUpperCase() === selectedPnLAsset))
+      ?.filter(t => t.asset.toUpperCase() !== 'USD' && (t.type==='Buy' || t.type==='Sell')) || [];
     
     // Filter assets for calculation
     const relevantAssets = selectedPnLAsset === 'ALL' ? assets : [selectedPnLAsset];
@@ -193,7 +197,7 @@ export default function DashboardPage(){
     // Prepare transactions grouped by date per asset with unit price
     type TxEnriched = { asset: string; type: 'Buy'|'Sell'; units: number; unitPrice: number };
     const txByDate = new Map<string, TxEnriched[]>();
-    for (const t of filteredTxs) {
+    for (const t of filteredTxs.filter(t=> t.asset.toUpperCase() !== 'USD' && (t.type==='Buy' || t.type==='Sell'))) {
       const asset = t.asset.toUpperCase();
       const day = new Date(new Date(t.datetime).getFullYear(), new Date(t.datetime).getMonth(), new Date(t.datetime).getDate()).toISOString().slice(0, 10);
       const key = day;
@@ -201,7 +205,7 @@ export default function DashboardPage(){
       const unitPrice = (t.priceUsd != null ? t.priceUsd : fallback) || 0;
       const units = Math.abs(t.quantity);
       const arr = txByDate.get(key) || [];
-      arr.push({ asset, type: t.type, units, unitPrice });
+      arr.push({ asset, type: t.type as 'Buy'|'Sell', units, unitPrice });
       txByDate.set(key, arr);
     }
 
@@ -257,7 +261,7 @@ export default function DashboardPage(){
     const asset = selectedAsset.toUpperCase();
     const dates = Array.from(new Set(hist.prices.filter(p => p.asset.toUpperCase() === asset).map(p => p.date))).sort();
     // build tx map for this asset
-    const txsA = (txs || []).filter(t => t.asset.toUpperCase() === asset)
+    const txsA = (txs || []).filter(t => t.asset.toUpperCase() === asset && (t.type==='Buy' || t.type==='Sell'))
       .map(t => ({ date: new Date(new Date(t.datetime).getFullYear(), new Date(t.datetime).getMonth(), new Date(t.datetime).getDate()).toISOString().slice(0,10), type: t.type as 'Buy'|'Sell', units: Math.abs(t.quantity), unitPrice: t.priceUsd || 0 }));
     const txByDate = new Map<string, { type:'Buy'|'Sell'; units:number; unitPrice:number }[]>();
     for (const tx of txsA) { const arr = txByDate.get(tx.date) || []; arr.push(tx); txByDate.set(tx.date, arr); }

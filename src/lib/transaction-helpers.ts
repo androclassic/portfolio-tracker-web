@@ -84,8 +84,8 @@ export function validateTransaction(data: {
   }
 
   // Type validation
-  if (!data.type || !['Buy', 'Sell'].includes(data.type)) {
-    errors.push('Transaction type must be Buy or Sell');
+  if (!data.type || !['Buy', 'Sell', 'Deposit', 'Withdrawal'].includes(data.type)) {
+    errors.push('Transaction type must be Buy, Sell, Deposit or Withdrawal');
   }
 
   // Quantity validation

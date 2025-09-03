@@ -7,7 +7,7 @@ import { getAuthFromRequest } from '@/lib/auth';
 
 const TxSchema = z.object({
   asset: z.string().min(1),
-  type: z.enum(['Buy','Sell']),
+  type: z.enum(['Buy','Sell','Deposit','Withdrawal']),
   priceUsd: z.number().nullable().optional(),
   quantity: z.number().nonnegative(),
   datetime: z.string(),

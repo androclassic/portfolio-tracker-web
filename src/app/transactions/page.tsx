@@ -22,7 +22,8 @@ export default function TransactionsPage(){
   const [assetFilter, setAssetFilter] = useState<string>('All');
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc');
   const [isOpen, setIsOpen] = useState(false);
-  const [newTx, setNewTx] = useState<{ asset: string; type: 'Buy'|'Sell'|string; quantity: string; priceUsd: string; datetime: string; notes?: string; selectedAsset: SupportedAsset | null }>({ 
+  const [exportFormat, setExportFormat] = useState<'default'|'tradingview'>('default');
+  const [newTx, setNewTx] = useState<{ asset: string; type: 'Buy'|'Sell'|'Deposit'|'Withdrawal'|string; quantity: string; priceUsd: string; datetime: string; notes?: string; selectedAsset: SupportedAsset | null }>({ 
     asset:'', 
     type:'Buy', 
     quantity:'', 
@@ -83,7 +84,7 @@ export default function TransactionsPage(){
 
   // Calculate cost/proceeds when quantity or price changes
   const calculatedValues = useMemo(() => {
-    if (newTx.quantity && newTx.priceUsd) {
+    if ((newTx.type === 'Buy' || newTx.type === 'Sell') && newTx.quantity && newTx.priceUsd) {
       return calculateTransactionValue(
         newTx.type as 'Buy' | 'Sell',
         newTx.quantity,
@@ -111,21 +112,32 @@ export default function TransactionsPage(){
       return;
     }
     
-    // Check if asset is supported
-    if (!newTx.selectedAsset) {
+    // Check if asset is supported for Buy/Sell only
+    if ((newTx.type === 'Buy' || newTx.type === 'Sell') && !newTx.selectedAsset) {
       setTxErrors(['Please select a supported cryptocurrency from the dropdown']);
       return;
     }
     
-    const body = {
-      asset: newTx.asset.toUpperCase(),
-      type: (newTx.type === 'Sell' ? 'Sell' : 'Buy') as 'Buy'|'Sell',
-      priceUsd: newTx.priceUsd ? Number(newTx.priceUsd) : null,
+    const isCrypto = newTx.type === 'Buy' || newTx.type === 'Sell';
+    const body: {
+      asset: string;
+      type: 'Buy'|'Sell'|'Deposit'|'Withdrawal';
+      priceUsd: number|null;
+      quantity: number;
+      datetime: string;
+      notes: string|null;
+      portfolioId: number | string;
+      costUsd?: number;
+      proceedsUsd?: number;
+    } = {
+      asset: isCrypto ? newTx.asset.toUpperCase() : 'USD',
+      type: newTx.type as 'Buy'|'Sell'|'Deposit'|'Withdrawal',
+      priceUsd: isCrypto ? (newTx.priceUsd ? Number(newTx.priceUsd) : null) : null,
       quantity: Number(newTx.quantity),
       datetime: newTx.datetime,
       notes: newTx.notes ? newTx.notes : null,
       portfolioId: selectedId ?? 1,
-      // Include calculated values
+      // Include calculated values (only relevant for Buy/Sell)
       ...calculatedValues
     };
     
@@ -218,7 +230,14 @@ export default function TransactionsPage(){
           </button>
           {selectedId && (
             <>
-              <form action={`/api/transactions/export?portfolioId=${selectedId}`} method="POST">
+              <label style={{ display:'inline-flex', alignItems:'center', gap:'0.5rem' }}>
+                Export format
+                <select value={exportFormat} onChange={e=>setExportFormat(e.target.value as 'default'|'tradingview')}>
+                  <option value="default">Standard CSV</option>
+                  <option value="tradingview">TradingView CSV</option>
+                </select>
+              </label>
+              <form action={`/api/transactions/export?portfolioId=${selectedId}&format=${exportFormat}`} method="POST">
                 <button 
                   type="submit" 
                   className="btn btn-success"
@@ -352,12 +371,14 @@ export default function TransactionsPage(){
                   >
                     <option value="Buy">Buy</option>
                     <option value="Sell">Sell</option>
+                    <option value="Deposit">Deposit (USD)</option>
+                    <option value="Withdrawal">Withdrawal (USD)</option>
                   </select>
                 </div>
                 
                 <div className="form-group">
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    Quantity *
+                    {newTx.type === 'Deposit' || newTx.type === 'Withdrawal' ? 'Amount USD *' : 'Quantity *'}
                   </label>
                   <input 
                     type="number" 
@@ -374,7 +395,7 @@ export default function TransactionsPage(){
               <div className="form-row">
                 <div className="form-group">
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    Price USD {newTx.priceUsd && <span className="badge badge-info">Auto-filled</span>}
+                    Price USD {newTx.priceUsd && (newTx.type==='Buy' || newTx.type==='Sell') && <span className="badge badge-info">Auto-filled</span>}
                   </label>
                   <input 
                     type="number" 
@@ -383,6 +404,7 @@ export default function TransactionsPage(){
                     value={newTx.priceUsd} 
                     onChange={e=>setNewTx(v=>({ ...v, priceUsd:e.target.value }))}
                     className="form-input"
+                    disabled={!(newTx.type==='Buy' || newTx.type==='Sell')}
                   />
                 </div>
                 
@@ -400,7 +422,7 @@ export default function TransactionsPage(){
                 </div>
               </div>
 
-              {(calculatedValues.costUsd || calculatedValues.proceedsUsd) && (
+              {(newTx.type==='Buy' || newTx.type==='Sell') && (calculatedValues.costUsd || calculatedValues.proceedsUsd) && (
                 <div className="calculated-value" style={{ 
                   display: 'flex', 
                   alignItems: 'center', 
@@ -474,9 +496,11 @@ export default function TransactionsPage(){
             </div>
             <form onSubmit={saveEdit}>
               <input placeholder="Asset" value={editing.asset} onChange={e=>setEditing(v=> v? { ...v, asset:e.target.value } : v)} required />
-              <select value={editing.type} onChange={e=>setEditing(v=> v? { ...v, type:e.target.value as 'Buy'|'Sell' } : v)}>
+              <select value={editing.type} onChange={e=>setEditing(v=> v? { ...v, type:e.target.value as 'Buy'|'Sell'|'Deposit'|'Withdrawal' } : v)}>
                 <option>Buy</option>
                 <option>Sell</option>
+                <option>Deposit</option>
+                <option>Withdrawal</option>
               </select>
               <input type="number" step="any" placeholder="Quantity" value={editing.quantity} onChange={e=>setEditing(v=> v? { ...v, quantity:Number(e.target.value) } : v)} required />
               <input type="number" step="any" placeholder="Price USD (optional)" value={editing.priceUsd ?? ''} onChange={e=>setEditing(v=> v? { ...v, priceUsd:e.target.value === ''? null : Number(e.target.value) } : v)} />

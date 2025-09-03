@@ -1,7 +1,7 @@
 export type Transaction = {
   id: number;
   asset: string;
-  type: 'Buy' | 'Sell';
+  type: 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal';
   priceUsd?: number | null;
   quantity: number;
   datetime: string;
