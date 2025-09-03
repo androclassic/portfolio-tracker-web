@@ -218,7 +218,7 @@ export default function TransactionsPage(){
           </button>
           {selectedId && (
             <>
-              <form action={`/api/transactions/export?portfolioId=${selectedId}`} method="GET">
+              <form action={`/api/transactions/export?portfolioId=${selectedId}`} method="POST">
                 <button 
                   type="submit" 
                   className="btn btn-success"

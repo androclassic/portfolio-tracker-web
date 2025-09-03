@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@prisma/client';
 
-export async function GET(req: NextRequest) {
+export async function POST(req: NextRequest) {
   const url = new URL(req.url);
   const portfolioId = Number(url.searchParams.get('portfolioId') || '1');
   const where: Prisma.TransactionWhereInput = Number.isFinite(portfolioId) ? { portfolioId } : {};
@@ -26,7 +26,15 @@ export async function GET(req: NextRequest) {
     lines.push(line);
   }
   const csv = lines.join('\n');
-  return new NextResponse(csv, { headers: { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="transactions_portfolio_${portfolioId}.csv"` } });
+  return new NextResponse(csv, { 
+    headers: { 
+      'Content-Type': 'text/csv; charset=utf-8', 
+      'Content-Disposition': `attachment; filename="transactions_portfolio_${portfolioId}.csv"`,
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    } 
+  });
 }
 
 
