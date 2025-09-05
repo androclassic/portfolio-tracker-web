@@ -95,32 +95,44 @@ export default function CashDashboardPage(){
     return data;
   }, [fiatTxs, fiatCurrencies]);
 
-  // Calculate running balance over time
+  // Calculate running balance over time (all fiat currencies converted to USD)
   const balanceOverTime = useMemo(() => {
-    const currency = selectedCurrency;
-    const currencyTxs = fiatTxs.filter(tx => tx.asset.toUpperCase() === currency);
-    const sortedTxs = [...currencyTxs].sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
+    const sortedTxs = [...fiatTxs].sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
     
     const dates: string[] = [];
     const balances: number[] = [];
-    let runningBalance = 0;
+    const balancesByCurrency: Record<string, number> = {};
+    
+    // Initialize balances for all fiat currencies
+    fiatCurrencies.forEach(currency => {
+      balancesByCurrency[currency] = 0;
+    });
     
     sortedTxs.forEach(tx => {
       const date = new Date(tx.datetime).toISOString().split('T')[0];
+      const currency = tx.asset.toUpperCase();
       const amount = tx.quantity;
       
       if (tx.type === 'Deposit') {
-        runningBalance += amount;
+        balancesByCurrency[currency] += amount;
       } else if (tx.type === 'Withdrawal') {
-        runningBalance -= amount;
+        balancesByCurrency[currency] -= amount;
+      }
+      
+      // Calculate total balance in USD
+      let totalBalanceUsd = 0;
+      for (const [curr, balance] of Object.entries(balancesByCurrency)) {
+        if (balance !== 0) {
+          totalBalanceUsd += convertFiat(balance, curr, 'USD');
+        }
       }
       
       dates.push(date);
-      balances.push(runningBalance);
+      balances.push(totalBalanceUsd);
     });
     
     return { dates, balances };
-  }, [fiatTxs, selectedCurrency]);
+  }, [fiatTxs, fiatCurrencies]);
 
   // Calculate monthly cash flow
   const monthlyCashFlow = useMemo(() => {
@@ -212,16 +224,16 @@ export default function CashDashboardPage(){
       y: balanceOverTime.balances,
       type: 'scatter',
       mode: 'lines+markers',
-      name: `${selectedCurrency} Balance`,
-      line: { color: colorFor(selectedCurrency) },
+      name: 'Total Cash Balance (USD)',
+      line: { color: '#3b82f6' },
       marker: { size: 6 },
     },
   ];
 
   const balanceOverTimeLayout: Partial<Layout> = {
-    title: { text: `${selectedCurrency} Balance Over Time${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
+    title: { text: `Total Cash Balance Over Time (USD)${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
     xaxis: { title: { text: 'Date' } },
-    yaxis: { title: { text: `${selectedCurrency} Balance` } },
+    yaxis: { title: { text: 'Balance (USD)' } },
     height: 400,
   };
 
