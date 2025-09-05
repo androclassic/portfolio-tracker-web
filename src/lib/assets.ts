@@ -175,9 +175,12 @@ function getCoinGeckoId(symbol: string): string {
 // Fiat currency conversion rates (base: USD)
 export const FIAT_RATES: Record<string, number> = {
   USD: 1.0,
-  EUR: 0.85, // Approximate EUR/USD rate
+  EUR: 1.08, // Approximate EUR/USD rate (1 EUR = 1.08 USD)
   RON: 4.5,  // Approximate RON/USD rate
 };
+
+// Re-export the real exchange rate service
+export { getHistoricalExchangeRateSync as getHistoricalExchangeRate, preloadExchangeRates } from './exchange-rates';
 
 // Convert between fiat currencies
 export function convertFiat(amount: number, fromCurrency: string, toCurrency: string): number {

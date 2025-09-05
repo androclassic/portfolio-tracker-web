@@ -3,7 +3,7 @@ import dynamic from 'next/dynamic';
 import useSWR from 'swr';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
-import { getAssetColor, getFiatCurrencies, convertFiat, isFiatCurrency } from '@/lib/assets';
+import { getAssetColor, getFiatCurrencies, convertFiat, isFiatCurrency, getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/assets';
 
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
@@ -192,7 +192,21 @@ export default function DashboardPage(){
     histKey,
     async (key: string) => {
       const parsed = JSON.parse(key.slice(5)) as { symbols: string[]; start: number; end: number };
-      return fetchHistoricalWithLocalCache(parsed.symbols, parsed.start, parsed.end);
+      const result = await fetchHistoricalWithLocalCache(parsed.symbols, parsed.start, parsed.end);
+      
+      // Preload exchange rates for the same date range
+      if (result && result.prices && result.prices.length > 0) {
+        const dates = result.prices.map(p => p.date).sort();
+        const startDate = dates[0];
+        const endDate = dates[dates.length - 1];
+        
+        // Preload exchange rates in the background
+        preloadExchangeRates(startDate, endDate).catch(error => {
+          console.warn('Failed to preload exchange rates:', error);
+        });
+      }
+      
+      return result;
     },
     { revalidateOnFocus: false }
   );
@@ -335,21 +349,20 @@ export default function DashboardPage(){
       txs.filter(tx => new Date(tx.datetime) <= new Date(date)).forEach(tx => {
         if (tx.type === 'Deposit') {
           if (isFiatCurrency(tx.asset)) {
-            costByCurrency[tx.asset] += tx.quantity;
+            // Convert to USD using historical exchange rate at transaction date
+            const historicalRate = getHistoricalExchangeRate(tx.asset, 'USD', tx.datetime);
+            cumulativeCost += tx.quantity * historicalRate;
           }
         } else if (tx.type === 'Withdrawal') {
           if (isFiatCurrency(tx.asset)) {
-            costByCurrency[tx.asset] -= tx.quantity;
+            // Convert to USD using historical exchange rate at transaction date
+            const historicalRate = getHistoricalExchangeRate(tx.asset, 'USD', tx.datetime);
+            cumulativeCost -= tx.quantity * historicalRate;
           }
         }
         // Note: Buy/Sell transactions don't affect cost basis directly
         // as they represent exchanges between assets, not new money invested
       });
-
-      // Convert all fiat costs to USD and sum
-      for (const [currency, amount] of Object.entries(costByCurrency)) {
-        cumulativeCost += convertFiat(amount, currency, 'USD');
-      }
 
       // Calculate portfolio value at this date
       let portfolioVal = 0;
@@ -468,9 +481,12 @@ export default function DashboardPage(){
         }
       }
       
-      // Convert all balances to USD
+      // Convert all balances to USD using historical exchange rates
       for (const [currency, balance] of Object.entries(balances)) {
-        cashValue += convertFiat(balance, currency, 'USD');
+        if (balance !== 0) {
+          const historicalRate = getHistoricalExchangeRate(currency, 'USD', date);
+          cashValue += balance * historicalRate;
+        }
       }
 
       const totalValue = cryptoValue + cashValue;
