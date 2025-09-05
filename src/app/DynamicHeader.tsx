@@ -101,6 +101,7 @@ export default function DynamicHeader() {
           {isAuthenticated ? (
             <>
               <Link href="/dashboard">Dashboard</Link>
+              <Link href="/cash-dashboard">Cash Dashboard</Link>
               <Link href="/transactions">Transactions</Link>
               <button 
                 className="btn btn-secondary" 

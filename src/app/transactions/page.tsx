@@ -218,7 +218,40 @@ export default function TransactionsPage(){
           </button>
           {selectedId && (
             <>
-              <form action={`/api/transactions/export?portfolioId=${selectedId}`} method="POST">
+              <form 
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  const format = formData.get('format') as string;
+                  const url = `/api/transactions/export?portfolioId=${selectedId}&format=${format}`;
+                  
+                  try {
+                    const response = await fetch(url, { method: 'POST' });
+                    if (response.ok) {
+                      const blob = await response.blob();
+                      const downloadUrl = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = downloadUrl;
+                      a.download = `transactions_portfolio_${selectedId}${format === 'tradingview' ? '_tradingview' : ''}.csv`;
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                      window.URL.revokeObjectURL(downloadUrl);
+                    }
+                  } catch (error) {
+                    console.error('Export failed:', error);
+                  }
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                <select 
+                  name="format" 
+                  defaultValue="default"
+                  style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border)' }}
+                >
+                  <option value="default">Default Format</option>
+                  <option value="tradingview">TradingView Format</option>
+                </select>
                 <button 
                   type="submit" 
                   className="btn btn-success"

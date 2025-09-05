@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { parse as parseCsv } from 'csv-parse/sync';
 import { parse as parseDateFns, isValid as isValidDate } from 'date-fns';
 import type { Prisma } from '@prisma/client';
-image.pngimport { validateAssetList, isFiatCurrency } from '@/lib/assets';
+import { validateAssetList, isFiatCurrency } from '@/lib/assets';
 import { getAuthFromRequest } from '@/lib/auth';
 
 function parseFloatSafe(v: unknown): number | null {
