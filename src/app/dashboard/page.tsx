@@ -3,7 +3,7 @@ import dynamic from 'next/dynamic';
 import useSWR from 'swr';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
-import { getAssetColor } from '@/lib/assets';
+import { getAssetColor, getFiatCurrencies, convertFiat, isFiatCurrency } from '@/lib/assets';
 
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
@@ -14,6 +14,7 @@ const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
 const fetcher = jsonFetcher;
 
 // Types and historical fetcher moved to lib
+
 
 export default function DashboardPage(){
   const { selectedId } = usePortfolio();
@@ -72,6 +73,59 @@ export default function DashboardPage(){
     }
     return pos;
   }, [txs]);
+
+  // Calculate cash balances (fiat currencies)
+  const cashBalances = useMemo(() => {
+    const balances: Record<string, number> = {};
+    const fiatCurrencies = getFiatCurrencies();
+    
+    if (!txs) return balances;
+    
+    // Initialize balances for all fiat currencies
+    fiatCurrencies.forEach(currency => {
+      balances[currency] = 0;
+    });
+    
+    // Process all transactions in chronological order
+    const sortedTxs = [...txs].sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
+    
+    for (const tx of sortedTxs) {
+      const asset = tx.asset.toUpperCase();
+      
+      if (fiatCurrencies.includes(asset)) {
+        // Handle fiat currency transactions (deposits/withdrawals)
+        if (tx.type === 'Deposit') {
+          balances[asset] += tx.quantity;
+        } else if (tx.type === 'Withdrawal') {
+          balances[asset] -= tx.quantity;
+        }
+      } else if (tx.type === 'Buy') {
+        // Handle crypto purchases - deduct from cash balance
+        // For now, assume all purchases are made from USD (we could enhance this later)
+        const costUsd = tx.costUsd || (tx.priceUsd ? tx.priceUsd * tx.quantity : 0);
+        if (costUsd > 0) {
+          balances['USD'] -= costUsd;
+        }
+      } else if (tx.type === 'Sell') {
+        // Handle crypto sales - add to cash balance
+        const proceedsUsd = tx.proceedsUsd || (tx.priceUsd ? tx.priceUsd * tx.quantity : 0);
+        if (proceedsUsd > 0) {
+          balances['USD'] += proceedsUsd;
+        }
+      }
+    }
+    
+    return balances;
+  }, [txs]);
+
+  // Calculate total cash balance in USD equivalent
+  const totalCashBalanceUsd = useMemo(() => {
+    let total = 0;
+    for (const [currency, balance] of Object.entries(cashBalances)) {
+      total += convertFiat(balance, currency, 'USD');
+    }
+    return total;
+  }, [cashBalances]);
 
   // current prices for allocation pie (always include BTC for conversion)
   const symbolsParam = useMemo(()=>{
@@ -255,6 +309,180 @@ export default function DashboardPage(){
     return { dates, realized: realizedSeries, unrealized: unrealizedSeries };
   }, [hist, txs, assets, selectedPnLAsset]);
 
+  // Cost Basis vs Portfolio Valuation Over Time
+  const costVsValuation = useMemo(() => {
+    if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0) {
+      return { dates: [] as string[], costBasis: [] as number[], portfolioValue: [] as number[] };
+    }
+
+    const dates = hist.prices.map(p => p.date).sort();
+    const costBasis: number[] = [];
+    const portfolioValue: number[] = [];
+
+    // Calculate cumulative cost basis and portfolio value for each date
+    dates.forEach(date => {
+      // Calculate cost basis up to this date (deposits - withdrawals)
+      let cumulativeCost = 0;
+      const fiatCurrencies = getFiatCurrencies();
+      
+      // Initialize cost tracking for each fiat currency
+      const costByCurrency: Record<string, number> = {};
+      fiatCurrencies.forEach(currency => {
+        costByCurrency[currency] = 0;
+      });
+
+      // Process all transactions up to this date
+      txs.filter(tx => new Date(tx.datetime) <= new Date(date)).forEach(tx => {
+        if (tx.type === 'Deposit') {
+          if (isFiatCurrency(tx.asset)) {
+            costByCurrency[tx.asset] += tx.quantity;
+          }
+        } else if (tx.type === 'Withdrawal') {
+          if (isFiatCurrency(tx.asset)) {
+            costByCurrency[tx.asset] -= tx.quantity;
+          }
+        }
+        // Note: Buy/Sell transactions don't affect cost basis directly
+        // as they represent exchanges between assets, not new money invested
+      });
+
+      // Convert all fiat costs to USD and sum
+      for (const [currency, amount] of Object.entries(costByCurrency)) {
+        cumulativeCost += convertFiat(amount, currency, 'USD');
+      }
+
+      // Calculate portfolio value at this date
+      let portfolioVal = 0;
+      
+      // Calculate historical crypto holdings up to this date
+      const historicalHoldings: Record<string, number> = {};
+      assets.forEach(asset => {
+        historicalHoldings[asset] = 0;
+      });
+
+      // Process all transactions up to this date to calculate holdings
+      txs.filter(tx => new Date(tx.datetime) <= new Date(date)).forEach(tx => {
+        if (tx.type === 'Buy') {
+          historicalHoldings[tx.asset] = (historicalHoldings[tx.asset] || 0) + tx.quantity;
+        } else if (tx.type === 'Sell') {
+          historicalHoldings[tx.asset] = (historicalHoldings[tx.asset] || 0) - tx.quantity;
+        }
+      });
+
+      // Add crypto holdings value at this date
+      assets.forEach(asset => {
+        const assetUnits = historicalHoldings[asset];
+        if (assetUnits && assetUnits > 0) {
+          const pricePoint = hist.prices.find(p => p.asset === asset && p.date === date);
+          if (pricePoint) {
+            portfolioVal += assetUnits * pricePoint.price_usd;
+          }
+        }
+      });
+
+      // Note: Cash balance is NOT added to portfolio value here because:
+      // 1. Cash balance is already included in cost basis
+      // 2. Portfolio value should only represent the value of invested assets (crypto)
+      // 3. Adding cash would double-count it in the comparison
+
+      costBasis.push(cumulativeCost);
+      portfolioValue.push(portfolioVal);
+    });
+
+    return { dates, costBasis, portfolioValue };
+  }, [hist, txs, assets]);
+
+  // Total Net Worth Over Time (Crypto + Cash)
+  const netWorthOverTime = useMemo(() => {
+    if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0) {
+      return { dates: [] as string[], cryptoValue: [] as number[], cashValue: [] as number[], totalValue: [] as number[] };
+    }
+
+    const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
+    const cryptoValues: number[] = [];
+    const cashValues: number[] = [];
+    const totalValues: number[] = [];
+
+    for (const date of dates) {
+      // Calculate crypto portfolio value for this date using historical positions
+      let cryptoValue = 0;
+      for (const asset of assets) {
+        const price = hist.prices.find(p => p.date === date && p.asset === asset)?.price_usd || 0;
+        
+        // Calculate position at this historical date
+        let position = 0;
+        const relevantTxs = txs.filter(tx => 
+          tx.asset.toUpperCase() === asset && 
+          (tx.type === 'Buy' || tx.type === 'Sell') &&
+          new Date(tx.datetime) <= new Date(date + 'T23:59:59')
+        );
+        
+        for (const tx of relevantTxs) {
+          if (tx.type === 'Buy') {
+            position += tx.quantity;
+          } else if (tx.type === 'Sell') {
+            position -= tx.quantity;
+          }
+        }
+        
+        cryptoValue += position * price;
+      }
+
+      // Calculate cash balance up to this date (including crypto purchases/sales)
+      let cashValue = 0;
+      const fiatCurrencies = getFiatCurrencies();
+      const balances: Record<string, number> = {};
+      
+      // Initialize balances
+      fiatCurrencies.forEach(currency => {
+        balances[currency] = 0;
+      });
+      
+      // Process all transactions up to this date
+      const relevantTxs = txs.filter(tx => 
+        new Date(tx.datetime) <= new Date(date + 'T23:59:59')
+      );
+      
+      for (const tx of relevantTxs) {
+        const asset = tx.asset.toUpperCase();
+        
+        if (fiatCurrencies.includes(asset)) {
+          // Handle fiat currency transactions
+          if (tx.type === 'Deposit') {
+            balances[asset] += tx.quantity;
+          } else if (tx.type === 'Withdrawal') {
+            balances[asset] -= tx.quantity;
+          }
+        } else if (tx.type === 'Buy') {
+          // Handle crypto purchases - deduct from cash balance
+          const costUsd = tx.costUsd || (tx.priceUsd ? tx.priceUsd * tx.quantity : 0);
+          if (costUsd > 0) {
+            balances['USD'] -= costUsd;
+          }
+        } else if (tx.type === 'Sell') {
+          // Handle crypto sales - add to cash balance
+          const proceedsUsd = tx.proceedsUsd || (tx.priceUsd ? tx.priceUsd * tx.quantity : 0);
+          if (proceedsUsd > 0) {
+            balances['USD'] += proceedsUsd;
+          }
+        }
+      }
+      
+      // Convert all balances to USD
+      for (const [currency, balance] of Object.entries(balances)) {
+        cashValue += convertFiat(balance, currency, 'USD');
+      }
+
+      const totalValue = cryptoValue + cashValue;
+      
+      cryptoValues.push(cryptoValue);
+      cashValues.push(cashValue);
+      totalValues.push(totalValue);
+    }
+
+    return { dates, cryptoValue: cryptoValues, cashValue: cashValues, totalValue: totalValues };
+  }, [hist, assets, holdings, txs]);
+
   // Cost basis vs market price for selected asset
   const costVsPrice = useMemo(() => {
     if (!hist || !hist.prices || !selectedAsset) return { dates: [] as string[], avgCost: [] as number[], price: [] as number[] };
@@ -333,12 +561,21 @@ export default function DashboardPage(){
 
   const allocationFigure = useMemo(()=>{
     if (!curr || !curr.prices) return { data:[], layout:{} };
-    const points = Object.entries(holdings)
+    
+    // Calculate crypto holdings
+    const cryptoPoints = Object.entries(holdings)
       .map(([a, units])=> {
         const price = curr.prices![a] || 0;
         return { asset: a, units, value: price * units };
       })
       .filter(p=> p.value>0);
+    
+    // Add cash if there's a positive balance
+    const points = [...cryptoPoints];
+    if (totalCashBalanceUsd > 0) {
+      points.push({ asset: 'Cash', units: totalCashBalanceUsd, value: totalCashBalanceUsd });
+    }
+    
     const labels = points.map(p=>p.asset);
     const data: Data[] = [{ 
       type:'pie', 
@@ -347,11 +584,12 @@ export default function DashboardPage(){
       customdata: points.map(p=> [p.units]),
       hovertemplate: '<b>%{label}</b><br>Holdings: %{customdata[0]:.6f}<br>Value: %{value:$,.2f}<extra></extra>',
       hole:0.45, 
-      marker: { colors: labels.map(colorFor) } 
+      marker: { colors: labels.map(a => a === 'Cash' ? '#16a34a' : colorFor(a)) } 
     } as unknown as Data];
     const layout: Partial<Layout> = { autosize:true, height:320, margin:{ t:30, r:10, l:10, b:10 } };
     return { data, layout };
-  }, [curr, holdings, colorFor]);
+  }, [curr, holdings, colorFor, totalCashBalanceUsd]);
+
 
   // Summary cards: current balance, 24h change, total P/L, top performer 24h
   const summary = useMemo(() => {
@@ -699,45 +937,6 @@ export default function DashboardPage(){
     return { dates: allDates, btcHeld, altcoinBtcValue };
   }, [txs, hist, assets]);
 
-  // Correlation Heatmap
-  const correlationHeatmap = useMemo(() => {
-    if (!hist || !hist.prices || assets.length < 2) {
-      return { assets: [] as string[], correlations: [] as number[][] };
-    }
-    
-    const priceMap = new Map<string, number[]>();
-    const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
-    
-    // Get price series for each asset
-    for (const asset of assets) {
-      const prices: number[] = [];
-      for (const date of dates) {
-        const price = hist.prices.find(p => p.date === date && p.asset.toUpperCase() === asset)?.price_usd || 0;
-        prices.push(price);
-      }
-      priceMap.set(asset, prices);
-    }
-    
-    // Calculate correlations
-    const correlations: number[][] = [];
-    for (const asset1 of assets) {
-      const row: number[] = [];
-      for (const asset2 of assets) {
-        const prices1 = priceMap.get(asset1) || [];
-        const prices2 = priceMap.get(asset2) || [];
-        
-        if (prices1.length === prices2.length && prices1.length > 1) {
-          const correlation = calculateCorrelation(prices1, prices2);
-          row.push(correlation);
-        } else {
-          row.push(0);
-        }
-      }
-      correlations.push(row);
-    }
-    
-    return { assets, correlations };
-  }, [hist, assets]);
 
   // Portfolio Gains/Losses Heatmap
   const portfolioHeatmap = useMemo(() => {
@@ -821,22 +1020,6 @@ export default function DashboardPage(){
     };
   }, [txs, hist, assets, heatmapTimeframe]);
 
-  // Helper function for correlation calculation
-  function calculateCorrelation(x: number[], y: number[]): number {
-    const n = x.length;
-    if (n !== y.length || n === 0) return 0;
-    
-    const sumX = x.reduce((a, b) => a + b, 0);
-    const sumY = y.reduce((a, b) => a + b, 0);
-    const sumXY = x.reduce((a, b, i) => a + b * y[i], 0);
-    const sumX2 = x.reduce((a, b) => a + b * b, 0);
-    const sumY2 = y.reduce((a, b) => a + b * b, 0);
-    
-    const numerator = n * sumXY - sumX * sumY;
-    const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
-    
-    return denominator === 0 ? 0 : numerator / denominator;
-  }
 
   return (
     <main>
@@ -849,6 +1032,10 @@ export default function DashboardPage(){
         <div className="stat">
           <div className="label">24h Portfolio Change</div>
           <div className="value" style={{ color: (summary.dayChangeText.startsWith('+')? '#16a34a' : '#dc2626') }}>{summary.dayChangeText} <span style={{ color:'var(--muted)', fontSize: '0.9em' }}>{summary.dayChangePctText}</span></div>
+        </div>
+        <div className="stat">
+          <div className="label">Cash Balance</div>
+          <div className="value" style={{ color: '#10b981' }}>${totalCashBalanceUsd.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
         </div>
         <div className="stat">
           <div className="label">Total Profit / Loss</div>
@@ -935,22 +1122,24 @@ Hover over blocks to see exact PnL values.`)}
         )}
       </section>
 
+      {/* Top Row: Portfolio Overview */}
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
         <section className="card">
           <div className="card-header">
             <div className="card-title">
-              <h2>Allocation by current value</h2>
+              <h2>Portfolio Allocation (Crypto + Cash)</h2>
               <button 
-                onClick={() => alert(`Allocation by Current Value
+                onClick={() => alert(`Portfolio Allocation (Crypto + Cash)
 
-This pie chart shows how your portfolio is distributed across different assets.
+This pie chart shows how your total portfolio is distributed across different assets.
 
 • Each slice represents an asset's percentage of your total portfolio value
-• The size of each slice shows the relative value of that asset
+• Includes both cryptocurrency holdings and cash balances
+• Cash slice shows total fiat currency balance (USD, EUR, RON converted to USD)
 • Hover over slices to see exact percentages and values
 • Colors are assigned to each asset for easy identification
 
-This helps you understand your portfolio diversification and concentration.`)}
+This gives you a complete picture of your total portfolio composition.`)}
                 className="icon-btn"
                 title="Chart Information"
               >
@@ -968,6 +1157,145 @@ This helps you understand your portfolio diversification and concentration.`)}
             <Plot data={allocationFigure.data} layout={allocationFigure.layout} style={{ width:'100%' }} />
           )}
         </section>
+
+        <section className="card">
+          <div className="card-header">
+            <div className="card-title">
+              <h2>Total Net Worth Over Time</h2>
+              <button 
+                onClick={() => alert(`Total Net Worth Over Time
+
+This chart shows your complete financial picture over time, including both crypto and cash.
+
+• Blue line = Total portfolio value (crypto + cash)
+• Orange line = Crypto portfolio value only
+• Green line = Cash balance over time
+• Shows the impact of deposits/withdrawals on your total wealth
+
+This gives you the most complete view of your financial progress.`)}
+                className="icon-btn"
+                title="Chart Information"
+              >
+                ℹ️
+              </button>
+            </div>
+          </div>
+          {(loadingTxs || loadingHist) && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading net worth data...</div>
+          )}
+          {!loadingTxs && !loadingHist && netWorthOverTime.dates.length === 0 && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>No net worth data</div>
+          )}
+          {!loadingTxs && !loadingHist && netWorthOverTime.dates.length > 0 && (
+            <Plot 
+              data={[
+                {
+                  x: netWorthOverTime.dates,
+                  y: netWorthOverTime.totalValue,
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: 'Total Net Worth',
+                  line: { color: '#3b82f6', width: 3 },
+                },
+                {
+                  x: netWorthOverTime.dates,
+                  y: netWorthOverTime.cryptoValue,
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: 'Crypto Value',
+                  line: { color: '#f59e0b', width: 2 },
+                },
+                {
+                  x: netWorthOverTime.dates,
+                  y: netWorthOverTime.cashValue,
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: 'Cash Balance',
+                  line: { color: '#10b981', width: 2 },
+                },
+              ]}
+              layout={{
+                title: { text: 'Total Net Worth Over Time' },
+                xaxis: { title: { text: 'Date' } },
+                yaxis: { title: { text: 'Value (USD)' } },
+                height: 400,
+                hovermode: 'x unified',
+              }}
+              style={{ width: '100%' }}
+            />
+          )}
+        </section>
+      </div>
+
+      {/* Second Row: Performance Analysis */}
+      <div className="grid grid-2" style={{ marginBottom: 16 }}>
+        <section className="card">
+          <div className="card-header">
+            <div className="card-title">
+              <h2>Cost Basis vs Portfolio Valuation</h2>
+              <button 
+                onClick={() => alert(`Cost Basis vs Portfolio Valuation
+
+This chart compares the total money you've invested (cost basis) with your current portfolio value over time.
+
+• Blue line = Portfolio valuation (current market value)
+• Red line = Cost basis (total deposits - withdrawals)
+• Green area = Profit (when portfolio value > cost basis)
+• Red area = Loss (when portfolio value < cost basis)
+
+Cost basis represents the actual money you've put into your portfolio through deposits, minus any withdrawals. This shows your true investment performance - how much your money has grown or shrunk over time.
+
+This is different from trading P&L as it focuses on your total investment vs. total value, not individual buy/sell transactions.`)}
+                className="icon-btn"
+                title="Chart Information"
+              >
+                ℹ️
+              </button>
+            </div>
+          </div>
+          {(loadingTxs || loadingHist) && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading cost vs valuation data...</div>
+          )}
+          {!loadingTxs && !loadingHist && costVsValuation.dates.length === 0 && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>No cost vs valuation data</div>
+          )}
+          {!loadingTxs && !loadingHist && costVsValuation.dates.length > 0 && (
+            <Plot 
+              data={[
+                {
+                  x: costVsValuation.dates,
+                  y: costVsValuation.portfolioValue,
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: 'Portfolio Value',
+                  line: { color: '#3b82f6', width: 3 },
+                  fill: 'tonexty',
+                  fillcolor: 'rgba(59, 130, 246, 0.1)',
+                },
+                {
+                  x: costVsValuation.dates,
+                  y: costVsValuation.costBasis,
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: 'Cost Basis',
+                  line: { color: '#dc2626', width: 3 },
+                  fill: 'tozeroy',
+                  fillcolor: 'rgba(220, 38, 38, 0.1)',
+                },
+              ]}
+              layout={{
+                title: { text: 'Cost Basis vs Portfolio Valuation' },
+                xaxis: { title: { text: 'Date' } },
+                yaxis: { title: { text: 'Value (USD)' } },
+                height: 400,
+                hovermode: 'x unified',
+                showlegend: true,
+              }}
+              style={{ width: '100%' }}
+            />
+          )}
+        </section>
+
         <section className="card">
           <div className="card-header">
             <div className="card-title">
@@ -1019,6 +1347,8 @@ This helps track your trading performance and understand when gains were realize
           )}
         </section>
       </div>
+
+      {/* Third Row: Detailed Analysis */}
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
         <section className="card">
           <div className="card-header">
@@ -1101,7 +1431,9 @@ This helps you understand your entry points and current profit margins.`)}
           )}
         </section>
       </div>
-      <section className="card" style={{ marginTop: 16 }}>
+
+      {/* Fourth Row: Portfolio Value Stacked */}
+      <section className="card" style={{ marginBottom: 16 }}>
         <div className="card-header">
           <div className="card-title">
             <h2>Portfolio value over time (stacked)</h2>
@@ -1135,8 +1467,8 @@ This helps visualize portfolio growth and asset allocation changes over time.`)}
         )}
       </section>
 
-      {/* BTC Maximization Charts */}
-      <div className="grid grid-2" style={{ marginTop: 16, marginBottom: 16 }}>
+      {/* Fifth Row: BTC Analysis */}
+      <div className="grid grid-2" style={{ marginBottom: 16 }}>
         <section className="card">
           <div className="card-header">
             <div className="card-title">
@@ -1276,6 +1608,7 @@ Use the chart type selector to switch between views.`)}
         </section>
       </div>
 
+      {/* Sixth Row: Advanced Analysis */}
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
         <section className="card">
           <div className="card-header">
@@ -1354,63 +1687,6 @@ Use the asset selector to compare different altcoins.`)}
               legend: { orientation: 'h' }, 
               yaxis: { title: { text: 'PnL (USD)' } },
               hovermode: 'x unified'
-            }}
-            style={{ width:'100%' }}
-          />
-          )}
-        </section>
-        <section className="card">
-          <div className="card-header">
-            <div className="card-title">
-              <h2>Asset Correlation Heatmap</h2>
-              <button 
-                onClick={() => alert(`Asset Correlation Heatmap
-
-This heatmap shows how correlated your assets are with each other.
-
-• Dark red = Strong positive correlation (assets move together)
-• Dark blue = Strong negative correlation (assets move opposite)
-• Light colors = Weak correlation (assets move independently)
-• Diagonal = Always 1.0 (perfect correlation with itself)
-
-Correlation ranges:
-• 0.7 to 1.0 = Strong positive correlation
-• 0.3 to 0.7 = Moderate positive correlation
-• -0.3 to 0.3 = Weak correlation
-• -0.7 to -0.3 = Moderate negative correlation
-• -1.0 to -0.7 = Strong negative correlation
-
-This helps understand portfolio diversification and risk.`)}
-                className="icon-btn"
-                title="Chart Information"
-              >
-                ℹ️
-              </button>
-            </div>
-          </div>
-          {(loadingHist || assets.length < 2) && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading correlation...</div>
-          )}
-          {!loadingHist && correlationHeatmap.assets.length < 2 && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>Not enough assets for correlation</div>
-          )}
-          {!loadingHist && correlationHeatmap.assets.length >= 2 && (
-          <Plot
-            data={[
-              {
-                z: correlationHeatmap.correlations,
-                x: correlationHeatmap.assets,
-                y: correlationHeatmap.assets,
-                type: 'heatmap',
-                colorscale: 'RdBu'
-              } as Data
-            ]}
-            layout={{ 
-              autosize: true, 
-              height: 320, 
-              margin: { t: 30, r: 10, l: 40, b: 40 },
-              xaxis: { title: { text: 'Assets' } },
-              yaxis: { title: { text: 'Assets' } }
             }}
             style={{ width:'100%' }}
           />

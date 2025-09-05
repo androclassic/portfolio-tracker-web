@@ -2,7 +2,7 @@
 import useSWR, { useSWRConfig } from 'swr';
 import { useMemo, useState, useEffect } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
-import { getAssetColor } from '@/lib/assets';
+import { getAssetColor, getFiatCurrencies, isFiatCurrency } from '@/lib/assets';
 import AssetInput from '../components/AssetInput';
 import CryptoIcon from '../components/CryptoIcon';
 import { SupportedAsset } from '../../lib/assets';
@@ -83,7 +83,7 @@ export default function TransactionsPage(){
 
   // Calculate cost/proceeds when quantity or price changes
   const calculatedValues = useMemo(() => {
-    if (newTx.quantity && newTx.priceUsd) {
+    if (newTx.quantity && newTx.priceUsd && (newTx.type === 'Buy' || newTx.type === 'Sell')) {
       return calculateTransactionValue(
         newTx.type as 'Buy' | 'Sell',
         newTx.quantity,
@@ -112,15 +112,15 @@ export default function TransactionsPage(){
     }
     
     // Check if asset is supported
-    if (!newTx.selectedAsset) {
+    if (!newTx.selectedAsset && !isFiatCurrency(newTx.asset)) {
       setTxErrors(['Please select a supported cryptocurrency from the dropdown']);
       return;
     }
     
     const body = {
       asset: newTx.asset.toUpperCase(),
-      type: (newTx.type === 'Sell' ? 'Sell' : 'Buy') as 'Buy'|'Sell',
-      priceUsd: newTx.priceUsd ? Number(newTx.priceUsd) : null,
+      type: newTx.type as 'Buy'|'Sell'|'Deposit'|'Withdrawal',
+      priceUsd: (newTx.type === 'Buy' || newTx.type === 'Sell') ? (newTx.priceUsd ? Number(newTx.priceUsd) : null) : null,
       quantity: Number(newTx.quantity),
       datetime: newTx.datetime,
       notes: newTx.notes ? newTx.notes : null,
@@ -357,14 +357,34 @@ export default function TransactionsPage(){
             <form onSubmit={addTx} className="transaction-form">
               <div className="form-group">
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  Cryptocurrency *
+                  {(newTx.type === 'Deposit' || newTx.type === 'Withdrawal') ? 'Fiat Currency *' : 'Cryptocurrency *'}
                 </label>
-                <AssetInput
-                  value={newTx.asset}
-                  onChange={handleAssetSelection}
-                  placeholder="Search for crypto (e.g., Bitcoin, BTC)"
-                  disabled={isLoadingPrice}
-                />
+                {(newTx.type === 'Deposit' || newTx.type === 'Withdrawal') ? (
+                  <select 
+                    value={newTx.asset} 
+                    onChange={e => {
+                      const selectedCurrency = e.target.value;
+                      setNewTx(v => ({ 
+                        ...v, 
+                        asset: selectedCurrency,
+                        selectedAsset: null // Clear selected asset for fiat currencies
+                      }));
+                    }}
+                    className="form-select"
+                  >
+                    <option value="">Select currency</option>
+                    {getFiatCurrencies().map(currency => (
+                      <option key={currency} value={currency}>{currency}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <AssetInput
+                    value={newTx.asset}
+                    onChange={handleAssetSelection}
+                    placeholder="Search for crypto (e.g., Bitcoin, BTC)"
+                    disabled={isLoadingPrice}
+                  />
+                )}
                 {isLoadingPrice && (
                   <div className="loading-indicator" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     <span className="loading-spinner"></span>
@@ -385,17 +405,19 @@ export default function TransactionsPage(){
                   >
                     <option value="Buy">Buy</option>
                     <option value="Sell">Sell</option>
+                    <option value="Deposit">Deposit</option>
+                    <option value="Withdrawal">Withdrawal</option>
                   </select>
                 </div>
                 
                 <div className="form-group">
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    Quantity *
+                    {(newTx.type === 'Deposit' || newTx.type === 'Withdrawal') ? 'Amount *' : 'Quantity *'}
                   </label>
                   <input 
                     type="number" 
                     step="any" 
-                    placeholder="0.00" 
+                    placeholder={(newTx.type === 'Deposit' || newTx.type === 'Withdrawal') ? "0.00" : "0.00"} 
                     value={newTx.quantity} 
                     onChange={e=>setNewTx(v=>({ ...v, quantity:e.target.value }))} 
                     required 
@@ -404,21 +426,25 @@ export default function TransactionsPage(){
                 </div>
               </div>
 
-              <div className="form-row">
-                <div className="form-group">
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    Price USD {newTx.priceUsd && <span className="badge badge-info">Auto-filled</span>}
-                  </label>
-                  <input 
-                    type="number" 
-                    step="any" 
-                    placeholder="0.00" 
-                    value={newTx.priceUsd} 
-                    onChange={e=>setNewTx(v=>({ ...v, priceUsd:e.target.value }))}
-                    className="form-input"
-                  />
+              {(newTx.type === 'Buy' || newTx.type === 'Sell') && (
+                <div className="form-row">
+                  <div className="form-group">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      Price USD {newTx.priceUsd && <span className="badge badge-info">Auto-filled</span>}
+                    </label>
+                    <input 
+                      type="number" 
+                      step="any" 
+                      placeholder="0.00" 
+                      value={newTx.priceUsd} 
+                      onChange={e=>setNewTx(v=>({ ...v, priceUsd:e.target.value }))}
+                      className="form-input"
+                    />
+                  </div>
                 </div>
-                
+              )}
+
+              <div className="form-row">
                 <div className="form-group">
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                     Date & Time *
@@ -507,13 +533,15 @@ export default function TransactionsPage(){
             </div>
             <form onSubmit={saveEdit}>
               <input placeholder="Asset" value={editing.asset} onChange={e=>setEditing(v=> v? { ...v, asset:e.target.value } : v)} required />
-              <select value={editing.type} onChange={e=>setEditing(v=> v? { ...v, type:e.target.value as 'Buy'|'Sell' } : v)}>
+              <select value={editing.type} onChange={e=>setEditing(v=> v? { ...v, type:e.target.value as 'Buy'|'Sell'|'Deposit'|'Withdrawal' } : v)}>
                 <option>Buy</option>
                 <option>Sell</option>
+                <option>Deposit</option>
+                <option>Withdrawal</option>
               </select>
               <input type="number" step="any" placeholder="Quantity" value={editing.quantity} onChange={e=>setEditing(v=> v? { ...v, quantity:Number(e.target.value) } : v)} required />
               <input type="number" step="any" placeholder="Price USD (optional)" value={editing.priceUsd ?? ''} onChange={e=>setEditing(v=> v? { ...v, priceUsd:e.target.value === ''? null : Number(e.target.value) } : v)} />
-              <input type="datetime-local" value={new Date(editing.datetime).toISOString().slice(0,16)} onChange={e=>setEditing(v=> v? { ...v, datetime:e.target.value } : v)} required />
+              <input type="datetime-local" value={editing.datetime && !isNaN(new Date(editing.datetime).getTime()) ? new Date(editing.datetime).toISOString().slice(0,16) : ''} onChange={e=>setEditing(v=> v? { ...v, datetime:e.target.value } : v)} required />
               <input placeholder="Notes (optional)" value={editing.notes ?? ''} onChange={e=>setEditing(v=> v? { ...v, notes:e.target.value } : v)} />
               <div className="actions">
                 <button type="button" className="btn btn-secondary" onClick={()=>setEditing(null)}>Cancel</button>
