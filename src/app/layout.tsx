@@ -4,6 +4,7 @@ import { Inter } from 'next/font/google';
 import SWRProvider from './SWRProvider';
 import PortfolioProvider from './PortfolioProvider';
 import DynamicHeader from './DynamicHeader';
+import SessionProvider from '@/components/SessionProvider';
 
 const inter = Inter({ subsets: ['latin'], display: 'swap' });
 
@@ -22,12 +23,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body className={inter.className}>
-        <SWRProvider>
-          <PortfolioProvider>
-            <DynamicHeader />
-            <main className="container">{children}</main>
-          </PortfolioProvider>
-        </SWRProvider>
+        <SessionProvider>
+          <SWRProvider>
+            <PortfolioProvider>
+              <DynamicHeader />
+              <main className="container">{children}</main>
+            </PortfolioProvider>
+          </SWRProvider>
+        </SessionProvider>
       </body>
     </html>
   );

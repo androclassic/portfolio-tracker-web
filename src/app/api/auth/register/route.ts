@@ -1,25 +1,64 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
-export async function POST(req: NextRequest) {
-  const { username, password, passwordHash } = await req.json();
-  if (!username || (!password && !passwordHash)) return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });
-  const exists = await prisma.user.findUnique({ where: { username } });
-  if (exists) return NextResponse.json({ error: 'User already exists' }, { status: 400 });
-  
-  // Handle both legacy plain text passwords and new client-side hashed passwords
-  let finalPasswordHash: string;
-  if (passwordHash) {
-    // Client sent SHA-256 hash, hash it with bcrypt for storage
-    finalPasswordHash = await bcrypt.hash(passwordHash, 10);
-  } else {
-    // Legacy: client sent plain text password, hash it once
-    finalPasswordHash = await bcrypt.hash(password, 10);
+const prisma = new PrismaClient();
+
+export async function POST(request: NextRequest) {
+  try {
+    const { email, password } = await request.json();
+
+    if (!email || !password) {
+      return NextResponse.json(
+        { error: 'Email and password are required' },
+        { status: 400 }
+      );
+    }
+
+    if (password.length < 6) {
+      return NextResponse.json(
+        { error: 'Password must be at least 6 characters long' },
+        { status: 400 }
+      );
+    }
+
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email }
+    });
+
+    if (existingUser) {
+      return NextResponse.json(
+        { error: 'User with this email already exists' },
+        { status: 400 }
+      );
+    }
+
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    // Create user
+    const user = await prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        emailVerified: new Date(), // Auto-verify for now
+      }
+    });
+
+    return NextResponse.json({
+      message: 'User created successfully',
+      user: {
+        id: user.id,
+        email: user.email,
+      }
+    });
+
+  } catch (error) {
+    console.error('Registration error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
-  
-  const created = await prisma.user.create({ data: { username, passwordHash: finalPasswordHash } });
-  return NextResponse.json({ ok: true, userId: created.id });
 }
-
-

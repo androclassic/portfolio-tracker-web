@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { TtlCache } from '@/lib/cache';
 import type { Transaction } from '@prisma/client';
-import { getAuthFromRequest } from '@/lib/auth';
+import { getServerAuth } from '@/lib/auth';
 
 const TxSchema = z.object({
   asset: z.string().min(1),
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const param = url.searchParams.get('portfolioId');
   const portfolioId = param === null ? 'all' : Number(param);
-  const auth = getAuthFromRequest(req);
+  const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const key = `transactions:list:${String(portfolioId)}`;
   const cached = txCache.get(key);
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = getAuthFromRequest(req);
+  const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const json = await req.json();
   const parsed = TxSchema.safeParse(json);
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const auth = getAuthFromRequest(req);
+  const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const json = await req.json();
   const id = Number(json?.id);
@@ -87,7 +87,7 @@ export async function DELETE(req: NextRequest) {
   const url = new URL(req.url);
   const id = Number(url.searchParams.get('id'));
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
-  const auth = getAuthFromRequest(req);
+  const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const existing = await prisma.transaction.findFirst({ where: { id, portfolio: { userId: auth.userId } } });
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });

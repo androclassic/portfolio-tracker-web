@@ -1,48 +1,99 @@
-import { NextRequest, NextResponse } from 'next/server';
-import jwt from 'jsonwebtoken';
+import { NextAuthOptions, getServerSession } from "next-auth"
+import { PrismaAdapter } from "@next-auth/prisma-adapter"
+import GoogleProvider from "next-auth/providers/google"
+import FacebookProvider from "next-auth/providers/facebook"
+import CredentialsProvider from "next-auth/providers/credentials"
+import { PrismaClient } from "@prisma/client"
+import bcrypt from "bcryptjs"
+import { NextRequest } from "next/server"
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
-const COOKIE_NAME = 'auth';
-const MAX_AGE_SECONDS = 60 * 60 * 24 * 7; // 7 days
+const prisma = new PrismaClient()
 
-export type AuthTokenPayload = { userId: number; email: string };
+export const authOptions: NextAuthOptions = {
+  adapter: PrismaAdapter(prisma),
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id
+      }
+      return token
+    },
+    async session({ session, token }) {
+      if (token && session.user) {
+        session.user.id = token.id as string
+      }
+      return session
+    }
+  },
+  providers: [
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      allowDangerousEmailAccountLinking: true,
+    }),
+    ...(process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET ? [
+      FacebookProvider({
+        clientId: process.env.FACEBOOK_CLIENT_ID,
+        clientSecret: process.env.FACEBOOK_CLIENT_SECRET,
+      })
+    ] : []),
+    CredentialsProvider({
+      name: "credentials",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" }
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) {
+          return null
+        }
 
-export function signAuthToken(payload: AuthTokenPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: MAX_AGE_SECONDS });
-}
+        const user = await prisma.user.findUnique({
+          where: {
+            email: credentials.email
+          }
+        })
 
-export function verifyAuthToken(token: string): AuthTokenPayload | null {
-  try {
-    const payload = jwt.verify(token, JWT_SECRET) as AuthTokenPayload;
-    return payload;
-  } catch (error) {
-    console.log('🔥 JWT VERIFICATION FAILED:', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-      tokenStart: token?.substring(0, 20),
-      jwtSecret: JWT_SECRET?.substring(0, 10) + '...'
-    });
-    return null;
+        if (!user || !user.passwordHash) {
+          return null
+        }
+
+        const isPasswordValid = await bcrypt.compare(
+          credentials.password,
+          user.passwordHash
+        )
+
+        if (!isPasswordValid) {
+          return null
+        }
+
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          image: user.image,
+        }
+      }
+    })
+  ],
+  session: {
+    strategy: "jwt"
+  },
+  useSecureCookies: true,
+  debug: true,
+  pages: {
+    signIn: "/login",
   }
 }
 
-export function setAuthCookie(res: NextResponse, token: string) {
-  res.cookies.set(COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: MAX_AGE_SECONDS,
-    path: '/',
-  });
+// Helper function to get session in API routes
+export async function getServerAuth(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return null;
+  }
+  return {
+    userId: session.user.id,
+    user: session.user
+  };
 }
-
-export function clearAuthCookie(res: NextResponse) {
-  res.cookies.set(COOKIE_NAME, '', { httpOnly: true, maxAge: 0, path: '/' });
-}
-
-export function getAuthFromRequest(req: NextRequest): AuthTokenPayload | null {
-  const token = req.cookies.get(COOKIE_NAME)?.value;
-  if (!token) return null;
-  return verifyAuthToken(token);
-}
-
-

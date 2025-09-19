@@ -3,7 +3,7 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm install
 
 FROM node:20-alpine AS builder
 WORKDIR /app
@@ -32,6 +32,6 @@ COPY --from=builder /app/prisma ./prisma
 EXPOSE 3033
 
 # Apply any pending migrations on start, then run the app
-CMD ["sh", "-c", "npx prisma migrate deploy && npm run start"]
+CMD ["sh", "-c", "npx prisma db push && npm run start"]
 
 

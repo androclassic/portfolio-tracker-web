@@ -9,14 +9,11 @@ services:
     restart: unless-stopped
     ports:
       - "3033:3033"
-    environment:
-      - NODE_ENV=production
-      - DATABASE_URL=file:/data/dev.db
+    env_file:
+      - .env.production
     volumes:
       - ./prisma/dev.db:/data/dev.db
-    # If you want to override envs, mount an .env file:
-    # env_file:
-    #   - ./.env
+    # Environment variables loaded from .env file
 
  
 
