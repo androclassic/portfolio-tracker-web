@@ -26,15 +26,25 @@ export const authOptions: NextAuthOptions = {
       }
       return true;
     },
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
       if (user) {
         token.id = user.id
+        
+        // Check if user needs to set up password (logged in via email but has no password hash)
+        if (account?.provider === "email") {
+          const dbUser = await prisma.user.findUnique({
+            where: { email: user.email! }
+          });
+          
+          token.needsPasswordSetup = !dbUser?.passwordHash;
+        }
       }
       return token
     },
     async session({ session, token }) {
       if (token && session.user) {
         session.user.id = token.id as string
+        session.needsPasswordSetup = token.needsPasswordSetup as boolean
       }
       return session
     }

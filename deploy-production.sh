@@ -13,7 +13,7 @@ fi
 
 # Load production environment variables safely
 set -a  # automatically export all variables
-. .env.production  # Use . instead of source for better compatibility
+. "$(pwd)/.env.production"  # Use absolute path
 set +a  # stop automatically exporting
 
 # Build and start the application

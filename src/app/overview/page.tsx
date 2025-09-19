@@ -4,9 +4,21 @@ import PortfolioSummary from '@/components/PortfolioSummary';
 import HoldingsTable from '@/components/HoldingsTable';
 import AllocationPieChart from '@/components/AllocationPieChart';
 import AuthGuard from '@/components/AuthGuard';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 export default function OverviewPage() {
+  const { data: session } = useSession();
+  const router = useRouter();
   const { holdingsData, portfolioSummary, isLoading, hasError } = usePortfolioData();
+  
+  // Check if user needs to set up password
+  useEffect(() => {
+    if (session?.needsPasswordSetup) {
+      router.push('/setup-password');
+    }
+  }, [session, router]);
   
   // Prepare allocation data for pie chart
   const allocationData = holdingsData.map(holding => ({

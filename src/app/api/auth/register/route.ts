@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { randomBytes } from 'crypto';
 
 const prisma = new PrismaClient();
 
@@ -47,41 +46,32 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Create verification token and send email automatically
+    // Send magic link automatically during registration
     try {
-      // Generate verification token
-      const token = randomBytes(32).toString('hex');
-      const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-
-      // Store verification token
-      await prisma.verificationToken.create({
-        data: {
-          identifier: email,
-          token,
-          expires,
-        }
-      });
-
-      // Send verification email by calling NextAuth.js email endpoint
-      const emailResponse = await fetch(`${process.env.NEXTAUTH_URL}/api/auth/signin/email`, {
+      // Trigger NextAuth.js email provider to send magic link
+      const response = await fetch(`${process.env.NEXTAUTH_URL}/api/auth/signin/email`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-          email,
+          email: email,
           callbackUrl: `${process.env.NEXTAUTH_URL}/overview`,
         }),
       });
 
-      console.log('Verification email sent:', emailResponse.status === 200 ? 'Success' : 'Failed');
+      if (response.ok) {
+        console.log('Magic link sent successfully to:', email);
+      } else {
+        console.error('Failed to send magic link, status:', response.status);
+      }
     } catch (emailError) {
-      console.error('Failed to send verification email:', emailError);
+      console.error('Failed to send magic link:', emailError);
       // Don't fail the registration if email sending fails
     }
 
     return NextResponse.json({
-      message: 'Account created successfully! Please check your email for a verification link before signing in.',
+      message: 'Account created successfully! Please check your email for a verification link to complete your registration.',
       user: {
         id: user.id,
         email: user.email,

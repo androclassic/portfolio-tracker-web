@@ -39,7 +39,7 @@ export default function RegisterPage() {
               const j = await res.json().catch(()=>({}));
               if (res.ok) {
                 if (j.requiresVerification) {
-                  setInfo('Account created successfully! Please check your email for a verification link before signing in.');
+                  setInfo('Account created successfully! Please check your email for a verification link to complete your registration.');
                   // Don't redirect automatically - user needs to verify email first
                 } else {
                   setInfo('Account created successfully! Redirecting to login...');
