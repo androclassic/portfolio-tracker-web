@@ -62,17 +62,47 @@ function LoginForm() {
     }
   }
 
-  // If login is successful, show success state
+  async function handleMagicLink() {
+    if (!email) {
+      setError('Please enter your email address');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const result = await signIn('email', { 
+        email,
+        redirect: false,
+        callbackUrl: redirect
+      });
+
+      if (result?.error) {
+        setError('Failed to send verification email');
+      } else {
+        setSuccess(true);
+        setError('');
+      }
+    } catch (error) {
+      setError('Failed to send verification email');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // If login is successful or magic link sent, show success state
   if (success) {
     return (
       <main className="container" style={{ maxWidth: 420 }}>
         <div className="card" style={{ textAlign: 'center', padding: '2rem' }}>
-          <div style={{ fontSize: '2.25rem', marginBottom: '0.75rem' }}>✅</div>
-          <h2 style={{ color: 'var(--success)', marginBottom: '0.5rem' }}>Login Successful!</h2>
-          <p className="muted">Redirecting to your dashboard...</p>
-          <div style={{ marginTop: '1rem', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span className="loading-spinner" />
-            <span className="muted">Loading</span>
+          <div style={{ fontSize: '2.25rem', marginBottom: '0.75rem' }}>📧</div>
+          <h2 style={{ color: 'var(--success)', marginBottom: '0.5rem' }}>Check Your Email!</h2>
+          <p className="muted">We've sent you a magic link to sign in. Click the link in your email to continue.</p>
+          <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+            <p style={{ fontSize: '0.875rem', color: 'var(--muted)', margin: 0 }}>
+              💡 Tip: Check your spam folder if you don't see the email within a few minutes.
+            </p>
           </div>
         </div>
       </main>
@@ -167,7 +197,7 @@ function LoginForm() {
         />
         
         {error && (
-          <div style={{ 
+          <div style={{
             color: '#dc2626', 
             backgroundColor: '#fef2f2', 
             border: '1px solid #fecaca',
@@ -178,6 +208,31 @@ function LoginForm() {
             {error}
           </div>
         )}
+
+        <div style={{ textAlign: 'center', margin: '1rem 0', color: 'var(--muted)' }}>
+          or
+        </div>
+
+        <button
+          type="button"
+          onClick={handleMagicLink}
+          disabled={loading}
+          style={{
+            width: '100%',
+            padding: '0.75rem',
+            border: '1px solid var(--border)',
+            borderRadius: '6px',
+            backgroundColor: 'var(--surface)',
+            color: 'var(--text)',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            opacity: loading ? 0.6 : 1,
+            fontSize: '0.875rem',
+            fontWeight: '500',
+            marginBottom: '1rem'
+          }}
+        >
+          📧 Send Magic Link to Email
+        </button>
         
         <div className="actions" style={{ display:'flex', justifyContent:'space-between', alignItems: 'center' }}>
           <a href="/register" className="btn btn-secondary" style={{ opacity: loading ? 0.6 : 1 }}>

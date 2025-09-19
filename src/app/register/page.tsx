@@ -36,13 +36,18 @@ export default function RegisterPage() {
         headers: { 'Content-Type': 'application/json' }, 
         body: JSON.stringify({ email, password }) 
       });
-      const j = await res.json().catch(()=>({}));
-      if (res.ok) {
-        setInfo('Account created successfully! Redirecting to login...');
-        setTimeout(()=> router.replace('/login'), 2000);
-      } else {
-        setError(j?.error || 'Registration failed');
-      }
+              const j = await res.json().catch(()=>({}));
+              if (res.ok) {
+                if (j.requiresVerification) {
+                  setInfo('Account created successfully! Please check your email for a verification link before signing in.');
+                  // Don't redirect automatically - user needs to verify email first
+                } else {
+                  setInfo('Account created successfully! Redirecting to login...');
+                  setTimeout(()=> router.replace('/login'), 2000);
+                }
+              } else {
+                setError(j?.error || 'Registration failed');
+              }
     } catch {
       setError('Network error. Please try again.');
     } finally {
