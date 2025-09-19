@@ -7,6 +7,7 @@ import { getAssetColor, getFiatCurrencies, convertFiat, isFiatCurrency, getHisto
 import { usePriceData } from '@/hooks/usePriceData';
 import { usePnLCalculation } from '@/hooks/usePnLCalculation';
 import AllocationPieChart from '@/components/AllocationPieChart';
+import AuthGuard from '@/components/AuthGuard';
 
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
@@ -1012,7 +1013,8 @@ export default function DashboardPage(){
 
 
   return (
-    <main>
+    <AuthGuard redirectTo="/dashboard">
+      <main>
       <h1>Dashboard</h1>
       <div className="stats" style={{ marginBottom: 16 }}>
         <div className="stat">
@@ -1680,5 +1682,6 @@ Use the asset selector to compare different altcoins.`)}
         </section>
       </div>
     </main>
+    </AuthGuard>
   );
 }

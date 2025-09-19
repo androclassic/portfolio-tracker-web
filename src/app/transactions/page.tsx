@@ -9,6 +9,7 @@ import { SupportedAsset } from '../../lib/assets';
 import { jsonFetcher } from '@/lib/swr-fetcher';
 import type { Transaction as Tx } from '@/lib/types';
 import { getTransactionDefaults, validateTransaction, formatPrice, calculateTransactionValue } from '../../lib/transaction-helpers';
+import AuthGuard from '@/components/AuthGuard';
 
 const fetcher = jsonFetcher;
 
@@ -188,7 +189,8 @@ export default function TransactionsPage(){
   const df = new Intl.DateTimeFormat(undefined,{ dateStyle:'medium', timeStyle:'short' });
 
   return (
-    <main>
+    <AuthGuard redirectTo="/transactions">
+      <main>
       <div style={{ marginBottom: '2rem' }}>
         <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           Transaction Management
@@ -671,5 +673,6 @@ export default function TransactionsPage(){
       }
     `}</style>
     </main>
+    </AuthGuard>
   );
 }

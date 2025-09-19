@@ -3,6 +3,7 @@ import { usePortfolioData } from '@/hooks/usePortfolioData';
 import PortfolioSummary from '@/components/PortfolioSummary';
 import HoldingsTable from '@/components/HoldingsTable';
 import AllocationPieChart from '@/components/AllocationPieChart';
+import AuthGuard from '@/components/AuthGuard';
 
 export default function OverviewPage() {
   const { holdingsData, portfolioSummary, isLoading, hasError } = usePortfolioData();
@@ -31,7 +32,8 @@ export default function OverviewPage() {
   }
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
+    <AuthGuard redirectTo="/overview">
+      <div style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
       <div style={{ marginBottom: '2rem' }}>
         <h1 style={{ margin: '0 0 0.5rem 0', fontSize: '2rem', fontWeight: 'bold' }}>
           Portfolio Overview
@@ -56,5 +58,6 @@ export default function OverviewPage() {
               
               <HoldingsTable holdings={holdingsData} />
     </div>
+    </AuthGuard>
   );
 }

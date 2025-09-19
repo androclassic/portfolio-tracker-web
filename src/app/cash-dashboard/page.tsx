@@ -4,6 +4,7 @@ import useSWR from 'swr';
 import { useCallback, useMemo, useState } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
 import { getAssetColor, getFiatCurrencies, convertFiat } from '@/lib/assets';
+import AuthGuard from '@/components/AuthGuard';
 
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
@@ -290,7 +291,8 @@ export default function CashDashboardPage(){
   }
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
+    <AuthGuard redirectTo="/cash-dashboard">
+      <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
       <div style={{ marginBottom: '2rem' }}>
         <h1 style={{ marginBottom: '1rem' }}>💰 Cash Dashboard</h1>
         <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
@@ -464,5 +466,6 @@ export default function CashDashboardPage(){
         </div>
       </div>
     </div>
+    </AuthGuard>
   );
 }
