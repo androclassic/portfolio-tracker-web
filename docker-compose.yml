@@ -12,7 +12,7 @@ services:
     env_file:
       - .env.production
     volumes:
-      - ./prisma/dev.db:/data/dev.db
+      - ./prisma:/data
     # Environment variables loaded from .env file
 
  
