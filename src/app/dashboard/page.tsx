@@ -691,13 +691,28 @@ export default function DashboardPage(){
     const btcPercentage: number[] = [];
     
     for (const date of dates) {
+      // Calculate historical holdings up to this date
+      const historicalHoldings: Record<string, number> = {};
+      assets.forEach(asset => {
+        historicalHoldings[asset] = 0;
+      });
+      
+      // Process all transactions up to this date to get historical holdings
+      txs.filter(tx => new Date(tx.datetime) <= new Date(date)).forEach(tx => {
+        if (tx.type === 'Buy') {
+          historicalHoldings[tx.asset] = (historicalHoldings[tx.asset] || 0) + tx.quantity;
+        } else if (tx.type === 'Sell') {
+          historicalHoldings[tx.asset] = (historicalHoldings[tx.asset] || 0) - tx.quantity;
+        }
+      });
+      
       let totalValue = 0;
       let btcValueForDate = 0;
       
-      // Calculate total portfolio value and BTC value for this date
+      // Calculate total portfolio value and BTC value for this date using historical holdings
       for (const asset of assets) {
         const price = priceMap.get(date + '|' + asset) || 0;
-        const units = holdings[asset] || 0;
+        const units = historicalHoldings[asset] || 0;
         const assetValue = price * units;
         totalValue += assetValue;
         
@@ -711,7 +726,7 @@ export default function DashboardPage(){
     }
     
     return { dates, btcValue, btcPercentage };
-  }, [hist, assets, holdings]);
+  }, [hist, assets, txs]);
 
   // Altcoin vs BTC Performance Chart
   const altcoinVsBtc = useMemo(() => {
