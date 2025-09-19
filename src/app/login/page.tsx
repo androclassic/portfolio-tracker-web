@@ -1,7 +1,7 @@
 'use client';
 import { useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { signIn, getSession } from 'next-auth/react';
+import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
 function LoginForm() {
@@ -10,6 +10,7 @@ function LoginForm() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [showResendVerification, setShowResendVerification] = useState(false);
   const router = useRouter();
   const sp = useSearchParams();
   const rawRedirect = sp.get('redirect') || '/overview';
@@ -30,7 +31,13 @@ function LoginForm() {
       });
       
       if (result?.error) {
-        setError('Invalid email or password');
+        if (result.error.includes('verify your email')) {
+          setError('Please verify your email before signing in');
+          setShowResendVerification(true);
+        } else {
+          setError('Invalid email or password');
+          setShowResendVerification(false);
+        }
       } else if (result?.ok) {
         setSuccess(true);
         setError('');
@@ -91,6 +98,36 @@ function LoginForm() {
     }
   }
 
+  async function handleResendVerification() {
+    if (!email) {
+      setError('Please enter your email address');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      const result = await signIn('email', { 
+        email,
+        redirect: false,
+        callbackUrl: redirect
+      });
+
+      if (result?.error) {
+        setError('Failed to resend verification email');
+      } else {
+        setSuccess(true);
+        setError('');
+        setShowResendVerification(false);
+      }
+    } catch (error) {
+      setError('Failed to resend verification email');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   // If login is successful or magic link sent, show success state
   if (success) {
     return (
@@ -98,10 +135,10 @@ function LoginForm() {
         <div className="card" style={{ textAlign: 'center', padding: '2rem' }}>
           <div style={{ fontSize: '2.25rem', marginBottom: '0.75rem' }}>📧</div>
           <h2 style={{ color: 'var(--success)', marginBottom: '0.5rem' }}>Check Your Email!</h2>
-          <p className="muted">We've sent you a magic link to sign in. Click the link in your email to continue.</p>
+          <p className="muted">We&apos;ve sent you a magic link to sign in. Click the link in your email to continue.</p>
           <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)' }}>
             <p style={{ fontSize: '0.875rem', color: 'var(--muted)', margin: 0 }}>
-              💡 Tip: Check your spam folder if you don't see the email within a few minutes.
+              💡 Tip: Check your spam folder if you don&apos;t see the email within a few minutes.
             </p>
           </div>
         </div>
@@ -206,6 +243,28 @@ function LoginForm() {
             fontSize: '0.875rem'
           }}>
             {error}
+            {showResendVerification && (
+              <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #fecaca' }}>
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={loading}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    backgroundColor: '#dc2626',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '0.875rem',
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    opacity: loading ? 0.6 : 1
+                  }}
+                >
+                  📧 Resend Verification Email
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -235,9 +294,14 @@ function LoginForm() {
         </button>
         
         <div className="actions" style={{ display:'flex', justifyContent:'space-between', alignItems: 'center' }}>
-          <a href="/register" className="btn btn-secondary" style={{ opacity: loading ? 0.6 : 1 }}>
-            Create account
-          </a>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <a href="/register" className="btn btn-secondary" style={{ opacity: loading ? 0.6 : 1 }}>
+              Create account
+            </a>
+            <a href="/resend-verification" style={{ fontSize: '0.875rem', color: 'var(--muted)', textDecoration: 'none', opacity: loading ? 0.6 : 1 }}>
+              Resend verification email
+            </a>
+          </div>
           <button 
             type="submit" 
             className="btn btn-primary" 

@@ -11,8 +11,10 @@ if [ ! -f .env.production ]; then
     exit 1
 fi
 
-# Load production environment variables
-export $(cat .env.production | grep -v '^#' | xargs)
+# Load production environment variables safely
+set -a  # automatically export all variables
+. .env.production  # Use . instead of source for better compatibility
+set +a  # stop automatically exporting
 
 # Build and start the application
 echo "🔨 Building Docker image..."
