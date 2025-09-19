@@ -4,6 +4,9 @@ import useSWR from 'swr';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
 import { getAssetColor, getFiatCurrencies, convertFiat, isFiatCurrency, getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/assets';
+import { usePriceData } from '@/hooks/usePriceData';
+import { usePnLCalculation } from '@/hooks/usePnLCalculation';
+import AllocationPieChart from '@/components/AllocationPieChart';
 
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
@@ -127,13 +130,21 @@ export default function DashboardPage(){
     return total;
   }, [cashBalances]);
 
-  // current prices for allocation pie (always include BTC for conversion)
-  const symbolsParam = useMemo(()=>{
-    const set = new Set(assets);
-    set.add('BTC');
-    return Array.from(set).join(',');
-  }, [assets]);
-  const { data: curr, isLoading: loadingCurr } = useSWR<PricesResp>(assets.length? `/api/prices/current?symbols=${encodeURIComponent(symbolsParam)}`: null, fetcher, { revalidateOnFocus: false });
+  // historical prices for portfolio value stacked area
+  const dateRange = useMemo(()=>{
+    if (!txs || txs.length===0) return null as null | { start: number; end: number };
+    const dts = txs.map(t=> new Date(t.datetime).getTime());
+    const min = Math.min(...dts);
+    const now = Date.now();
+    return { start: Math.floor(min/1000), end: Math.floor(now/1000) };
+  }, [txs]);
+
+  // Use shared price data hook
+  const { latestPrices, historicalPrices, isLoading: loadingCurr } = usePriceData({
+    symbols: [...assets, 'BTC'], // Always include BTC for conversion
+    dateRange: dateRange || undefined,
+    includeCurrentPrices: true
+  });
 
   // daily positions time series
   const dailyPos = useMemo(()=>{
@@ -178,38 +189,12 @@ export default function DashboardPage(){
     return map;
   }, [txs]);
 
-  // historical prices for portfolio value stacked area
-  const dateRange = useMemo(()=>{
-    if (!txs || txs.length===0) return null as null | { start: number; end: number };
-    const dts = txs.map(t=> new Date(t.datetime).getTime());
-    const min = Math.min(...dts);
-    const now = Date.now();
-    return { start: Math.floor(min/1000), end: Math.floor(now/1000) };
-  }, [txs]);
+  // Historical data is now provided by usePriceData hook
+  const hist = { prices: historicalPrices };
+  const loadingHist = false; // Historical data loading is handled by usePriceData
 
-  const histKey = dateRange && assets.length ? `hist:${JSON.stringify({ symbols: assets, start: dateRange.start, end: dateRange.end })}` : null;
-  const { data: hist, isLoading: loadingHist } = useSWR<HistResp>(
-    histKey,
-    async (key: string) => {
-      const parsed = JSON.parse(key.slice(5)) as { symbols: string[]; start: number; end: number };
-      const result = await fetchHistoricalWithLocalCache(parsed.symbols, parsed.start, parsed.end);
-      
-      // Preload exchange rates for the same date range
-      if (result && result.prices && result.prices.length > 0) {
-        const dates = result.prices.map(p => p.date).sort();
-        const startDate = dates[0];
-        const endDate = dates[dates.length - 1];
-        
-        // Preload exchange rates in the background
-        preloadExchangeRates(startDate, endDate).catch(error => {
-          console.warn('Failed to preload exchange rates:', error);
-        });
-      }
-      
-      return result;
-    },
-    { revalidateOnFocus: false }
-  );
+  // Calculate P&L using shared logic
+  const pnlData = usePnLCalculation(txs, latestPrices, historicalPrices);
 
   // derive portfolio value over time stacked by asset
   const stacked = useMemo(()=>{
@@ -575,36 +560,15 @@ export default function DashboardPage(){
     return { data, layout };
   }, [dailyPos, selectedAsset, colorFor, notesByDayAsset]);
 
-  const allocationFigure = useMemo(()=>{
-    if (!curr || !curr.prices) return { data:[], layout:{} };
-    
-    // Calculate crypto holdings
-    const cryptoPoints = Object.entries(holdings)
-      .map(([a, units])=> {
-        const price = curr.prices![a] || 0;
-        return { asset: a, units, value: price * units };
+  // Prepare allocation data for shared component
+  const allocationData = useMemo(() => {
+    return Object.entries(holdings)
+      .map(([asset, units]) => {
+        const price = latestPrices[asset] || 0;
+        return { asset, units, value: price * units };
       })
-      .filter(p=> p.value>0);
-    
-    // Add cash if there's a positive balance
-    const points = [...cryptoPoints];
-    if (totalCashBalanceUsd > 0) {
-      points.push({ asset: 'Cash', units: totalCashBalanceUsd, value: totalCashBalanceUsd });
-    }
-    
-    const labels = points.map(p=>p.asset);
-    const data: Data[] = [{ 
-      type:'pie', 
-      labels, 
-      values: points.map(p=>p.value), 
-      customdata: points.map(p=> [p.units]),
-      hovertemplate: '<b>%{label}</b><br>Holdings: %{customdata[0]:.6f}<br>Value: %{value:$,.2f}<extra></extra>',
-      hole:0.45, 
-      marker: { colors: labels.map(a => a === 'Cash' ? '#16a34a' : colorFor(a)) } 
-    } as unknown as Data];
-    const layout: Partial<Layout> = { autosize:true, height:320, margin:{ t:30, r:10, l:10, b:10 } };
-    return { data, layout };
-  }, [curr, holdings, colorFor, totalCashBalanceUsd]);
+      .filter(p => p.value > 0);
+  }, [holdings, latestPrices]);
 
 
   // Summary cards: current balance, 24h change, total P/L, top performer 24h
@@ -619,13 +583,13 @@ export default function DashboardPage(){
     let topAsset = '';
     let topDelta = 0;
 
-    if (curr && curr.prices) {
+    if (latestPrices && Object.keys(latestPrices).length > 0) {
       for (const [a, units] of Object.entries(holdings)) {
         if (units <= 0) continue;
-        const price = curr.prices[a] || 0;
+        const price = latestPrices[a] || 0;
         currentValue += price * units;
       }
-      const btcPrice = curr.prices['BTC'] || 0;
+      const btcPrice = latestPrices['BTC'] || 0;
       if (btcPrice > 0) currentValueBtc = currentValue / btcPrice;
     }
 
@@ -655,14 +619,9 @@ export default function DashboardPage(){
       }
     }
 
-    // Total P/L from earlier pnl calc: last realized + unrealized
-    let totalPL = 0;
-    let totalPLPct = 0;
-    if (pnl.dates.length) {
-      const i = pnl.dates.length - 1;
-      totalPL = (pnl.realized[i] || 0) + (pnl.unrealized[i] || 0);
-      if (currentValue - pnl.unrealized[i] !== 0) totalPLPct = (totalPL / (currentValue - pnl.unrealized[i])) * 100;
-    }
+    // Use shared P&L calculation
+    const totalPL = pnlData.totalPnL;
+    const totalPLPct = pnlData.totalPnLPercent;
 
     return {
       currentValue,
@@ -675,7 +634,7 @@ export default function DashboardPage(){
       topAsset,
       topDeltaText: topAsset ? `${topDelta>=0?'+':''}$${nf0.format(Math.abs(topDelta))}` : '',
     };
-  }, [curr, holdings, hist, pnl]);
+  }, [latestPrices, holdings, hist, pnlData]);
 
   // BTC Ratio Chart - tracks portfolio BTC value over time
   const btcRatio = useMemo(() => {
@@ -1178,15 +1137,11 @@ This gives you a complete picture of your total portfolio composition.`)}
               </button>
             </div>
           </div>
-          {(loadingCurr && assets.length>0) && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading allocation...</div>
-          )}
-          {!loadingCurr && allocationFigure.data.length === 0 && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>No allocation data</div>
-          )}
-          {!loadingCurr && allocationFigure.data.length > 0 && (
-            <Plot data={allocationFigure.data} layout={allocationFigure.layout} style={{ width:'100%' }} />
-          )}
+          <AllocationPieChart 
+            data={allocationData}
+            totalCashBalanceUsd={totalCashBalanceUsd}
+            isLoading={loadingCurr && assets.length > 0}
+          />
         </section>
 
         <section className="card">

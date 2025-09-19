@@ -100,6 +100,7 @@ export default function DynamicHeader() {
         <nav className="nav">
           {isAuthenticated ? (
             <>
+              <Link href="/overview">Overview</Link>
               <Link href="/dashboard">Dashboard</Link>
               <Link href="/cash-dashboard">Cash Dashboard</Link>
               <Link href="/transactions">Transactions</Link>
