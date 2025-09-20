@@ -73,7 +73,6 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      allowDangerousEmailAccountLinking: true,
     }),
     ...(process.env.FACEBOOK_CLIENT_ID && process.env.FACEBOOK_CLIENT_SECRET ? [
       FacebookProvider({
