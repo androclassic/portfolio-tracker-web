@@ -25,7 +25,7 @@ docker compose up -d
 
 echo "✅ Production deployment complete!"
 echo "🌐 Your app should be available at: https://crypto-portofolio.com"
-echo "🔐 OAuth login should work with Google and Facebook"
+echo "🔐 OAuth login should work with Google"
 
 # Show container status
 echo "📊 Container status:"
