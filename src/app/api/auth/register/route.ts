@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { createTransport } from 'nodemailer';
-import crypto from 'crypto';
 
 const prisma = new PrismaClient();
 
@@ -48,58 +46,46 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Send verification email automatically during registration
+    // Send verification email using NextAuth.js email provider (same as resend verification)
+    console.log('=== STARTING EMAIL SEND PROCESS ===');
+    console.log('Target email:', email);
     try {
-      // Create verification token
-      const token = crypto.randomBytes(32).toString('hex');
-      const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-
-      // Save verification token to database
-      await prisma.verificationToken.create({
-        data: {
-          identifier: email,
-          token: token,
-          expires: expires,
+      // Trigger NextAuth.js email provider from server-side (same as resend verification)
+      console.log('Calling NextAuth.js email provider endpoint...');
+      
+      // Get CSRF token first
+      const csrfResponse = await fetch(`${process.env.NEXTAUTH_URL}/api/auth/csrf`);
+      const csrfData = await csrfResponse.json();
+      
+      // Call NextAuth.js email signin endpoint (same as resend verification)
+      const response = await fetch(`${process.env.NEXTAUTH_URL}/api/auth/signin/email`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
+        body: new URLSearchParams({
+          email: email,
+          callbackUrl: `${process.env.NEXTAUTH_URL}/overview`,
+          csrfToken: csrfData.csrfToken,
+        }),
       });
 
-      // Send email directly using nodemailer
-      const transporter = createTransport({
-        host: process.env.EMAIL_SERVER_HOST,
-        port: Number(process.env.EMAIL_SERVER_PORT) || 587,
-        secure: false,
-        auth: {
-          user: process.env.EMAIL_SERVER_USER,
-          pass: process.env.EMAIL_SERVER_PASSWORD,
-        },
-      });
-
-      const verificationUrl = `${process.env.NEXTAUTH_URL}/api/auth/callback/email?callbackUrl=${encodeURIComponent(`${process.env.NEXTAUTH_URL}/overview`)}&token=${token}&email=${encodeURIComponent(email)}`;
-
-      const emailHtml = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #333;">Welcome to Portfolio Tracker!</h2>
-          <p>Thank you for registering. Please click the link below to verify your email address and complete your registration:</p>
-          <div style="margin: 30px 0;">
-            <a href="${verificationUrl}" style="background-color: #007bff; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-              Verify Email Address
-            </a>
-          </div>
-          <p style="color: #666; font-size: 14px;">This link will expire in 24 hours.</p>
-          <p style="color: #666; font-size: 14px;">If you didn't create an account, you can safely ignore this email.</p>
-        </div>
-      `;
-
-      await transporter.sendMail({
-        from: process.env.EMAIL_FROM,
-        to: email,
-        subject: 'Verify your Portfolio Tracker account',
-        html: emailHtml,
-      });
-
-      console.log('Verification email sent successfully to:', email);
-    } catch (emailError) {
-      console.error('Failed to send verification email:', emailError);
+      if (response.ok) {
+        console.log('NextAuth.js email provider call successful');
+        console.log('Verification email sent successfully to:', email);
+      } else {
+        const errorText = await response.text();
+        console.error('NextAuth.js email provider failed:', response.status, errorText);
+        throw new Error(`NextAuth.js email provider failed: ${response.status} ${errorText}`);
+      }
+    } catch (emailError: unknown) {
+      console.error('=== EMAIL SENDING FAILED ===');
+      const error = emailError as Error & { code?: string };
+      console.error('Error type:', error?.constructor?.name);
+      console.error('Error message:', error?.message);
+      console.error('Error code:', error?.code);
+      console.error('Full error:', emailError);
+      console.error('=== END EMAIL ERROR ===');
       // Don't fail the registration if email sending fails
     }
 
