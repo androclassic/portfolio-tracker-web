@@ -79,6 +79,24 @@ function LoginForm() {
     setError('');
 
     try {
+      // First check if user exists
+      const checkResponse = await fetch('/api/auth/check-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      const checkResult = await checkResponse.json();
+
+      if (!checkResult.exists) {
+        setError('No account found with this email address. Please register first.');
+        setLoading(false);
+        return;
+      }
+
+      // User exists, send magic link
       const result = await signIn('email', { 
         email,
         redirect: false,
@@ -86,13 +104,13 @@ function LoginForm() {
       });
 
       if (result?.error) {
-        setError('Failed to send verification email');
+        setError('Failed to send magic link');
       } else {
         setSuccess(true);
         setError('');
       }
     } catch (error) {
-      setError('Failed to send verification email');
+      setError('Failed to send magic link');
     } finally {
       setLoading(false);
     }
@@ -108,6 +126,31 @@ function LoginForm() {
     setError('');
 
     try {
+      // First check if user exists
+      const checkResponse = await fetch('/api/auth/check-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      const checkResult = await checkResponse.json();
+
+      if (!checkResult.exists) {
+        setError('No account found with this email address. Please register first.');
+        setLoading(false);
+        return;
+      }
+
+      // Check if user is already verified
+      if (checkResult.user.emailVerified) {
+        setError('This email is already verified. You can login with your password.');
+        setLoading(false);
+        return;
+      }
+
+      // User exists and needs verification, send verification email
       const result = await signIn('email', { 
         email,
         redirect: false,

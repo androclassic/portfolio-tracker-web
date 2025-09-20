@@ -49,13 +49,16 @@ export default function SetupPasswordPage() {
       });
 
       const result = await response.json();
+      console.log('Setup password response:', { status: response.status, result });
 
       if (response.ok) {
         setSuccess(true);
+        // Force a full page reload to refresh the session
         setTimeout(() => {
-          router.push('/overview');
-        }, 2000);
+          window.location.href = '/overview';
+        }, 1000);
       } else {
+        console.error('Setup password failed:', result);
         setError(result.error || 'Failed to set password');
       }
     } catch (err) {

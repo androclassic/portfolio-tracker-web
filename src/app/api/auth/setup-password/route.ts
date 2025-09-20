@@ -10,7 +10,10 @@ export async function POST(request: NextRequest) {
   try {
     // Check if user is authenticated
     const session = await getServerSession(authOptions);
+    console.log('Setup password session:', session);
+    
     if (!session?.user?.email) {
+      console.log('No session or email found:', { session: !!session, email: session?.user?.email });
       return NextResponse.json(
         { error: 'Not authenticated' },
         { status: 401 }
@@ -34,19 +37,24 @@ export async function POST(request: NextRequest) {
     }
 
     // Find the user
+    console.log('Looking for user with email:', session.user.email);
     const user = await prisma.user.findUnique({
       where: { email: session.user.email }
     });
 
     if (!user) {
+      console.log('User not found for email:', session.user.email);
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
       );
     }
 
+    console.log('User found:', { id: user.id, email: user.email, hasPassword: !!user.passwordHash });
+
     // Check if user already has a password
     if (user.passwordHash) {
+      console.log('User already has password hash');
       return NextResponse.json(
         { error: 'User already has a password set' },
         { status: 400 }
@@ -54,14 +62,17 @@ export async function POST(request: NextRequest) {
     }
 
     // Hash the password
+    console.log('Hashing password...');
     const passwordHash = await bcrypt.hash(password, 12);
 
     // Update the user with the password hash
+    console.log('Updating user with password hash...');
     await prisma.user.update({
       where: { id: user.id },
       data: { passwordHash }
     });
 
+    console.log('Password set successfully for user:', user.email);
     return NextResponse.json({
       message: 'Password set successfully'
     });

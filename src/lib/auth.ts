@@ -44,7 +44,16 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (token && session.user) {
         session.user.id = token.id as string
-        session.needsPasswordSetup = token.needsPasswordSetup as boolean
+        
+        // Re-check if user still needs password setup (in case they just set it)
+        if (token.needsPasswordSetup) {
+          const dbUser = await prisma.user.findUnique({
+            where: { email: session.user.email! }
+          });
+          session.needsPasswordSetup = !dbUser?.passwordHash;
+        } else {
+          session.needsPasswordSetup = token.needsPasswordSetup as boolean
+        }
       }
       return session
     }
