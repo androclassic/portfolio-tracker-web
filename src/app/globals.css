@@ -102,38 +102,75 @@ p{margin:0 0 10px}
 .header-nav a{padding:8px 12px;border-radius:8px;color:var(--muted);text-decoration:none;font-weight:500;transition:all 0.2s ease}
 .header-nav a:hover{background:rgba(125,125,125,.08);color:var(--text)}
 
-/* User profile section */
-.user-profile{display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:8px;background:rgba(125,125,125,.04);border:1px solid var(--border)}
-.user-info{display:flex;flex-direction:column;gap:2px}
-.user-name{font-weight:600;font-size:0.875rem;color:var(--text)}
-.user-email{font-size:0.75rem;color:var(--muted)}
+/* Dropdown containers */
+.dropdown-container{position:relative;display:inline-block}
 
-/* Portfolio selector inside user profile */
-.user-profile .portfolio-selector{background:transparent;border:none;padding:0;margin:0}
-.user-profile .portfolio-selector .portfolio-label{color:var(--muted)}
-.user-profile .portfolio-selector .portfolio-select{background:var(--surface);border:1px solid var(--border)}
+/* Dropdown triggers */
+.dropdown-trigger{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:8px;background:rgba(125,125,125,.04);border:1px solid var(--border);color:var(--text);text-decoration:none;font-size:0.875rem;font-weight:500;transition:all 0.2s ease;cursor:pointer}
+.dropdown-trigger:hover{background:rgba(125,125,125,.08);border-color:var(--primary)}
+.dropdown-trigger:focus{outline:none;box-shadow:0 0 0 2px rgba(var(--primary-rgb), 0.2)}
+
+/* User trigger specific styling */
+.user-trigger{gap:8px;padding:6px 12px}
+.user-avatar{width:32px;height:32px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:0.875rem}
+
+/* Dropdown arrows */
+.dropdown-arrow{font-size:0.75rem;transition:transform 0.2s ease;color:var(--muted)}
+.dropdown-trigger:hover .dropdown-arrow{color:var(--text)}
+
+/* Dropdown menus */
+.dropdown-menu{position:absolute;top:100%;right:0;min-width:200px;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-lg);z-index:1000;margin-top:4px;overflow:hidden;animation:dropdownFadeIn 0.2s ease}
+.dropdown-menu.user-menu{min-width:220px}
+
+/* Dropdown items */
+.dropdown-item{display:block;width:100%;padding:12px 16px;border:none;background:none;color:var(--text);text-align:left;font-size:0.875rem;cursor:pointer;transition:background-color 0.2s ease}
+.dropdown-item:hover{background:rgba(125,125,125,.08)}
+.dropdown-item:focus{outline:none;background:rgba(125,125,125,.08)}
+
+/* User info in dropdown */
+.dropdown-menu .user-info{padding:16px;border-bottom:1px solid var(--border)}
+.dropdown-menu .user-name{font-weight:600;font-size:0.875rem;color:var(--text);margin-bottom:4px}
+.dropdown-menu .user-email{font-size:0.75rem;color:var(--muted)}
+
+/* Dropdown divider */
+.dropdown-divider{height:1px;background:var(--border);margin:8px 0}
+
+/* Logout item styling */
+.logout-item{color:var(--danger);font-weight:500}
+.logout-item:hover{background:rgba(var(--danger-rgb), 0.1)}
+.logout-item:disabled{opacity:0.6;cursor:not-allowed}
+
+/* Dropdown animations */
+@keyframes dropdownFadeIn{
+  from{opacity:0;transform:translateY(-8px)}
+  to{opacity:1;transform:translateY(0)}
+}
 
 /* Loading placeholder */
 .loading-placeholder{color:var(--muted);font-size:0.875rem;padding:8px 12px}
 
-/* Portfolio selector */
-.portfolio-selector{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:8px;background:rgba(125,125,125,.04);border:1px solid var(--border)}
-.portfolio-label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:0.875rem}
-.portfolio-label-text{font-weight:500}
-.portfolio-select{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:0.875rem;min-width:120px}
+/* Portfolio selector in dropdown */
+.portfolio-selector{padding:16px}
+.portfolio-dropdown-content{display:flex;flex-direction:column;gap:12px}
+.portfolio-label{display:flex;flex-direction:column;gap:6px;color:var(--muted);font-size:0.875rem}
+.portfolio-label-text{font-weight:500;color:var(--text)}
+.portfolio-select{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:0.875rem;width:100%}
 .portfolio-select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 2px rgba(var(--primary-rgb), 0.2)}
+.portfolio-manage-btn{background:var(--primary);color:white;border:none;border-radius:6px;padding:8px 12px;font-size:0.875rem;font-weight:500;cursor:pointer;transition:background-color 0.2s ease}
+.portfolio-manage-btn:hover{background:var(--primary-dark)}
 
 /* Responsive design */
 @media (max-width: 768px) {
   .topnav-inner{gap:12px;padding:12px 16px}
   .header-nav{gap:4px}
   .header-nav a{padding:6px 8px;font-size:0.875rem}
-  .user-profile{padding:6px 8px;gap:8px;flex-wrap:wrap}
-  .user-info{display:none} /* Hide user info on mobile */
   .header-right{gap:8px}
-  .user-profile .portfolio-selector{padding:0;gap:6px}
-  .user-profile .portfolio-select{min-width:100px;font-size:0.8rem}
-  .user-profile .portfolio-label-text{display:none} /* Hide label text on mobile */
+  .dropdown-trigger{padding:6px 8px;font-size:0.8rem}
+  .user-trigger{padding:4px 8px}
+  .user-avatar{width:28px;height:28px;font-size:0.75rem}
+  .dropdown-menu{min-width:180px}
+  .dropdown-menu.user-menu{min-width:200px}
+  .dropdown-item{padding:10px 12px;font-size:0.8rem}
 }
 
 .container{max-width:1200px;margin:0 auto;padding:24px}

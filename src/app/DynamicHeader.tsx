@@ -10,6 +10,8 @@ import ThemeToggle from './ThemeToggle';
 export default function DynamicHeader() {
   const { data: session, status } = useSession();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const [portfolioDropdownOpen, setPortfolioDropdownOpen] = useState(false);
 
   const isAuthenticated = !!session;
   const loading = status === 'loading';
@@ -28,6 +30,20 @@ export default function DynamicHeader() {
       setLoggingOut(false);
     }
   };
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.dropdown-container')) {
+        setUserDropdownOpen(false);
+        setPortfolioDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   if (loading) {
     // Show a minimal header while checking auth
@@ -65,25 +81,52 @@ export default function DynamicHeader() {
         <div className="header-right">
           {isAuthenticated ? (
             <>
-              {/* User Profile Section with Portfolio */}
-              <div className="user-profile">
-                {/* Portfolio Selector */}
-                <Suspense fallback={<div className="loading-placeholder">Loading...</div>}>
-                  <PortfolioSelector />
-                </Suspense>
-                
-                <div className="user-info">
-                  <span className="user-name">{session?.user?.name || session?.user?.email}</span>
-                  <span className="user-email">{session?.user?.email}</span>
-                </div>
+              {/* Portfolio Dropdown */}
+              <div className="dropdown-container">
                 <button 
-                  className="btn btn-secondary btn-sm" 
-                  onClick={handleLogout}
-                  disabled={loggingOut}
-                  title="Logout"
+                  className="dropdown-trigger"
+                  onClick={() => setPortfolioDropdownOpen(!portfolioDropdownOpen)}
                 >
-                  {loggingOut ? 'Logging out...' : 'Logout'}
+                  <span>Portfolio</span>
+                  <span className="dropdown-arrow">▼</span>
                 </button>
+                {portfolioDropdownOpen && (
+                  <div className="dropdown-menu">
+                    <Suspense fallback={<div className="loading-placeholder">Loading...</div>}>
+                      <PortfolioSelector />
+                    </Suspense>
+                  </div>
+                )}
+              </div>
+
+              {/* User Profile Dropdown */}
+              <div className="dropdown-container">
+                <button 
+                  className="dropdown-trigger user-trigger"
+                  onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                >
+                  <div className="user-avatar">
+                    {session?.user?.name?.charAt(0) || session?.user?.email?.charAt(0) || 'U'}
+                  </div>
+                  <span className="user-name">{session?.user?.name || session?.user?.email}</span>
+                  <span className="dropdown-arrow">▼</span>
+                </button>
+                {userDropdownOpen && (
+                  <div className="dropdown-menu user-menu">
+                    <div className="user-info">
+                      <div className="user-name">{session?.user?.name || session?.user?.email}</div>
+                      <div className="user-email">{session?.user?.email}</div>
+                    </div>
+                    <div className="dropdown-divider"></div>
+                    <button 
+                      className="dropdown-item logout-item"
+                      onClick={handleLogout}
+                      disabled={loggingOut}
+                    >
+                      {loggingOut ? 'Logging out...' : 'Logout'}
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           ) : (

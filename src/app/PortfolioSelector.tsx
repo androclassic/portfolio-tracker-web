@@ -48,24 +48,26 @@ export default function PortfolioSelector() {
 
   return (
     <div className="portfolio-selector">
-      <label className="portfolio-label">
-        <span className="portfolio-label-text">Portfolio</span>
-        <select 
-          className="portfolio-select"
-          value={selectedId ?? ''} 
-          onChange={e=> setSelectedId(e.target.value === 'all' ? 'all' : Number(e.target.value)) }
+      <div className="portfolio-dropdown-content">
+        <label className="portfolio-label">
+          <span className="portfolio-label-text">Select Portfolio</span>
+          <select 
+            className="portfolio-select"
+            value={selectedId ?? ''} 
+            onChange={e=> setSelectedId(e.target.value === 'all' ? 'all' : Number(e.target.value)) }
+          >
+            <option value="all">All Portfolios</option>
+            {portfolios.map(p=> (<option key={p.id} value={p.id}>{p.name}</option>))}
+          </select>
+        </label>
+        <button 
+          className="portfolio-manage-btn" 
+          onClick={()=>setIsOpen(true)}
+          title="Manage portfolios"
         >
-          <option value="all">All</option>
-          {portfolios.map(p=> (<option key={p.id} value={p.id}>{p.name}</option>))}
-        </select>
-      </label>
-      <button 
-        className="btn btn-secondary btn-sm" 
-        onClick={()=>setIsOpen(true)}
-        title="Manage portfolios"
-      >
-        Manage
-      </button>
+          Manage Portfolios
+        </button>
+      </div>
 
       {isOpen && (
         <div className="modal-backdrop" onClick={(e)=>{ if (e.target === e.currentTarget) setIsOpen(false); }}>
