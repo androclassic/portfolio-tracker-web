@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { usePortfolio } from './PortfolioProvider';
 
 export default function PortfolioSelector() {
@@ -69,7 +70,7 @@ export default function PortfolioSelector() {
         </button>
       </div>
 
-      {isOpen && (
+      {isOpen && createPortal(
         <div className="modal-backdrop" onClick={(e)=>{ if (e.target === e.currentTarget) setIsOpen(false); }}>
           <div className="modal" role="dialog" aria-modal="true">
             <div className="card-header">
@@ -97,7 +98,8 @@ export default function PortfolioSelector() {
               </form>
             </section>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
