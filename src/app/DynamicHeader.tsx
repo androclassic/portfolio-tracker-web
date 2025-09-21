@@ -46,36 +46,56 @@ export default function DynamicHeader() {
   return (
     <header className="topnav">
       <div className="topnav-inner container">
-        <div className="brand">Portfolio Tracker</div>
-        <nav className="nav">
+        {/* Left section: Brand */}
+        <div className="header-left">
+          <div className="brand">Portfolio Tracker</div>
+        </div>
+
+        {/* Center section: Navigation */}
+        {isAuthenticated && (
+          <nav className="header-nav">
+            <Link href="/overview">Overview</Link>
+            <Link href="/dashboard">Dashboard</Link>
+            <Link href="/cash-dashboard">Cash</Link>
+            <Link href="/transactions">Transactions</Link>
+          </nav>
+        )}
+
+        {/* Right section: User controls */}
+        <div className="header-right">
           {isAuthenticated ? (
             <>
-              <Link href="/overview">Overview</Link>
-              <Link href="/dashboard">Dashboard</Link>
-              <Link href="/cash-dashboard">Cash Dashboard</Link>
-              <Link href="/transactions">Transactions</Link>
-              <button 
-                className="btn btn-secondary" 
-                style={{ marginLeft: 8 }} 
-                onClick={handleLogout}
-                disabled={loggingOut}
-              >
-                {loggingOut ? 'Logging out...' : 'Logout'}
-              </button>
+              {/* User Profile Section with Portfolio */}
+              <div className="user-profile">
+                {/* Portfolio Selector */}
+                <Suspense fallback={<div className="loading-placeholder">Loading...</div>}>
+                  <PortfolioSelector />
+                </Suspense>
+                
+                <div className="user-info">
+                  <span className="user-name">{session?.user?.name || session?.user?.email}</span>
+                  <span className="user-email">{session?.user?.email}</span>
+                </div>
+                <button 
+                  className="btn btn-secondary btn-sm" 
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                  title="Logout"
+                >
+                  {loggingOut ? 'Logging out...' : 'Logout'}
+                </button>
+              </div>
             </>
           ) : (
-            <>
+            <nav className="header-nav">
               <Link href="/login">Login</Link>
               <Link href="/register">Register</Link>
-            </>
+            </nav>
           )}
+          
+          {/* Theme Toggle */}
           <ThemeToggle />
-        </nav>
-        {isAuthenticated && (
-          <Suspense fallback={<div>Loading portfolio...</div>}>
-            <PortfolioSelector />
-          </Suspense>
-        )}
+        </div>
       </div>
     </header>
   );
