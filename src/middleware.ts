@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getToken } from 'next-auth/jwt';
 
 // Simple JWT verification for Edge Runtime (without Node.js crypto)
 function verifyJWTInEdge(token: string): boolean {
@@ -29,17 +30,15 @@ function verifyJWTInEdge(token: string): boolean {
   }
 }
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   
-  // Allow public assets and auth routes
+  // Allow public assets
   if (
     pathname.startsWith('/api') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon') ||
-    pathname.startsWith('/public') ||
-    pathname === '/login' ||
-    pathname === '/register'
+    pathname.startsWith('/public')
   ) {
     return NextResponse.next();
   }
@@ -47,7 +46,18 @@ export function middleware(req: NextRequest) {
   const token = req.cookies.get('auth')?.value;
   const isValidToken = token ? verifyJWTInEdge(token) : false;
   
-  if (!isValidToken && pathname !== '/login' && pathname !== '/register') {
+  // Validate NextAuth session (prevents stale cookie issues)
+  const nextAuthJwt = await getToken({ req, secureCookie: true });
+  const hasValidNextAuthSession = !!nextAuthJwt;
+
+  // If user hits login/register while already authenticated via NextAuth or JWT → send to overview
+  if ((pathname === '/login' || pathname === '/register') && (isValidToken || hasValidNextAuthSession)) {
+    const url = req.nextUrl.clone();
+    url.pathname = '/overview';
+    return NextResponse.redirect(url);
+  }
+
+  if (!isValidToken && !hasValidNextAuthSession && pathname !== '/login' && pathname !== '/register') {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     url.searchParams.set('redirect', req.nextUrl.pathname);

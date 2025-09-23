@@ -1,7 +1,7 @@
 'use client';
-import { useState, Suspense } from 'react';
+import { useState, Suspense, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { signIn } from 'next-auth/react';
+import { signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 
 function LoginForm() {
@@ -340,6 +340,36 @@ function LoginForm() {
   );
 }
 
+function LoginPageContent() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const sp = useSearchParams();
+  const rawRedirect = sp.get('redirect') || '/overview';
+  const redirect = (rawRedirect?.startsWith('/api') || rawRedirect === '/login' || rawRedirect === '/register') ? '/overview' : rawRedirect;
+
+  useEffect(() => {
+    if (status === 'loading') return;
+    if (session) {
+      // If already authenticated, immediately leave the login page.
+      router.replace(redirect);
+    }
+  }, [session, status, router, redirect]);
+
+  // While checking session or when authenticated (to avoid flash of the form), show a minimal loader
+  if (status === 'loading' || session) {
+    return (
+      <main className="container" style={{ maxWidth: 420 }}>
+        <h1>Sign in</h1>
+        <div className="card" style={{ textAlign: 'center', padding: '2rem' }}>
+          Loading...
+        </div>
+      </main>
+    );
+  }
+
+  return <LoginForm />;
+}
+
 export default function LoginPage() {
   return (
     <Suspense fallback={
@@ -350,7 +380,7 @@ export default function LoginPage() {
         </div>
       </main>
     }>
-      <LoginForm />
+      <LoginPageContent />
     </Suspense>
   );
 }
