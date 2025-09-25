@@ -986,41 +986,37 @@ export default function DashboardPage(){
 
   // Portfolio Gains/Losses Heatmap
   const portfolioHeatmap = useMemo(() => {
-    if (!txs || txs.length === 0 || !hist || !hist.prices) {
+    if (!txs || txs.length === 0 || !priceIndex.dates.length || !assets.length) {
       return { assets: [] as string[], pnlValues: [] as number[], colors: [] as string[] };
     }
-    
-    const priceMap = new Map<string, number>();
-    for (const p of hist.prices) priceMap.set(p.date + '|' + p.asset.toUpperCase(), p.price_usd);
-    
-    // Get the most recent date for current prices
-    const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
-    const latestDate = dates[dates.length - 1];
-    
-    // Calculate reference date based on timeframe
-    let referenceDate = latestDate;
+
+    const dates = priceIndex.dates;
+    const latestDi = dates.length - 1;
+    let referenceDi = latestDi;
     if (heatmapTimeframe !== 'current') {
       const daysBack = heatmapTimeframe === '24h' ? 1 : heatmapTimeframe === '7d' ? 7 : 30;
-      const referenceIndex = Math.max(0, dates.length - daysBack - 1);
-      referenceDate = dates[referenceIndex];
+      referenceDi = Math.max(0, dates.length - daysBack - 1);
     }
-    
+
+    // Group transactions once by asset symbol (uppercased)
+    const grouped: Record<string, typeof txs> = {};
+    for (const t of txs) {
+      const a = t.asset.toUpperCase();
+      (grouped[a] ||= []).push(t);
+    }
+
     const heatmapData: { asset: string; pnl: number; color: string }[] = [];
-    
+
     for (const asset of assets) {
-      // Calculate current position and cost basis for this asset
-      const assetTxs = txs.filter(tx => tx.asset.toUpperCase() === asset);
-      
+      const arr = grouped[asset] || [];
       let totalQuantity = 0;
       let totalCostUsd = 0;
-      
-      for (const tx of assetTxs) {
+      for (const tx of arr) {
         const quantity = Math.abs(tx.quantity);
         if (tx.type === 'Buy') {
           totalQuantity += quantity;
           totalCostUsd += quantity * (tx.priceUsd || 0);
         } else {
-          // For sells, use average cost method
           if (totalQuantity > 0) {
             const currentAvgCost = totalCostUsd / totalQuantity;
             const unitsToSell = Math.min(quantity, totalQuantity);
@@ -1029,42 +1025,31 @@ export default function DashboardPage(){
           }
         }
       }
-      
-      // Calculate PnL based on timeframe
+
+      const ai = priceIndex.assetIndex[asset];
+      const currentPrice = ai !== undefined ? priceIndex.prices[ai][latestDi] || 0 : 0;
       let pnl: number;
       if (heatmapTimeframe === 'current') {
-        // Current total PnL
-        const currentPrice = priceMap.get(latestDate + '|' + asset) || 0;
         const currentValueUsd = totalQuantity * currentPrice;
         pnl = currentValueUsd - totalCostUsd;
       } else {
-        // PnL change over the specified period
-        const currentPrice = priceMap.get(latestDate + '|' + asset) || 0;
-        const referencePrice = priceMap.get(referenceDate + '|' + asset) || currentPrice;
+        const referencePrice = ai !== undefined ? priceIndex.prices[ai][referenceDi] || currentPrice : currentPrice;
         const currentValueUsd = totalQuantity * currentPrice;
         const referenceValueUsd = totalQuantity * referencePrice;
         pnl = currentValueUsd - referenceValueUsd;
       }
-      
-      // Determine color based on PnL (green for positive, red for negative)
+
       const color = pnl >= 0 ? '#16a34a' : '#dc2626';
-      
-      heatmapData.push({
-        asset,
-        pnl,
-        color
-      });
+      heatmapData.push({ asset, pnl, color });
     }
-    
-    // Sort by absolute PnL value (largest first)
+
     heatmapData.sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
-    
     return {
       assets: heatmapData.map(d => d.asset),
       pnlValues: heatmapData.map(d => d.pnl),
-      colors: heatmapData.map(d => d.color)
+      colors: heatmapData.map(d => d.color),
     };
-  }, [txs, hist, assets, heatmapTimeframe]);
+  }, [txs, assets, heatmapTimeframe, priceIndex]);
 
 
   return (
