@@ -194,6 +194,53 @@ export default function DashboardPage(){
   const hist = { prices: historicalPrices };
   const loadingHist = false; // Historical data loading is handled by usePriceData
 
+  // Shared price indices and matrices for fast lookups across charts
+  const priceIndex = useMemo(() => {
+    if (!hist || !hist.prices || assets.length === 0) {
+      return {
+        dates: [] as string[],
+        dateIndex: {} as Record<string, number>,
+        assetIndex: {} as Record<string, number>,
+        prices: [] as number[][],
+      };
+    }
+    const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
+    const dateIndex: Record<string, number> = {};
+    for (let i = 0; i < dates.length; i++) dateIndex[dates[i]] = i;
+    const assetIndex: Record<string, number> = {};
+    for (let i = 0; i < assets.length; i++) assetIndex[assets[i]] = i;
+    const prices: number[][] = new Array(assets.length);
+    for (let ai = 0; ai < assets.length; ai++) prices[ai] = new Array(dates.length).fill(0);
+    for (const p of hist.prices) {
+      const ai = assetIndex[p.asset.toUpperCase()];
+      const di = dateIndex[p.date];
+      if (ai !== undefined && di !== undefined) prices[ai][di] = p.price_usd;
+    }
+    return { dates, dateIndex, assetIndex, prices };
+  }, [hist, assets]);
+
+  // Preload historical FX rates once for the date range and reuse via a local map
+  const fxRateMap = useMemo(() => {
+    const map = new Map<string, Record<string, number>>();
+    if (!priceIndex.dates.length) return map;
+    const fiat = getFiatCurrencies();
+    // Optional hook for remote caches; safe to call but synchronous lookups below
+    try {
+      const start = priceIndex.dates[0];
+      const end = priceIndex.dates[priceIndex.dates.length - 1];
+      preloadExchangeRates(start, end);
+    } catch {}
+    for (const d of priceIndex.dates) {
+      const rec: Record<string, number> = {};
+      for (const c of fiat) {
+        // Use cached/local implementation; avoids doing this in inner loops
+        rec[c] = getHistoricalExchangeRate(c, 'USD', d);
+      }
+      map.set(d, rec);
+    }
+    return map;
+  }, [priceIndex.dates]);
+
   // Calculate P&L using shared logic
   const pnlData = usePnLCalculation(txs, latestPrices, historicalPrices);
 
@@ -315,7 +362,7 @@ export default function DashboardPage(){
       return { dates: [] as string[], costBasis: [] as number[], portfolioValue: [] as number[] };
     }
 
-    const dates = hist.prices.map(p => p.date).sort();
+    const dates = priceIndex.dates;
     const costBasis: number[] = [];
     const portfolioValue: number[] = [];
 
@@ -335,14 +382,14 @@ export default function DashboardPage(){
       txs.filter(tx => new Date(tx.datetime) <= new Date(date)).forEach(tx => {
         if (tx.type === 'Deposit') {
           if (isFiatCurrency(tx.asset)) {
-            // Convert to USD using historical exchange rate at transaction date
-            const historicalRate = getHistoricalExchangeRate(tx.asset, 'USD', tx.datetime);
+            const txDay = new Date(tx.datetime).toISOString().slice(0, 10);
+            const historicalRate = fxRateMap.get(txDay)?.[tx.asset.toUpperCase()] ?? 0;
             cumulativeCost += tx.quantity * historicalRate;
           }
         } else if (tx.type === 'Withdrawal') {
           if (isFiatCurrency(tx.asset)) {
-            // Convert to USD using historical exchange rate at transaction date
-            const historicalRate = getHistoricalExchangeRate(tx.asset, 'USD', tx.datetime);
+            const txDay = new Date(tx.datetime).toISOString().slice(0, 10);
+            const historicalRate = fxRateMap.get(txDay)?.[tx.asset.toUpperCase()] ?? 0;
             cumulativeCost -= tx.quantity * historicalRate;
           }
         }
@@ -352,7 +399,6 @@ export default function DashboardPage(){
 
       // Calculate portfolio value at this date
       let portfolioVal = 0;
-      
       // Calculate historical crypto holdings up to this date
       const historicalHoldings: Record<string, number> = {};
       assets.forEach(asset => {
@@ -372,10 +418,10 @@ export default function DashboardPage(){
       assets.forEach(asset => {
         const assetUnits = historicalHoldings[asset];
         if (assetUnits && assetUnits > 0) {
-          const pricePoint = hist.prices.find(p => p.asset === asset && p.date === date);
-          if (pricePoint) {
-            portfolioVal += assetUnits * pricePoint.price_usd;
-          }
+          const ai = priceIndex.assetIndex[asset];
+          const di = priceIndex.dateIndex[date];
+          const px = ai !== undefined && di !== undefined ? priceIndex.prices[ai][di] : 0;
+          if (px > 0) portfolioVal += assetUnits * px;
         }
       });
 
@@ -397,7 +443,7 @@ export default function DashboardPage(){
       return { dates: [] as string[], cryptoValue: [] as number[], cashValue: [] as number[], totalValue: [] as number[] };
     }
 
-    const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
+    const dates = priceIndex.dates;
     const cryptoValues: number[] = [];
     const cashValues: number[] = [];
     const totalValues: number[] = [];
@@ -406,7 +452,9 @@ export default function DashboardPage(){
       // Calculate crypto portfolio value for this date using historical positions
       let cryptoValue = 0;
       for (const asset of assets) {
-        const price = hist.prices.find(p => p.date === date && p.asset === asset)?.price_usd || 0;
+        const ai = priceIndex.assetIndex[asset];
+        const di = priceIndex.dateIndex[date];
+        const price = ai !== undefined && di !== undefined ? priceIndex.prices[ai][di] : 0;
         
         // Calculate position at this historical date
         let position = 0;
@@ -467,10 +515,10 @@ export default function DashboardPage(){
         }
       }
       
-      // Convert all balances to USD using historical exchange rates
+      // Convert all balances to USD using preloaded historical exchange rates
       for (const [currency, balance] of Object.entries(balances)) {
         if (balance !== 0) {
-          const historicalRate = getHistoricalExchangeRate(currency, 'USD', date);
+          const historicalRate = fxRateMap.get(date)?.[currency] ?? 0;
           cashValue += balance * historicalRate;
         }
       }
@@ -637,54 +685,69 @@ export default function DashboardPage(){
     };
   }, [latestPrices, holdings, hist, pnlData]);
 
-  // BTC Ratio Chart - tracks portfolio BTC value over time
+  // BTC Ratio Chart - tracks portfolio BTC value over time (single-pass incremental)
   const btcRatio = useMemo(() => {
     if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0) {
       return { dates: [] as string[], btcValue: [] as number[], btcPercentage: [] as number[] };
     }
-    
+
+    // Price lookup per date+asset
     const priceMap = new Map<string, number>();
     for (const p of hist.prices) priceMap.set(p.date + '|' + p.asset.toUpperCase(), p.price_usd);
-    
+
+    // Sorted unique price dates (these are the x-axis)
     const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
-    const btcValue: number[] = [];
-    const btcPercentage: number[] = [];
-    
-    for (const date of dates) {
-      // Calculate historical holdings up to this date
-      const historicalHoldings: Record<string, number> = {};
-      assets.forEach(asset => {
-        historicalHoldings[asset] = 0;
-      });
-      
-      // Process all transactions up to this date to get historical holdings
-      txs.filter(tx => new Date(tx.datetime) <= new Date(date)).forEach(tx => {
-        if (tx.type === 'Buy') {
-          historicalHoldings[tx.asset] = (historicalHoldings[tx.asset] || 0) + tx.quantity;
-        } else if (tx.type === 'Sell') {
-          historicalHoldings[tx.asset] = (historicalHoldings[tx.asset] || 0) - tx.quantity;
-        }
-      });
-      
-      let totalValue = 0;
-      let btcValueForDate = 0;
-      
-      // Calculate total portfolio value and BTC value for this date using historical holdings
-      for (const asset of assets) {
-        const price = priceMap.get(date + '|' + asset) || 0;
-        const units = historicalHoldings[asset] || 0;
-        const assetValue = price * units;
-        totalValue += assetValue;
-        
-        if (asset === 'BTC') {
-          btcValueForDate = assetValue;
+
+    // Group crypto buy/sell transactions by YYYY-MM-DD once
+    const txsByDate = new Map<string, { asset: string; type: 'Buy' | 'Sell'; qty: number }[]>();
+    for (const t of txs) {
+      const a = t.asset.toUpperCase();
+      if (a === 'USD') continue;
+      if (!(t.type === 'Buy' || t.type === 'Sell')) continue;
+      const day = new Date(t.datetime).toISOString().slice(0, 10);
+      const arr = txsByDate.get(day) || [];
+      arr.push({ asset: a, type: t.type, qty: Math.abs(t.quantity) });
+      txsByDate.set(day, arr);
+    }
+
+    // Current holdings snapshot updated incrementally as we sweep dates
+    const currentHoldings: Record<string, number> = {};
+    for (const a of assets) currentHoldings[a] = currentHoldings[a] || 0;
+
+    const btcValue: number[] = new Array(dates.length);
+    const btcPercentage: number[] = new Array(dates.length);
+
+    for (let i = 0; i < dates.length; i++) {
+      const date = dates[i];
+
+      // Apply this day's transactions (if any)
+      const todays = txsByDate.get(date);
+      if (todays && todays.length) {
+        for (const tx of todays) {
+          if (tx.type === 'Buy') {
+            currentHoldings[tx.asset] = (currentHoldings[tx.asset] || 0) + tx.qty;
+          } else {
+            currentHoldings[tx.asset] = (currentHoldings[tx.asset] || 0) - tx.qty;
+          }
         }
       }
-      
-      btcValue.push(btcValueForDate);
-      btcPercentage.push(totalValue > 0 ? (btcValueForDate / totalValue) * 100 : 0);
+
+      // Compute BTC value and total portfolio value for this date
+      let totalValueUsd = 0;
+      let btcValueUsd = 0;
+      for (const a of assets) {
+        const price = priceMap.get(date + '|' + a) || 0;
+        const units = currentHoldings[a] || 0;
+        if (units === 0 || price === 0) continue;
+        const value = units * price;
+        totalValueUsd += value;
+        if (a === 'BTC') btcValueUsd = value;
+      }
+
+      btcValue[i] = btcValueUsd;
+      btcPercentage[i] = totalValueUsd > 0 ? (btcValueUsd / totalValueUsd) * 100 : 0;
     }
-    
+
     return { dates, btcValue, btcPercentage };
   }, [hist, assets, txs]);
 
