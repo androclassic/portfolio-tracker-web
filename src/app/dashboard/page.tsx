@@ -191,7 +191,7 @@ export default function DashboardPage(){
   }, [txs]);
 
   // Historical data is now provided by usePriceData hook
-  const hist = { prices: historicalPrices };
+  const hist = useMemo(() => ({ prices: historicalPrices }), [historicalPrices]);
   const loadingHist = false; // Historical data loading is handled by usePriceData
 
   // Shared price indices and matrices for fast lookups across charts
@@ -921,75 +921,67 @@ export default function DashboardPage(){
     return { dates, opportunities };
   }, [hist, assets, txs]);
 
-  // BTC Accumulation Chart
+  // BTC Accumulation Chart (single pass over dates with incremental holdings)
   const btcAccumulation = useMemo(() => {
-    if (!txs || txs.length === 0 || !hist || !hist.prices) {
+    if (!txs || txs.length === 0 || !priceIndex.dates.length || !assets.length) {
       return { dates: [] as string[], btcHeld: [] as number[], altcoinBtcValue: [] as number[] };
     }
-    
-    // Create a map of BTC prices by date for accurate conversion
-    const btcPriceMap = new Map<string, number>();
-    for (const p of hist.prices) {
-      if (p.asset.toUpperCase() === 'BTC') {
-        btcPriceMap.set(p.date, p.price_usd);
-      }
+
+    const dates = priceIndex.dates;
+    const btcIdx = priceIndex.assetIndex['BTC'];
+    if (btcIdx === undefined) return { dates: [], btcHeld: [], altcoinBtcValue: [] };
+
+    // Group transactions by date index and asset index once
+    const txsByDate: { ai: number; dq: number }[][] = new Array(dates.length);
+    for (let i = 0; i < dates.length; i++) txsByDate[i] = [];
+    for (const t of txs) {
+      const type = t.type;
+      if (!(type === 'Buy' || type === 'Sell')) continue;
+      const a = t.asset.toUpperCase();
+      const ai = priceIndex.assetIndex[a];
+      if (ai === undefined) continue;
+      const day = new Date(t.datetime).toISOString().slice(0, 10);
+      const di = priceIndex.dateIndex[day];
+      if (di === undefined) continue;
+      const dq = (type === 'Buy' ? 1 : -1) * Math.abs(t.quantity);
+      txsByDate[di].push({ ai, dq });
     }
-    
-    // Get all unique dates from historical prices
-    const allDates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
-    const btcHeld: number[] = [];
-    const altcoinBtcValue: number[] = [];
-    
-    for (const date of allDates) {
-      // Calculate BTC holdings for this date
-      const btcTxs = txs.filter(tx => 
-        tx.asset.toUpperCase() === 'BTC' && 
-        new Date(tx.datetime).toISOString().slice(0, 10) <= date
-      );
-      
-      const currentBtcHeld = btcTxs.reduce((total, tx) => {
-        const quantity = Math.abs(tx.quantity);
-        return total + (tx.type === 'Buy' ? quantity : -quantity);
-      }, 0);
-      
-      // Calculate BTC value of altcoin holdings for this date
-      let totalAltcoinBtcValue = 0;
-      const btcPrice = btcPriceMap.get(date) || 50000; // Fallback to $50k
-      
-      for (const asset of assets) {
-        if (asset === 'BTC') continue; // Skip BTC itself
-        
-        // Get position for this asset up to this date
-        const assetTxs = txs.filter(tx => 
-          tx.asset.toUpperCase() === asset && 
-          new Date(tx.datetime).toISOString().slice(0, 10) <= date
-        );
-        
-        const position = assetTxs.reduce((total, tx) => {
-          const quantity = Math.abs(tx.quantity);
-          return total + (tx.type === 'Buy' ? quantity : -quantity);
-        }, 0);
-        
-        if (position > 0) {
-          // Get asset price for this date
-          const assetPrice = hist.prices.find(p => 
-            p.date === date && p.asset.toUpperCase() === asset
-          )?.price_usd || 0;
-          
-          if (assetPrice > 0 && btcPrice > 0) {
-            const assetValueUsd = position * assetPrice;
-            const btcEquivalent = assetValueUsd / btcPrice;
-            totalAltcoinBtcValue += btcEquivalent;
+
+    // Rolling holdings for assets that are currently non-zero
+    const held = new Map<number, number>();
+    const btcHeld: number[] = new Array(dates.length);
+    const altcoinBtcValue: number[] = new Array(dates.length);
+
+    for (let di = 0; di < dates.length; di++) {
+      const changes = txsByDate[di];
+      if (changes && changes.length) {
+        for (let k = 0; k < changes.length; k++) {
+          const { ai, dq } = changes[k];
+          const prev = held.get(ai) || 0;
+          const next = prev + dq;
+          if (next === 0) held.delete(ai); else held.set(ai, next);
+        }
+      }
+
+      const btcPrice = priceIndex.prices[btcIdx][di] || 0;
+      const currentBtc = held.get(btcIdx) || 0;
+      btcHeld[di] = currentBtc;
+
+      let altBtc = 0;
+      if (btcPrice > 0) {
+        for (const [ai, qty] of held) {
+          if (ai === btcIdx) continue;
+          const px = priceIndex.prices[ai][di] || 0;
+          if (qty !== 0 && px > 0) {
+            altBtc += (qty * px) / btcPrice;
           }
         }
       }
-      
-      btcHeld.push(currentBtcHeld);
-      altcoinBtcValue.push(totalAltcoinBtcValue);
+      altcoinBtcValue[di] = altBtc;
     }
-    
-    return { dates: allDates, btcHeld, altcoinBtcValue };
-  }, [txs, hist, assets]);
+
+    return { dates, btcHeld, altcoinBtcValue };
+  }, [txs, priceIndex]);
 
 
   // Portfolio Gains/Losses Heatmap
