@@ -25,10 +25,11 @@ export default function DashboardPage(){
   const listKey = selectedId === 'all' ? '/api/transactions' : (selectedId? `/api/transactions?portfolioId=${selectedId}` : null);
   const { data: txs, mutate, isLoading: loadingTxs } = useSWR<Tx[]>(listKey, fetcher);
   const [selectedAsset, setSelectedAsset] = useState<string>('');
-  const [selectedPnLAsset, setSelectedPnLAsset] = useState<string>('ALL');
+  const [selectedPnLAsset, setSelectedPnLAsset] = useState<string>('');
   const [selectedBtcChart, setSelectedBtcChart] = useState<string>('ratio'); // 'ratio' | 'accumulation'
   const [selectedAltcoin, setSelectedAltcoin] = useState<string>('ALL');
   const [selectedProfitAsset, setSelectedProfitAsset] = useState<string>('ALL');
+  const [selectedCostAsset, setSelectedCostAsset] = useState<string>('');
   const [heatmapTimeframe, setHeatmapTimeframe] = useState<string>('24h'); // 'current' | '24h' | '7d' | '30d'
 
   const assets = useMemo(()=>{
@@ -53,6 +54,14 @@ export default function DashboardPage(){
   useEffect(()=>{
     if (assets.length && !selectedAsset) setSelectedAsset(assets[0]);
   }, [assets, selectedAsset]);
+
+  useEffect(()=>{
+    if (assets.length && !selectedPnLAsset) setSelectedPnLAsset(assets[0]);
+  }, [assets, selectedPnLAsset]);
+
+  useEffect(()=>{
+    if (assets.length && !selectedCostAsset) setSelectedCostAsset(assets[0]);
+  }, [assets, selectedCostAsset]);
 
   // Listen for transaction changes and refresh dashboard data
   useEffect(() => {
@@ -278,9 +287,9 @@ export default function DashboardPage(){
     return { x: [], series: traces };
   }, [hist, dailyPos, assets, colorFor]);
 
-  // PnL over time (realized/unrealized split) - supports filtering by asset
+  // PnL over time (realized/unrealized split) - per-asset only
   const pnl = useMemo(() => {
-    if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0) {
+    if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0 || !selectedPnLAsset) {
       return { dates: [] as string[], realized: [] as number[], unrealized: [] as number[] };
     }
     const priceMap = new Map<string, number>();
@@ -288,73 +297,96 @@ export default function DashboardPage(){
 
     const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
 
-    // Filter transactions by selected asset if not 'ALL'
-    const filteredTxs = (selectedPnLAsset === 'ALL' ? txs : txs.filter(t => t.asset.toUpperCase() === selectedPnLAsset))
-      ?.filter(t => t.asset.toUpperCase() !== 'USD' && (t.type==='Buy' || t.type==='Sell')) || [];
-    
-    // Filter assets for calculation
-    const relevantAssets = selectedPnLAsset === 'ALL' ? assets : [selectedPnLAsset];
+    // Filter transactions by selected asset (per-asset view only)
+    const filteredTxs = txs
+      .filter(t => t.asset.toUpperCase() === selectedPnLAsset)
+      .filter(t => t.asset.toUpperCase() !== 'USD' && (t.type==='Buy' || t.type==='Sell'));
 
-    // Prepare transactions grouped by date per asset with unit price
-    type TxEnriched = { asset: string; type: 'Buy'|'Sell'; units: number; unitPrice: number };
-    const txByDate = new Map<string, TxEnriched[]>();
-    for (const t of filteredTxs.filter(t=> t.asset.toUpperCase() !== 'USD' && (t.type==='Buy' || t.type==='Sell'))) {
-      const asset = t.asset.toUpperCase();
-      const day = new Date(new Date(t.datetime).getFullYear(), new Date(t.datetime).getMonth(), new Date(t.datetime).getDate()).toISOString().slice(0, 10);
-      const key = day;
-      const fallback = priceMap.get(day + '|' + asset) ?? 0;
-      const unitPrice = (t.priceUsd != null ? t.priceUsd : fallback) || 0;
-      const units = Math.abs(t.quantity);
-      const arr = txByDate.get(key) || [];
-      arr.push({ asset, type: t.type as 'Buy'|'Sell', units, unitPrice });
-      txByDate.set(key, arr);
-    }
+    // Only the selected asset is relevant
+    const relevantAssets = [selectedPnLAsset];
 
-    // Track per-asset inventory and cost value using average cost method
-    const heldUnits = new Map<string, number>();
-    const heldCost = new Map<string, number>(); // total cost value for held units
-    let realizedCum = 0;
-    const realizedSeries: number[] = [];
-    const unrealizedSeries: number[] = [];
+    // Helper to compute series for a subset of transactions (single portfolio)
+    const computeSeries = (subset: typeof filteredTxs) => {
+      type TxEnriched = { asset: string; type: 'Buy'|'Sell'; units: number; unitPrice: number };
+      const txByDate = new Map<string, TxEnriched[]>();
+      for (const t of subset) {
+        const asset = t.asset.toUpperCase();
+        const day = new Date(new Date(t.datetime).getFullYear(), new Date(t.datetime).getMonth(), new Date(t.datetime).getDate()).toISOString().slice(0, 10);
+        const key = day;
+        const qtyAbs = Math.abs(t.quantity) || 0;
+        const fromAmounts = t.type === 'Sell'
+          ? (t.proceedsUsd && qtyAbs > 0 ? (t.proceedsUsd / qtyAbs) : undefined)
+          : (t.costUsd && qtyAbs > 0 ? (t.costUsd / qtyAbs) : undefined);
+        const fallback = priceMap.get(day + '|' + asset) ?? 0;
+        const unitPrice = (fromAmounts ?? (t.priceUsd ?? fallback)) || 0;
+        const units = Math.abs(t.quantity);
+        const arr = txByDate.get(key) || [];
+        arr.push({ asset, type: t.type as 'Buy'|'Sell', units, unitPrice });
+        txByDate.set(key, arr);
+      }
 
-    for (const d of dates) {
-      const todays = txByDate.get(d) || [];
-      // Process transactions for today
-      for (const tx of todays) {
-        const uPrev = heldUnits.get(tx.asset) || 0;
-        const cPrev = heldCost.get(tx.asset) || 0;
-        if (tx.type === 'Buy') {
-          // Add units and cost
-          heldUnits.set(tx.asset, uPrev + tx.units);
-          heldCost.set(tx.asset, cPrev + tx.units * tx.unitPrice);
-        } else {
-          // Sell: realize PnL using average cost
-          const avg = uPrev > 0 ? (cPrev / uPrev) : 0;
-          const qty = Math.min(tx.units, uPrev);
-          const proceeds = tx.unitPrice * qty;
-          const cost = avg * qty;
-          realizedCum += (proceeds - cost);
-          heldUnits.set(tx.asset, uPrev - qty);
-          heldCost.set(tx.asset, cPrev - cost);
+      const heldUnits = new Map<string, number>();
+      const heldCost = new Map<string, number>();
+      let realizedCum = 0;
+      const realizedSeries: number[] = [];
+      const unrealizedSeries: number[] = [];
+      for (const d of dates) {
+        const todays = txByDate.get(d) || [];
+        for (const tx of todays) {
+          const uPrev = heldUnits.get(tx.asset) || 0;
+          const cPrev = heldCost.get(tx.asset) || 0;
+          if (tx.type === 'Buy') {
+            heldUnits.set(tx.asset, uPrev + tx.units);
+            heldCost.set(tx.asset, cPrev + tx.units * tx.unitPrice);
+          } else {
+            const avg = uPrev > 0 ? (cPrev / uPrev) : 0;
+            const qty = Math.min(tx.units, uPrev);
+            const proceeds = tx.unitPrice * qty;
+            const cost = avg * qty;
+            realizedCum += (proceeds - cost);
+            heldUnits.set(tx.asset, uPrev - qty);
+            heldCost.set(tx.asset, cPrev - cost);
+          }
+        }
+        let marketValue = 0;
+        let remainingCost = 0;
+        for (const a of relevantAssets) {
+          const units = heldUnits.get(a) || 0;
+          const cost = heldCost.get(a) || 0;
+          const price = priceMap.get(d + '|' + a) || 0;
+          marketValue += units * price;
+          remainingCost += cost;
+        }
+        realizedSeries.push(Number(realizedCum.toFixed(2)));
+        unrealizedSeries.push(Number((marketValue - remainingCost).toFixed(2)));
+      }
+      return { realizedSeries, unrealizedSeries };
+    };
+
+    // If viewing all portfolios, compute per-portfolio and sum series
+    const isAllPortfolios = selectedId === 'all';
+    if (isAllPortfolios) {
+      const byPortfolio: Record<string, typeof filteredTxs> = {};
+      for (const t of filteredTxs) {
+        const pid = String(t.portfolioId ?? 'unknown');
+        (byPortfolio[pid] ||= []).push(t);
+      }
+      const realized = new Array(dates.length).fill(0);
+      const unrealized = new Array(dates.length).fill(0);
+      for (const subset of Object.values(byPortfolio)) {
+        const { realizedSeries, unrealizedSeries } = computeSeries(subset);
+        for (let i = 0; i < dates.length; i++) {
+          realized[i] += realizedSeries[i] || 0;
+          unrealized[i] += unrealizedSeries[i] || 0;
         }
       }
-
-      // Compute unrealized = market value - remaining cost value
-      let marketValue = 0;
-      let remainingCost = 0;
-      for (const a of relevantAssets) {
-        const units = heldUnits.get(a) || 0;
-        const cost = heldCost.get(a) || 0;
-        const price = priceMap.get(d + '|' + a) || 0;
-        marketValue += units * price;
-        remainingCost += cost;
-      }
-      realizedSeries.push(Number(realizedCum.toFixed(2)));
-      unrealizedSeries.push(Number((marketValue - remainingCost).toFixed(2)));
+      return { dates, realized, unrealized };
     }
 
+    // Single portfolio case
+    const { realizedSeries, unrealizedSeries } = computeSeries(filteredTxs);
     return { dates, realized: realizedSeries, unrealized: unrealizedSeries };
-  }, [hist, txs, assets, selectedPnLAsset]);
+  }, [hist, txs, assets, selectedPnLAsset, selectedId]);
 
   // Cost Basis vs Portfolio Valuation Over Time
   const costVsValuation = useMemo(() => {
@@ -533,10 +565,10 @@ export default function DashboardPage(){
     return { dates, cryptoValue: cryptoValues, cashValue: cashValues, totalValue: totalValues };
   }, [hist, assets, holdings, txs]);
 
-  // Cost basis vs market price for selected asset
+  // Cost basis vs market price for selected asset (independent selector)
   const costVsPrice = useMemo(() => {
-    if (!hist || !hist.prices || !selectedAsset) return { dates: [] as string[], avgCost: [] as number[], price: [] as number[] };
-    const asset = selectedAsset.toUpperCase();
+    if (!hist || !hist.prices || !selectedCostAsset) return { dates: [] as string[], avgCost: [] as number[], price: [] as number[] };
+    const asset = selectedCostAsset.toUpperCase();
     const dates = Array.from(new Set(hist.prices.filter(p => p.asset.toUpperCase() === asset).map(p => p.date))).sort();
     // build tx map for this asset
     const txsA = (txs || []).filter(t => t.asset.toUpperCase() === asset && (t.type==='Buy' || t.type==='Sell'))
@@ -562,7 +594,7 @@ export default function DashboardPage(){
       price.push(priceMap.get(d) || 0);
     }
     return { dates, avgCost, price };
-  }, [hist, txs, selectedAsset]);
+  }, [hist, txs, selectedCostAsset]);
 
   const positionsFigure = useMemo(()=>{
     // one trace per asset (cumulative positions by date)
@@ -1327,21 +1359,18 @@ This is different from trading P&L as it focuses on your total investment vs. to
         <section className="card">
           <div className="card-header">
             <div className="card-title">
-              <h2>PnL over time</h2>
+              <h2>PnL over time (per asset)</h2>
               <button 
-                onClick={() => alert(`PnL Over Time
+                onClick={() => alert(`PnL Over Time (Per Asset)
 
-This chart shows your profit and loss (PnL) over time, split into realized and unrealized gains/losses.
+This chart shows your profit and loss (PnL) over time for the selected asset, split into realized and unrealized gains/losses.
 
 • Realized PnL: Profits/losses from completed transactions (buys/sells)
-• Unrealized PnL: Current paper gains/losses on held positions
-• Green lines = positive PnL (profits)
-• Red lines = negative PnL (losses)
+• Unrealized PnL: Current paper gains/losses on the held position
 • Total PnL = Realized + Unrealized
 
-Use the asset filter to view PnL for specific assets or the entire portfolio.
-
-This helps track your trading performance and understand when gains were realized vs. held.`)}
+Use the asset selector to view PnL for a specific asset.
+Note: Aggregated portfolio PnL is intentionally not shown to avoid misleading aggregation.`)}
                 className="icon-btn"
                 title="Chart Information"
               >
@@ -1352,7 +1381,6 @@ This helps track your trading performance and understand when gains were realize
           <div style={{ marginBottom: 8 }}>
             <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
               <select value={selectedPnLAsset} onChange={e=>setSelectedPnLAsset(e.target.value)}>
-                <option value="ALL">All Assets (Portfolio)</option>
                 {assets.map(a=> (<option key={a} value={a}>{a}</option>))}
               </select>
             </label>
@@ -1421,7 +1449,7 @@ This helps visualize your trading activity and position sizing over time.`)}
         <section className="card">
           <div className="card-header">
             <div className="card-title">
-              <h2>Average cost vs market price ({selectedAsset || '...'})</h2>
+              <h2>Average cost vs market price ({selectedCostAsset || '...'})</h2>
               <button 
                 onClick={() => alert(`Average Cost vs Market Price
 
@@ -1441,7 +1469,14 @@ This helps you understand your entry points and current profit margins.`)}
               </button>
             </div>
           </div>
-          {(loadingHist || !selectedAsset) && (
+          <div style={{ marginBottom: 8 }}>
+            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
+              <select value={selectedCostAsset} onChange={e=>setSelectedCostAsset(e.target.value)}>
+                {assets.map(a=> (<option key={a} value={a}>{a}</option>))}
+              </select>
+            </label>
+          </div>
+          {(loadingHist || !selectedCostAsset) && (
             <div style={{ padding: 16, color: 'var(--muted)' }}>Loading cost vs price...</div>
           )}
           {!loadingHist && costVsPrice.dates.length === 0 && (
@@ -1451,7 +1486,7 @@ This helps you understand your entry points and current profit margins.`)}
           <Plot
             data={[
               { x: costVsPrice.dates, y: costVsPrice.avgCost, type:'scatter', mode:'lines', name:'Avg cost', line: { color: '#888888', dash: 'dot' } },
-              { x: costVsPrice.dates, y: costVsPrice.price, type:'scatter', mode:'lines', name:'Market price', line: { color: colorFor(selectedAsset||'') } },
+              { x: costVsPrice.dates, y: costVsPrice.price, type:'scatter', mode:'lines', name:'Market price', line: { color: colorFor(selectedCostAsset||'') } },
             ] as Data[]}
             layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' } }}
             style={{ width:'100%' }}

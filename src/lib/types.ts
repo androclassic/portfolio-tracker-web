@@ -8,6 +8,8 @@ export type Transaction = {
   costUsd?: number | null;
   proceedsUsd?: number | null;
   notes?: string | null;
+  // Optional on client: present when fetching from API that includes portfolio linkage
+  portfolioId?: number;
 };
 
 export type PricePoint = { date: string; asset: string; price_usd: number };
