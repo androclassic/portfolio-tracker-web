@@ -29,6 +29,7 @@ export const SUPPORTED_ASSETS: SupportedAsset[] = [
   { symbol: 'LTC', name: 'Litecoin', marketCapRank: 18, category: 'altcoin' },
   { symbol: 'ATOM', name: 'Cosmos', marketCapRank: 19, category: 'altcoin' },
   { symbol: 'SUI', name: 'Sui', marketCapRank: 20, category: 'altcoin' },
+  { symbol: 'NIGHT', name: 'Midnight', marketCapRank: 0, category: 'altcoin' },
   // Fiat currencies
   { symbol: 'USD', name: 'US Dollar', marketCapRank: 0, category: 'fiat' },
   { symbol: 'EUR', name: 'Euro', marketCapRank: 0, category: 'fiat' },

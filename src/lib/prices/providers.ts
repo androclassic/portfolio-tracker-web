@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
-  BTC: 'bitcoin', ETH: 'ethereum', ADA: 'cardano', SOL: 'solana', DOT: 'polkadot', XRP: 'ripple', LINK: 'chainlink', AVAX: 'avalanche-2', USDT: 'tether', USDC: 'usd-coin', SUI: 'sui', MATIC: 'matic-network', BNB: 'binancecoin', DOGE: 'dogecoin', SHIB: 'shiba-inu', TRX: 'tron', ICP: 'internet-computer', UNI: 'uniswap', LTC: 'litecoin', ATOM: 'cosmos',
+  BTC: 'bitcoin', ETH: 'ethereum', ADA: 'cardano', SOL: 'solana', DOT: 'polkadot', XRP: 'ripple', LINK: 'chainlink', AVAX: 'avalanche-2', USDT: 'tether', USDC: 'usd-coin', SUI: 'sui', MATIC: 'matic-network', BNB: 'binancecoin', DOGE: 'dogecoin', SHIB: 'shiba-inu', TRX: 'tron', ICP: 'internet-computer', UNI: 'uniswap', LTC: 'litecoin', ATOM: 'cosmos', NIGHT: 'midnight-3',
 };
 
 const SYMBOL_TO_COINCAP: Record<string, string> = {
