@@ -264,17 +264,31 @@ export default function CashDashboardPage(){
     height: 400,
   };
 
-  // Total Balances Pie Chart
-  const totalBalancesChart: Data[] = [
-    {
-      labels: fiatCurrencies,
-      values: fiatCurrencies.map(currency => totalBalances[currency]),
-      type: 'pie',
-      marker: {
-        colors: fiatCurrencies.map(currency => colorFor(currency)),
+  // Total Balances Pie Chart - only show currencies with non-zero balances
+  const totalBalancesChart: Data[] = useMemo(() => {
+    // Filter to only currencies with non-zero USD balances
+    const currenciesWithBalances = fiatCurrencies.filter(currency => {
+      const balance = totalBalances[currency] || 0;
+      return Math.abs(balance) > 0.01; // Filter out near-zero balances
+    });
+    
+    if (currenciesWithBalances.length === 0) {
+      return [];
+    }
+    
+    return [
+      {
+        labels: currenciesWithBalances,
+        values: currenciesWithBalances.map(currency => Math.abs(totalBalances[currency])), // Use absolute values for pie chart
+        type: 'pie',
+        marker: {
+          colors: currenciesWithBalances.map(currency => colorFor(currency)),
+        },
+        textinfo: 'label+percent',
+        hovertemplate: '<b>%{label}</b><br>Balance: $%{value:,.2f}<br>Percentage: %{percent}<extra></extra>',
       },
-    },
-  ];
+    ];
+  }, [totalBalances, fiatCurrencies, colorFor]);
 
   const totalBalancesLayout: Partial<Layout> = {
     title: { text: `Total Balances (USD Equivalent)${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
@@ -407,7 +421,13 @@ export default function CashDashboardPage(){
 
         {/* Total Balances Pie Chart */}
         <div style={{ backgroundColor: 'var(--surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
-          <Plot data={totalBalancesChart} layout={totalBalancesLayout} />
+          {totalBalancesChart.length > 0 ? (
+            <Plot data={totalBalancesChart} layout={totalBalancesLayout} />
+          ) : (
+            <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+              No cash balances to display
+            </div>
+          )}
         </div>
       </div>
 
