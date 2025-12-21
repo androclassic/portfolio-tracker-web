@@ -204,3 +204,9 @@ export function isFiatCurrency(symbol: string): boolean {
   const asset = getAssetBySymbol(symbol);
   return asset?.category === 'fiat';
 }
+
+// Check if an asset is a stablecoin
+export function isStablecoin(symbol: string): boolean {
+  const asset = getAssetBySymbol(symbol);
+  return asset?.category === 'stablecoin';
+}

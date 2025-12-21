@@ -3,7 +3,7 @@ import dynamic from 'next/dynamic';
 import useSWR from 'swr';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
-import { getAssetColor, getFiatCurrencies, convertFiat, isFiatCurrency, getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/assets';
+import { getAssetColor, getFiatCurrencies, convertFiat, isFiatCurrency, isStablecoin, getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/assets';
 import { usePriceData } from '@/hooks/usePriceData';
 import { usePnLCalculation } from '@/hooks/usePnLCalculation';
 import AllocationPieChart from '@/components/AllocationPieChart';
@@ -674,23 +674,25 @@ export default function DashboardPage(){
       if (btcPrice > 0) currentValueBtc = currentValue / btcPrice;
     }
 
-    // 24h change uses last two available daily prices from hist
+    // 24h change uses current prices vs prices from 24h ago (or last available historical date)
     if (hist && hist.prices && hist.prices.length > 0) {
       const dates = Array.from(new Set(hist.prices.map(p=>p.date))).sort();
       const n = dates.length;
-      if (n >= 2) {
-        const currDate = dates[n-1];
-        const prevDate = dates[n-2];
-        const lastMap = new Map<string, number>();
+      if (n >= 1) {
+        // Use the last available historical date as reference (24h ago or closest)
+        const prevDate = dates[n-1];
         const prevMap = new Map<string, number>();
         for (const p of hist.prices) {
-          if (p.date === currDate) lastMap.set(p.asset.toUpperCase(), p.price_usd);
           if (p.date === prevDate) prevMap.set(p.asset.toUpperCase(), p.price_usd);
         }
         topDelta = -Infinity; topAsset = '';
         for (const [a, units] of Object.entries(holdings)) {
           if (units <= 0) continue; // only assets currently held
-          const cp = lastMap.get(a) ?? 0;
+          // Exclude stablecoins from 24h change calculation (they maintain $1.00 value)
+          if (isStablecoin(a)) continue;
+          // Use latestPrices for current price (most up-to-date)
+          const cp = latestPrices[a] || 0;
+          // Use historical price from previous date as reference
           const pp = prevMap.get(a) ?? cp;
           const delta = (cp - pp) * units;
           dayChange += delta;
@@ -1018,16 +1020,8 @@ export default function DashboardPage(){
 
   // Portfolio Gains/Losses Heatmap
   const portfolioHeatmap = useMemo(() => {
-    if (!txs || txs.length === 0 || !priceIndex.dates.length || !assets.length) {
+    if (!txs || txs.length === 0 || !assets.length) {
       return { assets: [] as string[], pnlValues: [] as number[], colors: [] as string[] };
-    }
-
-    const dates = priceIndex.dates;
-    const latestDi = dates.length - 1;
-    let referenceDi = latestDi;
-    if (heatmapTimeframe !== 'current') {
-      const daysBack = heatmapTimeframe === '24h' ? 1 : heatmapTimeframe === '7d' ? 7 : 30;
-      referenceDi = Math.max(0, dates.length - daysBack - 1);
     }
 
     // Group transactions once by asset symbol (uppercased)
@@ -1039,7 +1033,42 @@ export default function DashboardPage(){
 
     const heatmapData: { asset: string; pnl: number; color: string }[] = [];
 
+    // For timeframes, use the same approach as summary: find last two available dates
+    let referencePriceMap: Map<string, number> | null = null;
+    if (heatmapTimeframe !== 'current' && hist && hist.prices && hist.prices.length > 0) {
+      const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
+      const n = dates.length;
+      if (n >= 2) {
+        // For 24h, use last two dates. For 7d/30d, find appropriate date
+        let targetDateIndex = n - 2; // Default to second-to-last date (24h)
+        if (heatmapTimeframe === '7d' || heatmapTimeframe === '30d') {
+          const daysBack = heatmapTimeframe === '7d' ? 7 : 30;
+          const targetDate = new Date();
+          targetDate.setDate(targetDate.getDate() - daysBack);
+          const targetDateStr = targetDate.toISOString().slice(0, 10);
+          // Find closest date <= target date
+          for (let i = dates.length - 1; i >= 0; i--) {
+            if (dates[i] <= targetDateStr) {
+              targetDateIndex = i;
+              break;
+            }
+          }
+        }
+        const referenceDate = dates[targetDateIndex];
+        referencePriceMap = new Map<string, number>();
+        for (const p of hist.prices) {
+          if (p.date === referenceDate) {
+            referencePriceMap.set(p.asset.toUpperCase(), p.price_usd);
+          }
+        }
+      }
+    }
+
     for (const asset of assets) {
+      // Exclude stablecoins from timeframe-based calculations (they maintain $1.00 value)
+      // But include them in "current" total PnL calculation
+      if (heatmapTimeframe !== 'current' && isStablecoin(asset)) continue;
+      
       const arr = grouped[asset] || [];
       let totalQuantity = 0;
       let totalCostUsd = 0;
@@ -1058,14 +1087,19 @@ export default function DashboardPage(){
         }
       }
 
-      const ai = priceIndex.assetIndex[asset];
-      const currentPrice = ai !== undefined ? priceIndex.prices[ai][latestDi] || 0 : 0;
+      // Skip assets with zero or negative holdings
+      if (totalQuantity <= 0) continue;
+
       let pnl: number;
       if (heatmapTimeframe === 'current') {
+        // Total PnL: current value minus cost basis
+        const currentPrice = latestPrices[asset] || 0;
         const currentValueUsd = totalQuantity * currentPrice;
         pnl = currentValueUsd - totalCostUsd;
       } else {
-        const referencePrice = ai !== undefined ? priceIndex.prices[ai][referenceDi] || currentPrice : currentPrice;
+        // Timeframe change: use latestPrices for current, referencePriceMap for reference
+        const currentPrice = latestPrices[asset] || 0;
+        const referencePrice = referencePriceMap?.get(asset) ?? currentPrice;
         const currentValueUsd = totalQuantity * currentPrice;
         const referenceValueUsd = totalQuantity * referencePrice;
         pnl = currentValueUsd - referenceValueUsd;
@@ -1081,7 +1115,7 @@ export default function DashboardPage(){
       pnlValues: heatmapData.map(d => d.pnl),
       colors: heatmapData.map(d => d.color),
     };
-  }, [txs, assets, heatmapTimeframe, priceIndex]);
+  }, [txs, assets, heatmapTimeframe, latestPrices, hist]);
 
 
   return (
