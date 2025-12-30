@@ -363,7 +363,7 @@ export default function CashDashboardPage(){
   const { data: txs, isLoading: loadingTxs } = useSWR<Tx[]>(listKey, fetcher);
   const [selectedCurrency, setSelectedCurrency] = useState<string>('USD');
   const [selectedTaxYear, setSelectedTaxYear] = useState<string>('all'); // 'all' | '2024' | '2023' | etc.
-  const [selectedAssetLotStrategy, setSelectedAssetLotStrategy] = useState<'FIFO' | 'LIFO' | 'HIFO' | 'LOFO'>('HIFO');
+  const [selectedAssetLotStrategy, setSelectedAssetLotStrategy] = useState<'FIFO' | 'LIFO' | 'HIFO' | 'LOFO'>('FIFO');
   const [selectedCashLotStrategy, setSelectedCashLotStrategy] = useState<'FIFO' | 'LIFO' | 'HIFO' | 'LOFO'>('FIFO');
   
   // Fetch Romania tax report for selected year
