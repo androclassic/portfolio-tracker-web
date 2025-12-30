@@ -223,6 +223,15 @@ export async function getHistoricalExchangeRate(
 
 function getFallbackRate(fromCurrency: string, toCurrency: string, date: string): number {
   const year = new Date(date).getFullYear();
+
+  // Approximate USD/RON by year (RON per 1 USD)
+  const usd_ron =
+    year >= 2024 ? 4.6 :
+    year >= 2023 ? 4.5 :
+    year >= 2022 ? 4.4 :
+    year >= 2021 ? 4.2 :
+    year >= 2020 ? 4.3 :
+    4.1;
   
   if (fromCurrency === 'EUR' && toCurrency === 'USD') {
     if (year >= 2024) return 1.08;
@@ -232,12 +241,18 @@ function getFallbackRate(fromCurrency: string, toCurrency: string, date: string)
     else if (year >= 2020) return 1.14;
     else return 1.11;
   } else if (fromCurrency === 'RON' && toCurrency === 'USD') {
-    if (year >= 2024) return 0.22; // 1/4.6
-    else if (year >= 2023) return 0.22; // 1/4.5
-    else if (year >= 2022) return 0.23; // 1/4.4
-    else if (year >= 2021) return 0.24; // 1/4.2
-    else if (year >= 2020) return 0.23; // 1/4.3
-    else return 0.24; // 1/4.1
+    return 1 / usd_ron;
+  } else if (fromCurrency === 'USD' && toCurrency === 'RON') {
+    return usd_ron;
+  } else if (fromCurrency === 'USD' && toCurrency === 'EUR') {
+    const eur_usd = getFallbackRate('EUR', 'USD', date);
+    return eur_usd > 0 ? 1 / eur_usd : 1.0;
+  } else if (fromCurrency === 'EUR' && toCurrency === 'RON') {
+    const eur_usd = getFallbackRate('EUR', 'USD', date);
+    return eur_usd * usd_ron;
+  } else if (fromCurrency === 'RON' && toCurrency === 'EUR') {
+    const eur_ron = getFallbackRate('EUR', 'RON', date);
+    return eur_ron > 0 ? 1 / eur_ron : 1.0;
   }
   
   return 1.0;
