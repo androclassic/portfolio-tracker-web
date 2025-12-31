@@ -12,7 +12,7 @@ import type { Transaction as Tx } from '@/lib/types';
 import type { RomaniaTaxReport, TaxableEvent, BuyLotTrace } from '@/lib/tax/romania';
 
 type BuyLotTraceWithFundingSells = BuyLotTrace & {
-  fundingSells?: Array<{ asset: string; amountUsd: number; saleTransactionId: number; saleDatetime: string }>;
+  fundingSells?: Array<{ asset: string; amountUsd: number; costBasisUsd?: number; saleTransactionId: number; saleDatetime: string }>;
   cashSpentUsd?: number;
 };
 
@@ -33,8 +33,9 @@ function createSankeyData(event: TaxableEvent): { data: Data[]; layout: Partial<
     };
   }
 
-  // Prefer rich trace: Deposits -> Buys -> Sells -> Withdrawal
-  if (event.saleTrace && event.saleTrace.length > 0) {
+  // Prefer rich trace: Deposits -> Buys -> Sells -> Withdrawal (use deep trace if available)
+  const saleTrace = (event.saleTraceDeep && event.saleTraceDeep.length ? event.saleTraceDeep : event.saleTrace) || [];
+  if (saleTrace.length > 0) {
     // Transaction-level flow (no loops): Deposits -> Buys -> Sells -> Withdrawal, plus Sell -> Buy funding hops.
     // This avoids cycles that appear when you aggregate by asset (e.g., sell BTC then later buy BTC again).
     const nodes: string[] = [];
@@ -81,7 +82,7 @@ function createSankeyData(event: TaxableEvent): { data: Data[]; layout: Partial<
     };
 
     // Create Sell nodes and connect to Withdrawal
-    event.saleTrace.forEach((sale) => {
+    saleTrace.forEach((sale) => {
       const sellKey = `sell:${sale.saleTransactionId}`;
       const sellDate = new Date(sale.saleDatetime).toISOString().slice(0, 10);
       const sellIdx = ensure(
@@ -357,6 +358,584 @@ function createSankeyData(event: TaxableEvent): { data: Data[]; layout: Partial<
   return { data: [data], layout };
 }
 
+type SankeyExplorerData = { data: Data[]; layout: Partial<Layout>; nodeKeys: string[] };
+
+function createSankeyExplorerData(event: TaxableEvent, opts: {
+  visibleSaleIds: Set<number>;
+  visibleBuyIds: Set<number>;
+  showDepositTxs: boolean;
+  showLabels: boolean;
+  nodeThickness: number;
+  nodePad: number;
+}): SankeyExplorerData {
+  const directSales = event.saleTrace || [];
+  const deepSales = (event.saleTraceDeep && event.saleTraceDeep.length ? event.saleTraceDeep : directSales) || [];
+
+  const directSaleById = new Map<number, (typeof directSales)[number]>();
+  for (const s of directSales) directSaleById.set(s.saleTransactionId, s);
+  const deepSaleById = new Map<number, (typeof deepSales)[number]>();
+  for (const s of deepSales) deepSaleById.set(s.saleTransactionId, s);
+
+  // Build buy funding sell ids map (for click-to-expand)
+  const buyFundingSellIds = new Map<number, number[]>();
+  for (const s of deepSales) {
+    for (const bl of s.buyLots) {
+      const fs = (bl as BuyLotTraceWithFundingSells).fundingSells || [];
+      if (!fs.length) continue;
+      const prev = buyFundingSellIds.get(bl.buyTransactionId) || [];
+      for (const f of fs) prev.push(f.saleTransactionId);
+      buyFundingSellIds.set(bl.buyTransactionId, prev);
+    }
+  }
+
+  const nodes: string[] = [];
+  const nodeKeys: string[] = [];
+  const nodeHover: string[] = [];
+  const nodeIndex = new Map<string, number>();
+
+  const ensure = (key: string, label: string, hover: string) => {
+    const ex = nodeIndex.get(key);
+    if (ex !== undefined) return ex;
+    const idx = nodes.length;
+    nodeIndex.set(key, idx);
+    nodeKeys.push(key);
+    nodes.push(opts.showLabels ? label : (key === 'withdrawal' ? 'Withdrawal' : ''));
+    nodeHover.push(hover);
+    return idx;
+  };
+
+  const withdrawalIdx = ensure(
+    'withdrawal',
+    'Withdrawal',
+    [
+      `<b>Withdrawal</b>`,
+      `Tx: ${event.transactionId}`,
+      `Date: ${new Date(event.datetime).toISOString().slice(0, 10)}`,
+      `Amount: $${event.fiatAmountUsd.toFixed(2)}`,
+      `Cost basis: $${event.costBasisUsd.toFixed(2)}`,
+      `Net P/L: ${event.gainLossUsd >= 0 ? '+' : ''}$${event.gainLossUsd.toFixed(2)}`,
+      `<br><b>Tip</b>: Click a Buy node to expand upstream funding sells; click a Sell node to reveal its buy lots.`,
+    ].join('<br>')
+  );
+
+  type Edge = { from: number; to: number; value: number; hover: string; color: string };
+  const edgeMap = new Map<string, Edge>();
+  const addEdge = (from: number, to: number, value: number, hover: string, color: string) => {
+    if (!Number.isFinite(value) || value <= 0) return;
+    const key = `${from}->${to}`;
+    const prev = edgeMap.get(key);
+    if (!prev) edgeMap.set(key, { from, to, value, hover, color });
+    else prev.value += value;
+  };
+
+  // Pre-create sell nodes (only visible ones), but always include direct sales (they connect to withdrawal)
+  const visibleSales = new Set<number>(opts.visibleSaleIds);
+  for (const s of directSales) visibleSales.add(s.saleTransactionId);
+
+  for (const saleId of visibleSales) {
+    const s = directSaleById.get(saleId) ?? deepSaleById.get(saleId);
+    if (!s) continue;
+    ensure(
+      `sell:${s.saleTransactionId}`,
+      `Sell ${s.asset} #${s.saleTransactionId}`,
+      [
+        `<b>Sell ${s.asset}</b>`,
+        `Tx: ${s.saleTransactionId}`,
+        `Date: ${new Date(s.saleDatetime).toISOString().slice(0, 10)}`,
+        `Proceeds (portion): $${s.proceedsUsd.toFixed(2)}`,
+        `Basis (portion): $${s.costBasisUsd.toFixed(2)}`,
+        `P/L (portion): ${s.gainLossUsd >= 0 ? '+' : ''}$${s.gainLossUsd.toFixed(2)}`,
+      ].join('<br>')
+    );
+  }
+
+  // Buy aggregation for consistent inflows (reduces clutter)
+  type BuyAgg = {
+    buyTransactionId: number;
+    asset: string;
+    buyDatetime: string;
+    outflowBasisUsd: number;
+    basisUsd: number;
+    fundingSells: Map<number, { saleTransactionId: number; saleDatetime: string; asset: string; amountUsd: number; costBasisUsd: number }>;
+    depositByTx: Map<number, { transactionId: number; datetime: string; asset: string; quantity: number; costBasisUsd: number }>;
+  };
+  const buyAggById = new Map<number, BuyAgg>();
+  const ensureBuyAgg = (bl: BuyLotTrace) => {
+    const ex = buyAggById.get(bl.buyTransactionId);
+    if (ex) return ex;
+    const agg: BuyAgg = {
+      buyTransactionId: bl.buyTransactionId,
+      asset: bl.asset,
+      buyDatetime: bl.buyDatetime,
+      outflowBasisUsd: 0,
+      basisUsd: 0,
+      fundingSells: new Map(),
+      depositByTx: new Map(),
+    };
+    buyAggById.set(bl.buyTransactionId, agg);
+    return agg;
+  };
+
+  // Render sale -> withdrawal edges only for DIRECT sales (SIZED BY COST BASIS)
+  for (const s of directSales) {
+    if (!visibleSales.has(s.saleTransactionId)) continue;
+    const sellIdx = ensure(
+      `sell:${s.saleTransactionId}`,
+      `Sell ${s.asset} #${s.saleTransactionId}`,
+      [
+        `<b>Sell ${s.asset}</b>`,
+        `Tx: ${s.saleTransactionId}`,
+        `Date: ${new Date(s.saleDatetime).toISOString().slice(0, 10)}`,
+        `Allocated proceeds: $${s.proceedsUsd.toFixed(2)}`,
+        `Allocated basis: $${s.costBasisUsd.toFixed(2)}`,
+        `Allocated P/L: ${s.gainLossUsd >= 0 ? '+' : ''}$${s.gainLossUsd.toFixed(2)}`,
+      ].join('<br>')
+    );
+    addEdge(
+      sellIdx,
+      withdrawalIdx,
+      s.costBasisUsd,
+      `<b>Sell → Withdrawal</b><br>Cost basis transferred: $${s.costBasisUsd.toFixed(2)}<br>Proceeds: $${s.proceedsUsd.toFixed(2)}`,
+      s.gainLossUsd >= 0 ? '#10b981' : '#ef4444'
+    );
+  }
+
+  // For each visible sale, show its buy lots (only if their buy nodes are visible)
+  for (const saleId of visibleSales) {
+    const sale = deepSaleById.get(saleId) ?? directSaleById.get(saleId);
+    if (!sale) continue;
+    const sellIdx = ensure(
+      `sell:${sale.saleTransactionId}`,
+      `Sell ${sale.asset} #${sale.saleTransactionId}`,
+      [
+        `<b>Sell ${sale.asset}</b>`,
+        `Tx: ${sale.saleTransactionId}`,
+        `Date: ${new Date(sale.saleDatetime).toISOString().slice(0, 10)}`,
+      ].join('<br>')
+    );
+
+    let shownIncomingBasis = 0;
+    const saleBasis = sale.costBasisUsd;
+    for (const lot of sale.buyLots) {
+      if (!opts.visibleBuyIds.has(lot.buyTransactionId)) continue;
+      const buyKey = `buy:${lot.buyTransactionId}`;
+      const buyIdx = ensure(
+        buyKey,
+        `Buy ${lot.asset} #${lot.buyTransactionId}`,
+        [
+          `<b>Buy ${lot.asset}</b>`,
+          `Tx: ${lot.buyTransactionId}`,
+          `Date: ${new Date(lot.buyDatetime).toISOString().slice(0, 10)}`,
+          `Qty (portion): ${lot.quantity.toFixed(8)}`,
+          `Basis (portion): $${lot.costBasisUsd.toFixed(2)}`,
+        ].join('<br>')
+      );
+
+      addEdge(
+        buyIdx,
+        sellIdx,
+        lot.costBasisUsd,
+        `<b>Buy lot → Sell</b><br>Cost basis: $${lot.costBasisUsd.toFixed(2)}`,
+        getAssetColor(lot.asset)
+      );
+      shownIncomingBasis += lot.costBasisUsd;
+
+      const agg = ensureBuyAgg(lot);
+      agg.outflowBasisUsd += lot.costBasisUsd;
+      agg.basisUsd += lot.costBasisUsd;
+
+      const fundingSells = (lot as BuyLotTraceWithFundingSells).fundingSells ?? [];
+      const fundingBasisFromSellsUsd = fundingSells.reduce((sum, x) => sum + (x.costBasisUsd || 0), 0);
+      // Deposits funding this buy lot: use the explicit fundingDeposits trace (already scaled in the tax engine)
+      for (const dep of lot.fundingDeposits || []) {
+        const prev = agg.depositByTx.get(dep.transactionId);
+        if (!prev) {
+          agg.depositByTx.set(dep.transactionId, {
+            transactionId: dep.transactionId,
+            datetime: dep.datetime,
+            asset: dep.asset,
+            quantity: dep.quantity,
+            costBasisUsd: dep.costBasisUsd,
+          });
+        } else {
+          prev.quantity += dep.quantity;
+          prev.costBasisUsd += dep.costBasisUsd;
+          agg.depositByTx.set(dep.transactionId, prev);
+        }
+      }
+      // If fundingDeposits is empty (should be rare), we conservatively treat remaining basis as "unknown deposits"
+      if ((!lot.fundingDeposits || lot.fundingDeposits.length === 0) && (lot.costBasisUsd - fundingBasisFromSellsUsd) > 1e-9) {
+        const key = -1; // sentinel "unknown"
+        const prev = agg.depositByTx.get(key);
+        const remaining = Math.max(0, lot.costBasisUsd - fundingBasisFromSellsUsd);
+        if (!prev) {
+          agg.depositByTx.set(key, {
+            transactionId: -1,
+            datetime: lot.buyDatetime,
+            asset: 'DEPOSITS',
+            quantity: 0,
+            costBasisUsd: remaining,
+          });
+        } else {
+          prev.costBasisUsd += remaining;
+          agg.depositByTx.set(key, prev);
+        }
+      }
+
+      for (const fs of fundingSells) {
+        const prev = agg.fundingSells.get(fs.saleTransactionId);
+        if (!prev) {
+          agg.fundingSells.set(fs.saleTransactionId, {
+            saleTransactionId: fs.saleTransactionId,
+            saleDatetime: fs.saleDatetime,
+            asset: fs.asset,
+            amountUsd: fs.amountUsd,
+            costBasisUsd: fs.costBasisUsd || 0,
+          });
+        } else {
+          prev.amountUsd += fs.amountUsd;
+          prev.costBasisUsd += fs.costBasisUsd || 0;
+          agg.fundingSells.set(fs.saleTransactionId, prev);
+        }
+      }
+    }
+
+    // Keep sell node mass-conserving even when its buy lots aren't expanded yet.
+    const missingIncoming = Math.max(0, saleBasis - shownIncomingBasis);
+    if (missingIncoming > 1e-9) {
+      const collapsedLotsIdx = ensure(
+        `collapsedLots:${sale.saleTransactionId}`,
+        '…',
+        [
+          `<b>Collapsed buy lots</b>`,
+          `Sell Tx: ${sale.saleTransactionId}`,
+          `Hidden incoming basis: $${missingIncoming.toFixed(2)}`,
+          `<br><b>Tip</b>: Click this node (or the Sell) to reveal buy lots.`,
+        ].join('<br>')
+      );
+      addEdge(
+        collapsedLotsIdx,
+        sellIdx,
+        missingIncoming,
+        `<b>Collapsed lots → Sell</b><br>Hidden incoming basis: $${missingIncoming.toFixed(2)}`,
+        '#94a3b8'
+      );
+    }
+  }
+
+  // Inflow edges for visible buys in COST BASIS units (no normalization).
+  for (const [buyId, agg] of buyAggById.entries()) {
+    if (!opts.visibleBuyIds.has(buyId)) continue;
+    const allFunding = Array.from(agg.fundingSells.values());
+    const shownFunding = allFunding.filter((x) => visibleSales.has(x.saleTransactionId));
+    const shownFundingBasisTotal = shownFunding.reduce((s, x) => s + (x.costBasisUsd || 0), 0);
+    const hiddenFundingBasisTotal =
+      allFunding.reduce((s, x) => s + (x.costBasisUsd || 0), 0) - shownFundingBasisTotal;
+
+    const buyIdx = ensure(
+      `buy:${buyId}`,
+      `Buy ${agg.asset} #${buyId}`,
+      nodeHover[nodeIndex.get(`buy:${buyId}`)!] || `<b>Buy ${agg.asset}</b><br>Tx: ${buyId}`
+    );
+
+    for (const fs of shownFunding) {
+      const fsIdx = ensure(
+        `sell:${fs.saleTransactionId}`,
+        `Sell ${fs.asset} #${fs.saleTransactionId}`,
+        [
+          `<b>Sell ${fs.asset}</b>`,
+          `Tx: ${fs.saleTransactionId}`,
+          `Date: ${new Date(fs.saleDatetime).toISOString().slice(0, 10)}`,
+        ].join('<br>')
+      );
+      addEdge(
+        fsIdx,
+        buyIdx,
+        fs.costBasisUsd,
+        `<b>Sell → Buy</b><br>Cost basis transferred: $${fs.costBasisUsd.toFixed(2)}`,
+        getAssetColor(fs.asset)
+      );
+    }
+
+    if (opts.showDepositTxs) {
+      for (const dep of agg.depositByTx.values()) {
+        if (!dep.costBasisUsd || dep.costBasisUsd <= 1e-9) continue;
+        const depKey = dep.transactionId === -1 ? `deposit:unknown:${buyId}` : `deposit:${dep.transactionId}`;
+        const depLabel = dep.transactionId === -1 ? 'Deposit (unknown)' : `Deposit ${dep.asset} #${dep.transactionId}`;
+        const depHover =
+          dep.transactionId === -1
+            ? `<b>Deposit (unknown)</b><br>Allocated basis: $${dep.costBasisUsd.toFixed(2)}`
+            : [
+                `<b>Deposit ${dep.asset}</b>`,
+                `Tx: ${dep.transactionId}`,
+                `Date: ${new Date(dep.datetime).toISOString().slice(0, 10)}`,
+                `Amount: ${dep.quantity.toFixed(2)} ${dep.asset}`,
+                `Allocated basis: $${dep.costBasisUsd.toFixed(2)}`,
+              ].join('<br>');
+        const depIdx = ensure(depKey, depLabel, depHover);
+        addEdge(
+          depIdx,
+          buyIdx,
+          dep.costBasisUsd,
+          `<b>Deposit → Buy</b><br>Cost basis: $${dep.costBasisUsd.toFixed(2)}`,
+          '#64748b'
+        );
+      }
+    }
+
+    if (hiddenFundingBasisTotal > 1e-9) {
+      const collapsedIdx = ensure(
+        `collapsed:${buyId}`,
+        '…',
+        [
+          `<b>Collapsed upstream funding</b>`,
+          `Buy Tx: ${buyId}`,
+          `Hidden funding sells (basis): $${hiddenFundingBasisTotal.toFixed(2)}`,
+          `<br><b>Tip</b>: Click this node (or the Buy) to expand upstream sells.`,
+        ].join('<br>')
+      );
+      addEdge(
+        collapsedIdx,
+        buyIdx,
+        hiddenFundingBasisTotal,
+        `<b>Collapsed → Buy</b><br>Hidden cost basis: $${hiddenFundingBasisTotal.toFixed(2)}`,
+        '#94a3b8'
+      );
+    }
+  }
+
+  const sources: number[] = [];
+  const targets: number[] = [];
+  const values: number[] = [];
+  const linkHover: string[] = [];
+  const colors: string[] = [];
+  for (const e of edgeMap.values()) {
+    sources.push(e.from);
+    targets.push(e.to);
+    values.push(e.value);
+    linkHover.push(`${e.hover}<br><b>Value</b>: $${e.value.toFixed(2)}`);
+    colors.push(e.color);
+  }
+
+  const data: Data = {
+    type: 'sankey',
+    arrangement: 'fixed',
+    node: {
+      pad: Math.max(2, Math.min(30, opts.nodePad)),
+      thickness: Math.max(6, Math.min(30, opts.nodeThickness)),
+      line: { color: 'black', width: 0.35 },
+      label: nodes,
+      customdata: nodeHover,
+      hovertemplate: '%{customdata}<extra></extra>',
+      color: nodeKeys.map((k) => {
+        if (k === 'withdrawal') return event.gainLossUsd >= 0 ? '#10b981' : '#ef4444';
+        if (k.startsWith('deposit:')) return '#64748b';
+        if (k.startsWith('collapsedLots:')) return '#94a3b8';
+        if (k.startsWith('collapsed:')) return '#94a3b8';
+        if (k.startsWith('buy:')) return '#a855f7';
+        if (k.startsWith('sell:')) return '#3b82f6';
+        return '#94a3b8';
+      }),
+    },
+    link: {
+      source: sources,
+      target: targets,
+      value: values,
+      label: values.map(() => ''),
+      customdata: linkHover,
+      hovertemplate: '%{customdata}<extra></extra>',
+      color: colors.map((c) => c + '66'),
+    },
+  } as Data;
+
+  const layout: Partial<Layout> = {
+    title: {
+      text:
+        `Money flow to withdrawal - ${new Date(event.datetime).toLocaleDateString()}<br>` +
+        `<span style="font-size: 12px; color: ${event.gainLossUsd >= 0 ? '#10b981' : '#ef4444'}">` +
+        `Net P/L: ${event.gainLossUsd >= 0 ? '+' : ''}$${event.gainLossUsd.toFixed(2)}</span>`,
+      font: { size: 14 },
+    },
+    height: 560,
+    font: { size: 10 },
+  };
+
+  return { data: [data], layout, nodeKeys };
+}
+
+function SankeyExplorer({ event }: { event: TaxableEvent }) {
+  const directSales = event.saleTrace || [];
+  const rootSaleIds = useMemo(() => directSales.map((s) => s.saleTransactionId), [directSales]);
+  // Start compact: show only Withdrawal + direct funding sells. Buy lots appear when you click a sell.
+  const rootBuyIds = useMemo(() => [] as number[], []);
+
+  const [visibleSaleIds, setVisibleSaleIds] = useState<number[]>(rootSaleIds);
+  const [visibleBuyIds, setVisibleBuyIds] = useState<number[]>(rootBuyIds);
+  const [showDepositTxs, setShowDepositTxs] = useState<boolean>(false);
+  const [showLabels, setShowLabels] = useState<boolean>(false);
+  const [nodeThickness, setNodeThickness] = useState<number>(10);
+  const [nodePad, setNodePad] = useState<number>(10);
+
+  const deepSales = (event.saleTraceDeep && event.saleTraceDeep.length ? event.saleTraceDeep : directSales) || [];
+  const deepSaleById = useMemo(() => {
+    const m = new Map<number, (typeof deepSales)[number]>();
+    for (const s of deepSales) m.set(s.saleTransactionId, s);
+    return m;
+  }, [deepSales]);
+  const buyFundingSellIds = useMemo(() => {
+    const map = new Map<number, Set<number>>();
+    for (const s of deepSales) {
+      for (const bl of s.buyLots) {
+        const fs = (bl as BuyLotTraceWithFundingSells).fundingSells || [];
+        if (!fs.length) continue;
+        const set = map.get(bl.buyTransactionId) || new Set<number>();
+        for (const f of fs) set.add(f.saleTransactionId);
+        map.set(bl.buyTransactionId, set);
+      }
+    }
+    return map;
+  }, [deepSales]);
+
+  const data = useMemo(() => {
+    return createSankeyExplorerData(event, {
+      visibleSaleIds: new Set<number>(visibleSaleIds),
+      visibleBuyIds: new Set<number>(visibleBuyIds),
+      showDepositTxs,
+      showLabels,
+      nodeThickness,
+      nodePad,
+    });
+  }, [event, visibleSaleIds, visibleBuyIds, showDepositTxs, showLabels, nodeThickness, nodePad]);
+
+  const onNodeClick = useCallback((ev: unknown) => {
+    const e = ev as { points?: Array<{ pointNumber?: number; pointIndex?: number }> } | null;
+    const p = e?.points?.[0];
+    const idx = typeof p?.pointNumber === 'number'
+      ? p.pointNumber
+      : (typeof p?.pointIndex === 'number' ? p.pointIndex : null);
+    if (idx === null) return;
+    const key = data.nodeKeys[idx];
+    if (!key) return;
+
+    if (key.startsWith('collapsed:')) {
+      const buyId = Number(key.slice('collapsed:'.length));
+      if (!Number.isFinite(buyId)) return;
+      const fs = buyFundingSellIds.get(buyId);
+      if (!fs || !fs.size) return;
+      const newSales = new Set<number>(visibleSaleIds);
+      for (const id of fs.values()) newSales.add(id);
+      setVisibleSaleIds(Array.from(newSales.values()));
+      // Also ensure this buy is visible (if clicked from some other view)
+      const newBuys = new Set<number>(visibleBuyIds);
+      newBuys.add(buyId);
+      setVisibleBuyIds(Array.from(newBuys.values()));
+      return;
+    }
+
+    if (key.startsWith('collapsedLots:')) {
+      const saleId = Number(key.slice('collapsedLots:'.length));
+      if (!Number.isFinite(saleId)) return;
+      const sale = deepSaleById.get(saleId);
+      if (!sale) return;
+      const newBuys = new Set<number>(visibleBuyIds);
+      for (const bl of sale.buyLots) newBuys.add(bl.buyTransactionId);
+      setVisibleBuyIds(Array.from(newBuys.values()));
+      return;
+    }
+
+    if (key.startsWith('sell:')) {
+      const saleId = Number(key.slice('sell:'.length));
+      const sale = deepSaleById.get(saleId);
+      if (!sale) return;
+      const newBuys = new Set<number>(visibleBuyIds);
+      for (const bl of sale.buyLots) newBuys.add(bl.buyTransactionId);
+      setVisibleBuyIds(Array.from(newBuys.values()));
+      return;
+    }
+
+    if (key.startsWith('buy:')) {
+      const buyId = Number(key.slice('buy:'.length));
+      const fs = buyFundingSellIds.get(buyId);
+      if (!fs || !fs.size) return;
+      const newSales = new Set<number>(visibleSaleIds);
+      for (const id of fs.values()) newSales.add(id);
+      setVisibleSaleIds(Array.from(newSales.values()));
+      return;
+    }
+  }, [data.nodeKeys, deepSaleById, buyFundingSellIds, visibleBuyIds, visibleSaleIds]);
+
+  const onReset = useCallback(() => {
+    setVisibleSaleIds(rootSaleIds);
+    setVisibleBuyIds(rootBuyIds);
+  }, [rootSaleIds, rootBuyIds]);
+
+  const onExpandAll = useCallback(() => {
+    const allSales = new Set<number>(visibleSaleIds);
+    const allBuys = new Set<number>(visibleBuyIds);
+    for (const s of deepSales) {
+      allSales.add(s.saleTransactionId);
+      for (const bl of s.buyLots) allBuys.add(bl.buyTransactionId);
+    }
+    setVisibleSaleIds(Array.from(allSales.values()));
+    setVisibleBuyIds(Array.from(allBuys.values()));
+    // Keep deposit transaction nodes OFF by default when expanding everything (too noisy).
+    setShowDepositTxs(false);
+  }, [deepSales, visibleSaleIds, visibleBuyIds]);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <button onClick={onReset} style={{ padding: '0.35rem 0.6rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--background)', color: 'var(--text)', cursor: 'pointer' }}>
+          Reset
+        </button>
+        <button onClick={onExpandAll} style={{ padding: '0.35rem 0.6rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--background)', color: 'var(--text)', cursor: 'pointer' }}>
+          Expand all
+        </button>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+          <input type="checkbox" checked={showDepositTxs} onChange={(e) => setShowDepositTxs(e.target.checked)} />
+          Show deposit transactions
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+          <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />
+          Show labels
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+          Node thickness
+          <input
+            type="range"
+            min={6}
+            max={22}
+            value={nodeThickness}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodeThickness(Number(e.target.value))}
+          />
+          <span style={{ minWidth: 24, textAlign: 'right' }}>{nodeThickness}</span>
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+          Node padding
+          <input
+            type="range"
+            min={4}
+            max={22}
+            value={nodePad}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodePad(Number(e.target.value))}
+          />
+          <span style={{ minWidth: 24, textAlign: 'right' }}>{nodePad}</span>
+        </label>
+        <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+          Click <strong>Sell</strong> to reveal its buy lots; click <strong>Buy</strong> to reveal upstream funding sells.
+        </span>
+      </div>
+
+      <Plot
+        data={data.data}
+        layout={data.layout}
+        style={{ width: '100%' }}
+        onClick={onNodeClick}
+      />
+    </div>
+  );
+}
+
 export default function CashDashboardPage(){
   const { selectedId } = usePortfolio();
   const listKey = selectedId === 'all' ? '/api/transactions' : (selectedId? `/api/transactions?portfolioId=${selectedId}` : null);
@@ -370,7 +949,7 @@ export default function CashDashboardPage(){
   const taxReportKey = selectedTaxYear !== 'all' 
     ? `/api/tax/romania?year=${selectedTaxYear}&assetStrategy=${selectedAssetLotStrategy}&cashStrategy=${selectedCashLotStrategy}${selectedId && selectedId !== 'all' ? `&portfolioId=${selectedId}` : ''}`
     : null;
-  const { data: taxReport, isLoading: loadingTax } = useSWR<RomaniaTaxReport>(taxReportKey, fetcher);
+  const { data: taxReport, isLoading: loadingTax, error: taxError } = useSWR<RomaniaTaxReport>(taxReportKey, fetcher);
 
   // Filter for fiat currency transactions only
   const fiatTxs = useMemo(() => {
@@ -847,7 +1426,7 @@ export default function CashDashboardPage(){
           )}
           <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
             Taxable events are withdrawals from crypto to fiat. All calculations use FIFO (First In First Out) method.
-            Calculations done in USD, converted to RON at exchange rate: {taxReport?.usdToRonRate.toFixed(4) || 'N/A'}.
+            Calculations done in USD (USDC), with RON values converted using historical FX per withdrawal date (EUR→RON, USD→RON).
             <br />
             <strong>Note:</strong> Cost basis represents your original purchase price, not the sale price. 
             If cost basis &gt; withdrawals, it means you sold assets at a loss (which is correct for tax reporting).
@@ -858,7 +1437,24 @@ export default function CashDashboardPage(){
             <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
               Loading tax report...
             </div>
-          ) : taxReport && taxReport.taxableEvents.length > 0 ? (
+          ) : taxError ? (
+            <div style={{
+              padding: '1rem',
+              borderRadius: '8px',
+              border: '1px solid var(--border)',
+              backgroundColor: 'rgba(239, 68, 68, 0.10)',
+              color: 'var(--text)',
+              marginBottom: '1rem'
+            }}>
+              <strong>Tax report failed to load.</strong>
+              <div style={{ marginTop: '0.5rem', color: 'var(--text-secondary)' }}>
+                {(taxError as Error)?.message || 'Unknown error'}
+              </div>
+              <div style={{ marginTop: '0.5rem', color: 'var(--text-secondary)' }}>
+                This usually means historical FX rates could not be fetched. Please retry, or check server logs for the exact provider error.
+              </div>
+            </div>
+          ) : taxReport && Array.isArray(taxReport.taxableEvents) && taxReport.taxableEvents.length > 0 ? (
             <>
               {/* Tax Summary Cards */}
               <div style={{ 
@@ -1094,23 +1690,14 @@ export default function CashDashboardPage(){
                                     </summary>
                                     <div style={{ padding: '1rem' }}>
                                       {/* Sankey Diagram */}
-                                      {(() => {
-                                        const sankeyData = createSankeyData(event);
-                                        return (
-                                          <div style={{ 
-                                            marginBottom: '1.5rem',
-                                            backgroundColor: 'var(--surface)',
-                                            borderRadius: '8px',
-                                            padding: '1rem'
-                                          }}>
-                                            <Plot 
-                                              data={sankeyData.data} 
-                                              layout={sankeyData.layout}
-                                              style={{ width: '100%' }}
-                                            />
-                                          </div>
-                                        );
-                                      })()}
+                                      <div style={{ 
+                                        marginBottom: '1.5rem',
+                                        backgroundColor: 'var(--surface)',
+                                        borderRadius: '8px',
+                                        padding: '1rem'
+                                      }}>
+                                        <SankeyExplorer event={event} />
+                                      </div>
                                       
                                       {/* Detailed Source Trace */}
                                       <div style={{ marginTop: '1rem' }}>

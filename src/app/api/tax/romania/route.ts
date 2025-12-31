@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerAuth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { calculateRomaniaTax } from '@/lib/tax/romania';
-import { getHistoricalExchangeRate } from '@/lib/exchange-rates';
+import { getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/exchange-rates';
 import type { LotStrategy } from '@/lib/tax/lot-strategy';
 
 export async function GET(req: NextRequest) {
@@ -47,6 +47,17 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    // Preload real historical FX rates for fiat-related dates only (strict tax mode)
+    // Crypto buys/sells are already in USD (USDC) so they don't need FX.
+    if (transactions.length) {
+      const fiatAssets = new Set(['EUR', 'USD', 'RON']);
+      const relevant = transactions.filter((t) => fiatAssets.has(String(t.asset || '').toUpperCase()));
+      const list = relevant.length ? relevant : transactions;
+      const start = list[0].datetime.toISOString().slice(0, 10);
+      const end = list[list.length - 1].datetime.toISOString().slice(0, 10);
+      await preloadExchangeRates(start, end);
+    }
+
     // Convert to Transaction type
     const txs = transactions.map((tx) => ({
       id: tx.id,
@@ -64,25 +75,16 @@ export async function GET(req: NextRequest) {
     // Get USD to RON exchange rate for the year
     // Use the average rate for the year, or the rate at year-end
     const yearEndDate = `${year}-12-31`;
-    let usdToRonRate = 4.5; // Default fallback
-
-    try {
-      const rate = await getHistoricalExchangeRate('USD', 'RON', yearEndDate);
-      if (rate && rate > 0) {
-        usdToRonRate = rate;
-      }
-    } catch (error) {
-      console.warn('Failed to fetch USD/RON rate, using default:', error);
-    }
+    const usdToRonRate = await getHistoricalExchangeRate('USD', 'RON', yearEndDate);
 
     // Calculate tax report
     const taxReport = calculateRomaniaTax(txs, year, usdToRonRate, { assetStrategy, cashStrategy });
 
-    return NextResponse.json(taxReport);
+    return NextResponse.json(taxReport, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('Romania tax calculation error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: (error as Error)?.message || 'Internal server error' },
       { status: 500 }
     );
   }

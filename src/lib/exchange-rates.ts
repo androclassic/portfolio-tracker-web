@@ -1,6 +1,6 @@
-// Historical exchange rate service using real APIs
-// Primary: European Central Bank (ECB) - free and reliable
-// Fallback: ExchangeRate-API - also free
+// Historical exchange rate service using real APIs (strict: no invented fallbacks).
+// Primary: Frankfurter (ECB-based) - free and reliable
+// Secondary: ECB eurofxref XML (official ECB feed)
 
 interface ExchangeRateData {
   date: string;
@@ -8,6 +8,11 @@ interface ExchangeRateData {
   eur_ron: number;
   usd_ron: number;
 }
+
+type RatesProvider = {
+  name: string;
+  getHistoricalRates(startDate: string, endDate: string): Promise<ExchangeRateData[]>;
+};
 
 class ECBProvider {
   private cache = new Map<string, ExchangeRateData[]>();
@@ -18,71 +23,34 @@ class ECBProvider {
       return this.cache.get(cacheKey)!;
     }
 
-    try {
-      // ECB provides EUR as base, so we get EUR/USD and EUR/RON
-      const response = await fetch(
-        `https://api.exchangerate.host/timeseries?start_date=${startDate}&end_date=${endDate}&base=EUR&symbols=USD,RON`
-      );
-      
-      if (!response.ok) throw new Error('ECB API failed');
-      
-      const data = await response.json();
-      const rates: ExchangeRateData[] = [];
-      
-      for (const [date, ratesData] of Object.entries(data.rates || {})) {
-        const ratesObj = ratesData as { USD?: number; RON?: number };
-        if (ratesObj.USD && ratesObj.RON) {
-          rates.push({
-            date,
-            eur_usd: ratesObj.USD,
-            eur_ron: ratesObj.RON,
-            usd_ron: ratesObj.RON / ratesObj.USD // Calculate USD/RON
-          });
-        }
-      }
-      
-      this.cache.set(cacheKey, rates);
-      return rates;
-    } catch (error) {
-      console.warn('ECB API failed, using fallback rates:', error);
-      return this.getFallbackRates(startDate, endDate);
-    }
-  }
-  
-  private getFallbackRates(startDate: string, endDate: string): ExchangeRateData[] {
-    // Fallback to approximate rates if API fails
+    // NOTE: name kept for backward compatibility; this now uses the official ECB eurofxref XML feed.
+    const response = await fetch('https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.xml');
+    if (!response.ok) throw new Error(`ECB XML feed failed: ${response.status} ${response.statusText}`);
+    const xml = await response.text();
+
     const rates: ExchangeRateData[] = [];
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().slice(0, 10);
-      const year = d.getFullYear();
-      
-      let eur_usd = 1.08;
-      let eur_ron = 4.9;
-      
-      // Approximate historical rates
-      if (year >= 2024) { eur_usd = 1.08; eur_ron = 4.9; }
-      else if (year >= 2023) { eur_usd = 1.10; eur_ron = 4.8; }
-      else if (year >= 2022) { eur_usd = 1.05; eur_ron = 4.7; }
-      else if (year >= 2021) { eur_usd = 1.18; eur_ron = 4.9; }
-      else if (year >= 2020) { eur_usd = 1.14; eur_ron = 4.8; }
-      else { eur_usd = 1.11; eur_ron = 4.7; }
-      
-      rates.push({
-        date: dateStr,
-        eur_usd,
-        eur_ron,
-        usd_ron: eur_ron / eur_usd
-      });
+    // Parse blocks like: <Cube time='2025-12-12'> ... <Cube currency='USD' rate='1.0'/> ...
+    const blockRe = /<Cube\s+time=['"](\d{4}-\d{2}-\d{2})['"][^>]*>([\s\S]*?)<\/Cube>/g;
+    let m: RegExpExecArray | null;
+    while ((m = blockRe.exec(xml))) {
+      const date = m[1];
+      if (date < startDate || date > endDate) continue;
+      const inner = m[2];
+      const usdMatch = /currency=['"]USD['"]\s+rate=['"]([^'"]+)['"]/.exec(inner);
+      const ronMatch = /currency=['"]RON['"]\s+rate=['"]([^'"]+)['"]/.exec(inner);
+      if (!usdMatch || !ronMatch) continue;
+      const eur_usd = Number(usdMatch[1]);
+      const eur_ron = Number(ronMatch[1]);
+      if (!Number.isFinite(eur_usd) || !Number.isFinite(eur_ron) || eur_usd <= 0 || eur_ron <= 0) continue;
+      rates.push({ date, eur_usd, eur_ron, usd_ron: eur_ron / eur_usd });
     }
-    
+
+    this.cache.set(cacheKey, rates);
     return rates;
   }
 }
 
-class ExchangeRateAPIProvider {
+class FrankfurterProvider {
   private cache = new Map<string, ExchangeRateData[]>();
   
   async getHistoricalRates(startDate: string, endDate: string): Promise<ExchangeRateData[]> {
@@ -91,73 +59,174 @@ class ExchangeRateAPIProvider {
       return this.cache.get(cacheKey)!;
     }
 
-    try {
-      const response = await fetch(
-        `https://api.exchangerate.host/timeseries?start_date=${startDate}&end_date=${endDate}&base=USD&symbols=EUR,RON`
-      );
-      
-      if (!response.ok) throw new Error('ExchangeRate-API failed');
-      
-      const data = await response.json();
-      const rates: ExchangeRateData[] = [];
-      
-      for (const [date, ratesData] of Object.entries(data.rates || {})) {
-        const ratesObj = ratesData as { EUR?: number; RON?: number };
-        if (ratesObj.EUR && ratesObj.RON) {
-          rates.push({
-            date,
-            eur_usd: 1 / ratesObj.EUR, // Convert from USD/EUR to EUR/USD
-            eur_ron: ratesObj.RON / ratesObj.EUR, // Calculate EUR/RON
-            usd_ron: ratesObj.RON
-          });
-        }
-      }
-      
-      this.cache.set(cacheKey, rates);
-      return rates;
-    } catch (error) {
-      console.warn('ExchangeRate-API failed:', error);
-      return [];
+    const response = await fetch(
+      `https://api.frankfurter.app/${startDate}..${endDate}?from=EUR&to=USD,RON`
+    );
+    if (!response.ok) throw new Error(`Frankfurter API failed: ${response.status} ${response.statusText}`);
+
+    const data = await response.json();
+    const rates: ExchangeRateData[] = [];
+    const byDate = (data && typeof data === 'object' && 'rates' in data) ? (data.rates as Record<string, { USD?: number; RON?: number }>) : {};
+    for (const [date, rec] of Object.entries(byDate || {})) {
+      const eur_usd = Number(rec?.USD);
+      const eur_ron = Number(rec?.RON);
+      if (!Number.isFinite(eur_usd) || !Number.isFinite(eur_ron) || eur_usd <= 0 || eur_ron <= 0) continue;
+      rates.push({ date, eur_usd, eur_ron, usd_ron: eur_ron / eur_usd });
     }
+    this.cache.set(cacheKey, rates);
+    return rates;
   }
 }
 
-const providers = [new ECBProvider(), new ExchangeRateAPIProvider()];
+const providers: RatesProvider[] = [
+  { name: 'frankfurter', getHistoricalRates: (s, e) => new FrankfurterProvider().getHistoricalRates(s, e) },
+  { name: 'ecb-xml', getHistoricalRates: (s, e) => new ECBProvider().getHistoricalRates(s, e) },
+];
 
 // Cache for synchronous access
 const rateCache = new Map<string, number>();
 
+function iso(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function* dateRangeInclusive(startDate: string, endDate: string): Generator<string> {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  // Normalize to midnight UTC by using ISO date strings (Date ctor treats YYYY-MM-DD as UTC)
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    yield iso(d);
+  }
+}
+
+function addDays(isoDate: string, days: number): string {
+  const d = new Date(isoDate);
+  d.setUTCDate(d.getUTCDate() + days);
+  return iso(d);
+}
+
+function compareISO(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function minISO(a: string, b: string): string {
+  return compareISO(a, b) <= 0 ? a : b;
+}
+
+function chunkDateRanges(startDate: string, endDate: string, maxDaysInclusive: number): Array<{ start: string; end: string }> {
+  const out: Array<{ start: string; end: string }> = [];
+  let cur = startDate;
+  while (compareISO(cur, endDate) <= 0) {
+    const chunkEnd = minISO(addDays(cur, maxDaysInclusive - 1), endDate);
+    out.push({ start: cur, end: chunkEnd });
+    cur = addDays(chunkEnd, 1);
+  }
+  return out;
+}
+
 // Preload exchange rates for a date range
-export async function preloadExchangeRates(startDate: string, _endDate: string): Promise<void> {
-  const currencies = ['EUR', 'RON', 'USD'];
-  
-  for (const fromCurrency of currencies) {
-    for (const toCurrency of currencies) {
-      if (fromCurrency !== toCurrency) {
-        try {
-          const rate = await getHistoricalExchangeRate(fromCurrency, toCurrency, startDate);
-          const cacheKey = `${fromCurrency}-${toCurrency}-${startDate}`;
-          rateCache.set(cacheKey, rate);
-        } catch (error) {
-          console.warn(`Failed to preload rate for ${fromCurrency}/${toCurrency}:`, error);
-        }
+export async function preloadExchangeRates(startDate: string, endDate: string): Promise<void> {
+  // Populate rateCache for every date in the provider result set.
+  // This enables strict synchronous lookups later without needing any static fallback.
+  let lastErr: unknown = null;
+  // Many public FX endpoints struggle with very large timespans; chunk requests to stay reliable.
+  // 1 year chunks keeps payload sizes sane and avoids provider-side limits/timeouts.
+  const chunks = chunkDateRanges(startDate, endDate, 366);
+
+  for (const provider of providers) {
+    try {
+      const allRates: ExchangeRateData[] = [];
+      for (const c of chunks) {
+        const part = await provider.getHistoricalRates(c.start, c.end);
+        if (part.length) allRates.push(...part);
       }
+      if (!allRates.length) {
+        lastErr = new Error(`Provider ${provider.name} returned 0 rates for ${startDate}..${endDate}`);
+        continue;
+      }
+
+      // Provider data may skip weekends/holidays. We still need a rate for every tx date.
+      // We fill missing days by using the closest available real rate within the returned dataset.
+      const byDate = new Map<string, ExchangeRateData>();
+      for (const r of allRates) byDate.set(r.date, r);
+
+      const pickClosest = (targetISO: string): ExchangeRateData => {
+        const exact = byDate.get(targetISO);
+        if (exact) return exact;
+        const targetTs = new Date(targetISO).getTime();
+        let best: ExchangeRateData | null = null;
+        let bestDiff = Number.POSITIVE_INFINITY;
+        for (const r of allRates) {
+          const diff = Math.abs(new Date(r.date).getTime() - targetTs);
+          if (diff < bestDiff) {
+            best = r;
+            bestDiff = diff;
+          }
+        }
+        if (!best) throw new Error(`No FX data available to fill ${targetISO}`);
+        return best;
+      };
+
+      for (const d of dateRangeInclusive(startDate, endDate)) {
+        const r = pickClosest(d);
+        const eur_usd = r.eur_usd;
+        const eur_ron = r.eur_ron;
+        const usd_ron = r.usd_ron;
+
+        // Direct
+        rateCache.set(`EUR-USD-${d}`, eur_usd);
+        rateCache.set(`EUR-RON-${d}`, eur_ron);
+        rateCache.set(`USD-RON-${d}`, usd_ron);
+
+        // Inverse
+        if (eur_usd > 0) rateCache.set(`USD-EUR-${d}`, 1 / eur_usd);
+        if (eur_ron > 0) rateCache.set(`RON-EUR-${d}`, 1 / eur_ron);
+        if (usd_ron > 0) rateCache.set(`RON-USD-${d}`, 1 / usd_ron);
+      }
+
+      // First provider that yields data wins
+      return;
+    } catch (error) {
+      lastErr = error;
+      console.warn(`Failed to preload exchange rates from provider ${provider.name}:`, error);
+      continue;
     }
   }
+
+  const msg = (() => {
+    if (lastErr && typeof lastErr === 'object' && 'message' in lastErr) {
+      const m = (lastErr as { message?: unknown }).message;
+      if (typeof m === 'string') return m;
+    }
+    return String(lastErr || 'unknown error');
+  })();
+  throw new Error(`Failed to preload historical FX rates for ${startDate}..${endDate}: ${msg}`);
 }
 
 // Synchronous version that uses cached data
 export function getHistoricalExchangeRateSync(fromCurrency: string, toCurrency: string, date: string): number {
+  if (fromCurrency === toCurrency) return 1.0;
   const cacheKey = `${fromCurrency}-${toCurrency}-${date}`;
   
   if (rateCache.has(cacheKey)) {
     return rateCache.get(cacheKey)!;
   }
-  
-  // Fallback to static rates if not in cache
-  const fallbackRate = getFallbackRate(fromCurrency, toCurrency, date);
-  rateCache.set(cacheKey, fallbackRate);
-  return fallbackRate;
+
+  // Backwards-compatible non-strict call sites should preload before using this.
+  // We do NOT silently fallback here anymore (money-critical).
+  throw new Error(`Missing historical FX rate ${fromCurrency}/${toCurrency} for ${date}. Did you call preloadExchangeRates()?`);
+}
+
+// Strict synchronous version (for tax calculations): requires preloadExchangeRates() to have populated the cache.
+// Throws if the requested rate is missing to avoid silently wrong money.
+export function getHistoricalExchangeRateSyncStrict(fromCurrency: string, toCurrency: string, date: string): number {
+  if (fromCurrency === toCurrency) return 1.0;
+  const cacheKey = `${fromCurrency}-${toCurrency}-${date}`;
+  if (rateCache.has(cacheKey)) return rateCache.get(cacheKey)!;
+  throw new Error(
+    `Missing historical FX rate ${fromCurrency}/${toCurrency} for ${date}. ` +
+      `Did you call preloadExchangeRates(${date}, ...) to cover this day?`
+  );
 }
 
 // Async version that fetches real data
@@ -215,45 +284,7 @@ export async function getHistoricalExchangeRate(
       continue;
     }
   }
-  
-  // Fallback to static rates if all providers fail
-  console.warn('All exchange rate providers failed, using fallback rates');
-  return getFallbackRate(fromCurrency, toCurrency, date);
-}
 
-function getFallbackRate(fromCurrency: string, toCurrency: string, date: string): number {
-  const year = new Date(date).getFullYear();
-
-  // Approximate USD/RON by year (RON per 1 USD)
-  const usd_ron =
-    year >= 2024 ? 4.6 :
-    year >= 2023 ? 4.5 :
-    year >= 2022 ? 4.4 :
-    year >= 2021 ? 4.2 :
-    year >= 2020 ? 4.3 :
-    4.1;
-  
-  if (fromCurrency === 'EUR' && toCurrency === 'USD') {
-    if (year >= 2024) return 1.08;
-    else if (year >= 2023) return 1.10;
-    else if (year >= 2022) return 1.05;
-    else if (year >= 2021) return 1.18;
-    else if (year >= 2020) return 1.14;
-    else return 1.11;
-  } else if (fromCurrency === 'RON' && toCurrency === 'USD') {
-    return 1 / usd_ron;
-  } else if (fromCurrency === 'USD' && toCurrency === 'RON') {
-    return usd_ron;
-  } else if (fromCurrency === 'USD' && toCurrency === 'EUR') {
-    const eur_usd = getFallbackRate('EUR', 'USD', date);
-    return eur_usd > 0 ? 1 / eur_usd : 1.0;
-  } else if (fromCurrency === 'EUR' && toCurrency === 'RON') {
-    const eur_usd = getFallbackRate('EUR', 'USD', date);
-    return eur_usd * usd_ron;
-  } else if (fromCurrency === 'RON' && toCurrency === 'EUR') {
-    const eur_ron = getFallbackRate('EUR', 'RON', date);
-    return eur_ron > 0 ? 1 / eur_ron : 1.0;
-  }
-  
-  return 1.0;
+  // Strict: do not silently fallback for money-critical paths.
+  throw new Error(`All exchange rate providers failed for ${fromCurrency}/${toCurrency} on ${date}`);
 }
