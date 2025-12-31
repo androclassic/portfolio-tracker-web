@@ -228,26 +228,45 @@ export default function DashboardPage(){
     return { dates, dateIndex, assetIndex, prices };
   }, [hist, assets]);
 
-  // Preload historical FX rates once for the date range and reuse via a local map
-  const fxRateMap = useMemo(() => {
-    const map = new Map<string, Record<string, number>>();
-    if (!priceIndex.dates.length) return map;
-    const fiat = getFiatCurrencies();
-    // Optional hook for remote caches; safe to call but synchronous lookups below
-    try {
-      const start = priceIndex.dates[0];
-      const end = priceIndex.dates[priceIndex.dates.length - 1];
-      preloadExchangeRates(start, end);
-    } catch {}
-    for (const d of priceIndex.dates) {
-      const rec: Record<string, number> = {};
-      for (const c of fiat) {
-        // Use cached/local implementation; avoids doing this in inner loops
-        rec[c] = getHistoricalExchangeRate(c, 'USD', d);
+  // Preload historical FX rates for the date range, then build a sync lookup map.
+  // IMPORTANT: preloadExchangeRates is async; do NOT call sync FX getters before preload completes.
+  const [fxRateMap, setFxRateMap] = useState<Map<string, Record<string, number>>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      const dates = priceIndex.dates;
+      if (!dates.length) {
+        setFxRateMap(new Map());
+        return;
       }
-      map.set(d, rec);
-    }
-    return map;
+      const start = dates[0];
+      const end = dates[dates.length - 1];
+      try {
+        await preloadExchangeRates(start, end);
+      } catch (e) {
+        // Don't crash dashboard; FX will show as 0 for missing dates/currencies.
+        console.warn('Failed to preload FX for dashboard:', e);
+      }
+      if (cancelled) return;
+      const fiat = getFiatCurrencies();
+      const map = new Map<string, Record<string, number>>();
+      for (const d of dates) {
+        const rec: Record<string, number> = {};
+        for (const c of fiat) {
+          try {
+            rec[c] = getHistoricalExchangeRate(c, 'USD', d);
+          } catch {
+            rec[c] = c === 'USD' ? 1.0 : 0;
+          }
+        }
+        map.set(d, rec);
+      }
+      setFxRateMap(map);
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
   }, [priceIndex.dates]);
 
   // Calculate P&L using shared logic
@@ -398,30 +417,46 @@ export default function DashboardPage(){
     const costBasis: number[] = [];
     const portfolioValue: number[] = [];
 
+    const txDate = (dt: string) => {
+      const d = new Date(dt);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+
     // Calculate cumulative cost basis and portfolio value for each date
     dates.forEach(date => {
       // Calculate cost basis up to this date (deposits - withdrawals)
       let cumulativeCost = 0;
       const fiatCurrencies = getFiatCurrencies();
-      
-      // Initialize cost tracking for each fiat currency
-      const costByCurrency: Record<string, number> = {};
-      fiatCurrencies.forEach(currency => {
-        costByCurrency[currency] = 0;
-      });
+      const dayEnd = new Date(date + 'T23:59:59Z');
 
       // Process all transactions up to this date
-      txs.filter(tx => new Date(tx.datetime) <= new Date(date)).forEach(tx => {
+      txs
+        .filter(tx => {
+          const d = txDate(tx.datetime);
+          return d ? d <= dayEnd : false;
+        })
+        .forEach(tx => {
         if (tx.type === 'Deposit') {
-          if (isFiatCurrency(tx.asset)) {
+          const asset = tx.asset.toUpperCase();
+          // DB typically stores deposits as crypto assets with an explicit USD cost.
+          if (typeof tx.costUsd === 'number' && tx.costUsd > 0) {
+            cumulativeCost += tx.costUsd;
+          } else if (typeof tx.priceUsd === 'number' && tx.priceUsd > 0) {
+            cumulativeCost += tx.quantity * tx.priceUsd;
+          } else if (isFiatCurrency(asset)) {
             const txDay = new Date(tx.datetime).toISOString().slice(0, 10);
-            const historicalRate = fxRateMap.get(txDay)?.[tx.asset.toUpperCase()] ?? 0;
+            const historicalRate = fxRateMap.get(txDay)?.[asset] ?? 0;
             cumulativeCost += tx.quantity * historicalRate;
           }
         } else if (tx.type === 'Withdrawal') {
-          if (isFiatCurrency(tx.asset)) {
+          const asset = tx.asset.toUpperCase();
+          if (typeof tx.proceedsUsd === 'number' && tx.proceedsUsd > 0) {
+            cumulativeCost -= tx.proceedsUsd;
+          } else if (typeof tx.priceUsd === 'number' && tx.priceUsd > 0) {
+            cumulativeCost -= tx.quantity * tx.priceUsd;
+          } else if (isFiatCurrency(asset)) {
             const txDay = new Date(tx.datetime).toISOString().slice(0, 10);
-            const historicalRate = fxRateMap.get(txDay)?.[tx.asset.toUpperCase()] ?? 0;
+            const historicalRate = fxRateMap.get(txDay)?.[asset] ?? 0;
             cumulativeCost -= tx.quantity * historicalRate;
           }
         }
@@ -467,7 +502,9 @@ export default function DashboardPage(){
     });
 
     return { dates, costBasis, portfolioValue };
-  }, [hist, txs, assets]);
+  }, [hist, txs, assets, fxRateMap, priceIndex.dates, priceIndex.assetIndex, priceIndex.dateIndex, priceIndex.prices]);
+
+  const fxReady = fxRateMap.size > 0;
 
   // Total Net Worth Over Time (Crypto + Cash)
   const netWorthOverTime = useMemo(() => {
@@ -1347,13 +1384,15 @@ This is different from trading P&L as it focuses on your total investment vs. to
               </button>
             </div>
           </div>
-          {(loadingTxs || loadingHist) && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading cost vs valuation data...</div>
+          {(loadingTxs || loadingHist || !fxReady) && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>
+              {loadingTxs || loadingHist ? 'Loading cost vs valuation data...' : 'Loading FX rates for cost basis...'}
+            </div>
           )}
           {!loadingTxs && !loadingHist && costVsValuation.dates.length === 0 && (
             <div style={{ padding: 16, color: 'var(--muted)' }}>No cost vs valuation data</div>
           )}
-          {!loadingTxs && !loadingHist && costVsValuation.dates.length > 0 && (
+          {!loadingTxs && !loadingHist && fxReady && costVsValuation.dates.length > 0 && (
             <Plot 
               data={[
                 {
