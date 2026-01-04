@@ -29,6 +29,8 @@ export type PlotlyChartProps = {
   onClick?: (event: unknown) => void;
   onHover?: (event: unknown) => void;
   onUnhover?: (event: unknown) => void;
+  onLegendClick?: (event: unknown) => boolean | void;
+  onLegendDoubleClick?: (event: unknown) => boolean | void;
   /**
    * Show Plotly modebar. Defaults to false for a more app-native feel.
    */
@@ -48,6 +50,8 @@ export function PlotlyChart({
   onClick,
   onHover,
   onUnhover,
+  onLegendClick,
+  onLegendDoubleClick,
   showModeBar = false,
 }: PlotlyChartProps) {
   const theme = usePlotlyTheme();
@@ -76,6 +80,8 @@ export function PlotlyChart({
       onClick={onClick as never}
       onHover={onHover as never}
       onUnhover={onUnhover as never}
+      onLegendClick={onLegendClick as never}
+      onLegendDoubleClick={onLegendDoubleClick as never}
     />
   );
 }

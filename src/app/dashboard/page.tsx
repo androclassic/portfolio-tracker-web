@@ -35,6 +35,7 @@ export default function DashboardPage(){
   const [selectedCostAsset, setSelectedCostAsset] = useState<string>('');
   const [heatmapTimeframe, setHeatmapTimeframe] = useState<string>('24h'); // 'current' | '24h' | '7d' | '30d'
   const [stackedMode, setStackedMode] = useState<'usd' | 'percent'>('usd');
+  const [hiddenStackedAssets, setHiddenStackedAssets] = useState<Set<string>>(() => new Set());
 
   const assets = useMemo(()=>{
     const s = new Set<string>();
@@ -306,6 +307,7 @@ export default function DashboardPage(){
     for (const a of assets) {
       const yUsd: number[] = stacked.perAssetUsd.get(a) || new Array(dates.length).fill(0);
       const lc = colorFor(a);
+      const visible = hiddenStackedAssets.has(a) ? 'legendonly' : true;
 
       usd.push({
         x: dates,
@@ -319,6 +321,7 @@ export default function DashboardPage(){
         // Disable Plotly hover labels; we'll render a custom unified list.
         hoverinfo: 'none',
         hovertemplate: '<extra></extra>',
+        visible,
       } as Data);
 
       const yPct: number[] = yUsd.map((v: number, i: number) => {
@@ -337,11 +340,12 @@ export default function DashboardPage(){
         fillcolor: withAlpha(lc, 0.25),
         hoverinfo: 'none',
         hovertemplate: '<extra></extra>',
+        visible,
       } as Data);
     }
 
     return { usd, percent, dateIndex };
-  }, [stacked, assets, colorFor]);
+  }, [stacked, assets, colorFor, hiddenStackedAssets]);
 
   const [stackedHoverDate, setStackedHoverDate] = useState<string | null>(null);
   const normalizeHoverDate = useCallback((x: unknown): string | null => {
@@ -370,6 +374,7 @@ export default function DashboardPage(){
 
     const items: Array<{ asset: string; value: number }> = [];
     for (const a of assets) {
+      if (hiddenStackedAssets.has(a)) continue;
       const yUsd = stacked.perAssetUsd.get(a);
       const v = yUsd ? (yUsd[di] || 0) : 0;
       if (v > 0) {
@@ -378,7 +383,41 @@ export default function DashboardPage(){
     }
     items.sort((x, y) => y.value - x.value);
     return { date: stackedHoverDate, total, items };
-  }, [stackedHoverDate, stackedTraces.dateIndex, stacked.totals, stacked.perAssetUsd, assets, stackedMode]);
+  }, [stackedHoverDate, stackedTraces.dateIndex, stacked.totals, stacked.perAssetUsd, assets, stackedMode, hiddenStackedAssets]);
+
+  const handleStackedLegendClick = useCallback((evt: unknown) => {
+    // Use legend click to control visibility state ourselves.
+    const e = evt as { curveNumber?: number; data?: Array<{ name?: string }> } | null;
+    const curve = e?.curveNumber;
+    const name = (typeof curve === 'number' ? e?.data?.[curve]?.name : undefined) ?? undefined;
+    if (!name) return false;
+    setHiddenStackedAssets((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+    // Prevent Plotly default toggling; we control it via `visible`.
+    return false;
+  }, []);
+
+  const handleStackedLegendDoubleClick = useCallback((evt: unknown) => {
+    // Default Plotly behavior is "isolate one trace". We'll emulate it in our state.
+    const e = evt as { curveNumber?: number; data?: Array<{ name?: string }> } | null;
+    const curve = e?.curveNumber;
+    const name = (typeof curve === 'number' ? e?.data?.[curve]?.name : undefined) ?? undefined;
+    if (!name) return false;
+    setHiddenStackedAssets((prev) => {
+      const all = new Set<string>(assets);
+      // If currently already isolated (all others hidden), reset to show all.
+      const othersHidden = Array.from(all).filter((a) => a !== name).every((a) => prev.has(a));
+      if (othersHidden && !prev.has(name)) return new Set();
+      const next = new Set<string>();
+      for (const a of all) if (a !== name) next.add(a);
+      return next;
+    });
+    return false;
+  }, [assets]);
 
   // PnL over time (realized/unrealized split) - per-asset only
   const pnl = useMemo(() => {
@@ -1624,6 +1663,8 @@ This helps visualize portfolio growth and asset allocation changes over time.`}
                   if (day) setStackedHoverDate(day);
                 }}
                 onUnhover={() => {}}
+                onLegendClick={handleStackedLegendClick}
+                onLegendDoubleClick={handleStackedLegendDoubleClick}
               />
 
               {stackedHoverItems && stackedHoverItems.items.length > 0 ? (
