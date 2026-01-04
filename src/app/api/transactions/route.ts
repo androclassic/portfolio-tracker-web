@@ -17,6 +17,11 @@ const TxSchema = z.object({
   notes: z.string().nullable().optional(),
 });
 
+const TxBatchSchema = z.object({
+  portfolioId: z.number().optional(),
+  transactions: z.array(TxSchema).min(1),
+});
+
 const txCache = new TtlCache<string, Transaction[]>(15_000); // 15s cache
 
 export async function GET(req: NextRequest) {
@@ -41,23 +46,48 @@ export async function POST(req: NextRequest) {
   const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const json = await req.json();
-  const parsed = TxSchema.safeParse(json);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const { datetime, ...rest } = parsed.data;
-  const portfolioId = Number((json as { portfolioId?: number }).portfolioId || 1);
-  // Ensure portfolio belongs to the authenticated user
-  const portfolio = await prisma.portfolio.findFirst({ where: { id: Number.isFinite(portfolioId)? portfolioId : -1, userId: auth.userId } });
+
+  // Support both single and batch creation (used for paired stablecoin transactions).
+  const batchParsed = TxBatchSchema.safeParse(json);
+  const singleParsed = batchParsed.success ? null : TxSchema.safeParse(json);
+  if (!batchParsed.success && singleParsed && !singleParsed.success) {
+    return NextResponse.json({ error: singleParsed.error.flatten() }, { status: 400 });
+  }
+
+  const portfolioIdRaw = Number((json as { portfolioId?: number }).portfolioId || 1);
+  const portfolioId = Number.isFinite(portfolioIdRaw) ? portfolioIdRaw : -1;
+  const portfolio = await prisma.portfolio.findFirst({ where: { id: portfolioId, userId: auth.userId } });
   if (!portfolio) return NextResponse.json({ error: 'Invalid portfolio' }, { status: 403 });
-  const created = await prisma.transaction.create({ 
-    data: { 
-      ...rest, 
-      datetime: new Date(datetime), 
-      portfolioId: portfolio.id 
-    } 
-  });
-  // Invalidate cache
+
+  // At this point, we know either batchParsed succeeded or singleParsed succeeded (due to earlier validation)
+  // If batchParsed failed, singleParsed must have succeeded (we would have returned an error otherwise)
+  type TxInput = z.infer<typeof TxSchema>;
+  let txs: TxInput[];
+  if (batchParsed.success) {
+    txs = batchParsed.data.transactions;
+  } else {
+    // We know singleParsed exists and succeeded (we would have returned an error otherwise)
+    if (!singleParsed || !singleParsed.success) {
+      return NextResponse.json({ error: 'Invalid transaction data' }, { status: 400 });
+    }
+    txs = [singleParsed.data];
+  }
+  const created = await prisma.$transaction(
+    txs.map((t) => {
+      const { datetime, asset, ...rest } = t;
+      return prisma.transaction.create({
+        data: {
+          ...rest,
+          asset: asset.toUpperCase(),
+          datetime: new Date(datetime),
+          portfolioId: portfolio.id,
+        },
+      });
+    })
+  );
+
   try { txCache.clear(); } catch {}
-  return NextResponse.json(created, { status: 201 });
+  return NextResponse.json(batchParsed.success ? created : created[0], { status: 201 });
 }
 
 export async function PUT(req: NextRequest) {

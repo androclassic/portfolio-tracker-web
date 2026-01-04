@@ -2,7 +2,7 @@
 import useSWR, { useSWRConfig } from 'swr';
 import { useMemo, useState, useEffect } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
-import { getAssetColor, getFiatCurrencies, isFiatCurrency } from '@/lib/assets';
+import { convertFiat, getAssetColor, getFiatCurrencies, isFiatCurrency, isStablecoin, SUPPORTED_ASSETS } from '@/lib/assets';
 import AssetInput from '../components/AssetInput';
 import CryptoIcon from '../components/CryptoIcon';
 import { SupportedAsset } from '../../lib/assets';
@@ -23,14 +23,24 @@ export default function TransactionsPage(){
   const [assetFilter, setAssetFilter] = useState<string>('All');
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc');
   const [isOpen, setIsOpen] = useState(false);
-  const [newTx, setNewTx] = useState<{ asset: string; type: 'Buy'|'Sell'|'Deposit'|'Withdrawal'|string; quantity: string; priceUsd: string; datetime: string; notes?: string; selectedAsset: SupportedAsset | null }>({ 
+  const [newTx, setNewTx] = useState<{
+    asset: string;
+    type: 'Buy'|'Sell'|'Deposit'|'Withdrawal'|string;
+    quantity: string;
+    priceUsd: string;
+    datetime: string;
+    notes?: string;
+    selectedAsset: SupportedAsset | null;
+    settlementStable: string;
+  }>({ 
     asset:'', 
     type:'Buy', 
     quantity:'', 
     priceUsd:'', 
     datetime:'', 
     notes:'',
-    selectedAsset: null
+    selectedAsset: null,
+    settlementStable: 'USDT',
   });
   const [txErrors, setTxErrors] = useState<string[]>([]);
   const [isLoadingPrice, setIsLoadingPrice] = useState(false);
@@ -118,20 +128,123 @@ export default function TransactionsPage(){
       return;
     }
     
-    const body = {
-      asset: newTx.asset.toUpperCase(),
-      type: newTx.type as 'Buy'|'Sell'|'Deposit'|'Withdrawal',
-      priceUsd: (newTx.type === 'Buy' || newTx.type === 'Sell') ? (newTx.priceUsd ? Number(newTx.priceUsd) : null) : null,
-      quantity: Number(newTx.quantity),
+    const stablecoins = SUPPORTED_ASSETS.filter(a => a.category === 'stablecoin').map(a => a.symbol.toUpperCase());
+    const settlementStable = (newTx.settlementStable || 'USDT').toUpperCase();
+
+    if (!stablecoins.includes(settlementStable)) {
+      setTxErrors([`Invalid stablecoin: ${settlementStable}`]);
+      return;
+    }
+
+    const assetUpper = newTx.asset.toUpperCase();
+    const type = newTx.type as 'Buy'|'Sell'|'Deposit'|'Withdrawal';
+    const qty = Number(newTx.quantity);
+    // Ensure portfolioId is a number (selectedId can be "all" which is not valid for creating transactions)
+    const portfolioId = (typeof selectedId === 'number' ? selectedId : null) ?? 1;
+
+    type TransactionPayload = {
+      asset: string;
+      type: 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal';
+      priceUsd: number | null;
+      quantity: number;
+      datetime: string;
+      notes: string | null;
+      portfolioId: number;
+      costUsd?: number | null;
+      proceedsUsd?: number | null;
+    };
+
+    const base: TransactionPayload = {
+      asset: assetUpper,
+      type,
+      priceUsd: (type === 'Buy' || type === 'Sell') ? (newTx.priceUsd ? Number(newTx.priceUsd) : null) : null,
+      quantity: qty,
       datetime: newTx.datetime,
       notes: newTx.notes ? newTx.notes : null,
-      portfolioId: selectedId ?? 1,
-      // Include calculated values
-      ...calculatedValues
+      portfolioId,
+      ...calculatedValues,
     };
+
+    const txs: TransactionPayload[] = [base];
+    const isStable = isStablecoin(assetUpper);
+    const isFiat = isFiatCurrency(assetUpper);
+    const stablePx = 1; // stablecoin USD peg; we treat 1 USDT/USDC ~= $1 for auto-generated legs
+
+    // Buy non-stable crypto -> auto Sell stable (spent)
+    if (type === 'Buy' && !isStable) {
+      const costUsd = calculatedValues?.costUsd;
+      if (!costUsd || costUsd <= 0) {
+        setTxErrors(['Price USD is required for Buy (used to compute cost and spent stablecoin)']);
+        return;
+      }
+      const stableQty = costUsd / stablePx;
+      txs.push({
+        asset: settlementStable,
+        type: 'Sell',
+        priceUsd: stablePx,
+        quantity: stableQty,
+        datetime: newTx.datetime,
+        proceedsUsd: costUsd,
+        notes: `[AUTO] Spent ${settlementStable} to buy ${assetUpper}${newTx.notes ? ` | ${newTx.notes}` : ''}`,
+        portfolioId,
+      });
+    }
+
+    // Sell non-stable crypto -> auto Buy stable (received)
+    if (type === 'Sell' && !isStable) {
+      const proceedsUsd = calculatedValues?.proceedsUsd;
+      if (!proceedsUsd || proceedsUsd <= 0) {
+        setTxErrors(['Price USD is required for Sell (used to compute proceeds and received stablecoin)']);
+        return;
+      }
+      const stableQty = proceedsUsd / stablePx;
+      txs.push({
+        asset: settlementStable,
+        type: 'Buy',
+        priceUsd: stablePx,
+        quantity: stableQty,
+        datetime: newTx.datetime,
+        costUsd: proceedsUsd,
+        notes: `[AUTO] Received ${settlementStable} from selling ${assetUpper}${newTx.notes ? ` | ${newTx.notes}` : ''}`,
+        portfolioId,
+      });
+    }
+
+    // Deposit/Withdrawal (fiat) -> auto stable leg
+    if ((type === 'Deposit' || type === 'Withdrawal') && isFiat) {
+      const amountUsd = convertFiat(qty, assetUpper, 'USD');
+      if (type === 'Deposit') {
+        txs[0] = { ...txs[0], costUsd: amountUsd };
+        const stableQty = amountUsd / stablePx;
+        txs.push({
+          asset: settlementStable,
+          type: 'Buy',
+          priceUsd: stablePx,
+          quantity: stableQty,
+          datetime: newTx.datetime,
+          costUsd: amountUsd,
+          notes: `[AUTO] Bought ${settlementStable} from deposit ${assetUpper}${newTx.notes ? ` | ${newTx.notes}` : ''}`,
+          portfolioId,
+        });
+      } else {
+        txs[0] = { ...txs[0], proceedsUsd: amountUsd };
+        const stableQty = amountUsd / stablePx;
+        txs.push({
+          asset: settlementStable,
+          type: 'Sell',
+          priceUsd: stablePx,
+          quantity: stableQty,
+          datetime: newTx.datetime,
+          proceedsUsd: amountUsd,
+          notes: `[AUTO] Sold ${settlementStable} for withdrawal ${assetUpper}${newTx.notes ? ` | ${newTx.notes}` : ''}`,
+          portfolioId,
+        });
+      }
+    }
     
     try {
-      const res = await fetch('/api/transactions', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+      const payload = txs.length > 1 ? { portfolioId, transactions: txs } : txs[0];
+      const res = await fetch('/api/transactions', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
       if (res.ok) { 
         setIsOpen(false); 
         setNewTx({ 
@@ -141,7 +254,8 @@ export default function TransactionsPage(){
           priceUsd:'', 
           datetime:'', 
           notes:'',
-          selectedAsset: null
+          selectedAsset: null,
+          settlementStable: 'USDT',
         }); 
         setTxErrors([]);
         if (swrKey) mutate(swrKey);
@@ -427,6 +541,31 @@ export default function TransactionsPage(){
                   />
                 </div>
               </div>
+
+              {((newTx.type === 'Buy' || newTx.type === 'Sell') && newTx.selectedAsset && !isStablecoin(newTx.selectedAsset.symbol)) ||
+               (newTx.type === 'Deposit' || newTx.type === 'Withdrawal') ? (
+                <div className="form-row">
+                  <div className="form-group">
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {newTx.type === 'Buy'
+                        ? 'Spend stablecoin *'
+                        : newTx.type === 'Sell'
+                        ? 'Receive stablecoin *'
+                        : (newTx.type === 'Deposit' ? 'Buy stablecoin *' : 'Sell stablecoin *')}
+                      <span className="badge badge-info">Auto</span>
+                    </label>
+                    <select
+                      value={newTx.settlementStable}
+                      onChange={(e) => setNewTx((v) => ({ ...v, settlementStable: e.target.value }))}
+                      className="form-select"
+                    >
+                      {SUPPORTED_ASSETS.filter(a => a.category === 'stablecoin').map((a) => (
+                        <option key={a.symbol} value={a.symbol}>{a.symbol}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : null}
 
               {(newTx.type === 'Buy' || newTx.type === 'Sell') && (
                 <div className="form-row">
