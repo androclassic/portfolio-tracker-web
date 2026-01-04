@@ -1,6 +1,7 @@
 import type { HistResp, PricePoint } from './types';
 
 const TTL_MS = 12 * 60 * 60 * 1000; // 12h
+const HIST_CACHE_VERSION = 'v2';
 
 type CacheObj = { expiresAt: number; prices: PricePoint[] };
 
@@ -43,7 +44,9 @@ export async function fetchHistoricalWithLocalCache(symbols: string[], startUnix
   const symKey = symbols.slice().sort().join(',');
 
   for (const ch of chunks) {
-    const key = `hist:${symKey}:${ch.s}:${ch.e}`;
+    // Versioned to allow invalidating old cached ranges when we change server-side generation logic
+    // (e.g., stablecoin daily series date normalization).
+    const key = `hist:${HIST_CACHE_VERSION}:${symKey}:${ch.s}:${ch.e}`;
     const cached = readCache(key);
     if (cached) {
       all.push(...cached);

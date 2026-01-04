@@ -67,12 +67,16 @@ export async function getHistoricalPrices(
   
   const stablecoinSymbols = symbols.filter(s => stablecoins.includes(s.toUpperCase()));
   if (stablecoinSymbols.length > 0) {
-    // Generate daily data points from start to end
+    // Generate daily data points from start to end (inclusive), normalized to UTC midnight.
+    // Without normalization, differing time-of-day between start/end can skip the final calendar day,
+    // which then shows up as a bogus "drop to 0" in charts when other assets include that date.
     const startDate = new Date(startUnixSec * 1000);
+    startDate.setUTCHours(0, 0, 0, 0);
     const endDate = new Date(endUnixSec * 1000);
+    endDate.setUTCHours(0, 0, 0, 0);
     
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().slice(0, 10);
+    for (let d = new Date(startDate); d <= endDate; d.setUTCDate(d.getUTCDate() + 1)) {
+      const dateStr = d.toISOString().slice(0, 10); // YYYY-MM-DD
       for (const symbol of stablecoinSymbols) {
         stablecoinData.push({
           date: dateStr,
