@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useMemo } from 'react';
 import type { PieChartModel, PieSlice } from './types';
 import { PlotlyChart } from './plotly/PlotlyChart';
@@ -14,7 +16,7 @@ export type PieChartProps = {
   textinfo?: 'none' | 'label' | 'percent' | 'label+percent' | 'label+value' | 'label+percent+value';
 };
 
-export function PieChart({ model, getHoverText, textinfo = 'none' }: PieChartProps) {
+export function PieChart({ model, getHoverText, textinfo = 'label+percent' }: PieChartProps) {
   const { data, layout } = useMemo(() => {
     const labels = model.slices.map((s) => s.label);
     const values = model.slices.map((s) => s.value);
@@ -30,6 +32,7 @@ export function PieChart({ model, getHoverText, textinfo = 'none' }: PieChartPro
       text,
       hovertemplate: text ? '%{text}<extra></extra>' : undefined,
       textinfo,
+      textposition: textinfo === 'none' ? 'none' : 'inside',
       marker: colors.length === model.slices.length ? { colors } : undefined,
     };
 

@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useMemo } from 'react';
 import type { LineChartModel } from './types';
 import { PlotlyChart } from './plotly/PlotlyChart';
