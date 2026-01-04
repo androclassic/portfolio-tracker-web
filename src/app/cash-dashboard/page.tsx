@@ -1,10 +1,10 @@
 'use client';
-import dynamic from 'next/dynamic';
 import useSWR from 'swr';
 import React, { useCallback, useMemo, useState } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
 import { getAssetColor, getFiatCurrencies, convertFiat } from '@/lib/assets';
 import AuthGuard from '@/components/AuthGuard';
+import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
 
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
@@ -15,8 +15,6 @@ type BuyLotTraceWithFundingSells = BuyLotTrace & {
   fundingSells?: Array<{ asset: string; amountUsd: number; costBasisUsd?: number; saleTransactionId: number; saleDatetime: string }>;
   cashSpentUsd?: number;
 };
-
-const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
 
 const fetcher = jsonFetcher;
 

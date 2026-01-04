@@ -1,9 +1,7 @@
 import React from 'react';
-import dynamic from 'next/dynamic';
 import { getAssetColor } from '@/lib/assets';
-import type { Layout, Data } from 'plotly.js';
-
-const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
+import { PieChart } from '@/components/charts/PieChart';
+import type { PieChartModel } from '@/components/charts/types';
 
 interface AllocationData {
   asset: string;
@@ -24,31 +22,24 @@ export default function AllocationPieChart({
   isLoading = false, 
   height = 320 
 }: AllocationPieChartProps) {
-  const chartData = React.useMemo(() => {
+  const model = React.useMemo((): PieChartModel => {
     // Add cash if there's a positive balance
     const points = [...data];
     if (totalCashBalanceUsd > 0) {
       points.push({ asset: 'Cash', units: totalCashBalanceUsd, value: totalCashBalanceUsd });
     }
     
-    const labels = points.map(p => p.asset);
-    const plotData: Data[] = [{ 
-      type: 'pie', 
-      labels, 
-      values: points.map(p => p.value), 
-      customdata: points.map(p => [p.units]),
-      hovertemplate: '<b>%{label}</b><br>Holdings: %{customdata[0]:.6f}<br>Value: %{value:$,.2f}<extra></extra>',
-      hole: 0.45, 
-      marker: { colors: labels.map(a => a === 'Cash' ? '#16a34a' : getAssetColor(a)) } 
-    } as unknown as Data];
-    
-    const layout: Partial<Layout> = { 
-      autosize: true, 
-      height, 
-      margin: { t: 30, r: 10, l: 10, b: 10 } 
+    return {
+      height,
+      hole: 0.45,
+      slices: points.map((p) => ({
+        id: p.asset,
+        label: p.asset,
+        value: p.value,
+        color: p.asset === 'Cash' ? '#16a34a' : getAssetColor(p.asset),
+        meta: { units: p.units },
+      })),
     };
-    
-    return { data: plotData, layout };
   }, [data, totalCashBalanceUsd, height]);
 
   if (isLoading) {
@@ -59,7 +50,7 @@ export default function AllocationPieChart({
     );
   }
 
-  if (chartData.data.length === 0) {
+  if (model.slices.length === 0) {
     return (
       <div style={{ padding: 16, color: 'var(--muted)' }}>
         No allocation data
@@ -68,10 +59,13 @@ export default function AllocationPieChart({
   }
 
   return (
-    <Plot 
-      data={chartData.data} 
-      layout={chartData.layout} 
-      style={{ width: '100%' }} 
+    <PieChart
+      model={model}
+      getHoverText={(slice) => {
+        const units = Number((slice.meta?.units as number | undefined) ?? 0);
+        const value = Number(slice.value ?? 0);
+        return `<b>${slice.label}</b><br>Holdings: ${units.toFixed(6)}<br>Value: $${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+      }}
     />
   );
 }

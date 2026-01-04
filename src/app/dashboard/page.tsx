@@ -1,5 +1,4 @@
 'use client';
-import dynamic from 'next/dynamic';
 import useSWR from 'swr';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
@@ -8,12 +7,14 @@ import { usePriceData } from '@/hooks/usePriceData';
 import { usePnLCalculation } from '@/hooks/usePnLCalculation';
 import AllocationPieChart from '@/components/AllocationPieChart';
 import AuthGuard from '@/components/AuthGuard';
+import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { LineChart } from '@/components/charts/LineChart';
+import { buildNetWorthLineChartModel } from '@/lib/chart-models/net-worth';
 
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
 import type { Transaction as Tx, PricesResp, HistResp } from '@/lib/types';
 import { fetchHistoricalWithLocalCache } from '@/lib/prices-cache';
-const Plot = dynamic(() => import('react-plotly.js'), { ssr: false });
 
 const fetcher = jsonFetcher;
 
@@ -601,6 +602,8 @@ export default function DashboardPage(){
 
     return { dates, cryptoValue: cryptoValues, cashValue: cashValues, totalValue: totalValues };
   }, [hist, assets, holdings, txs]);
+
+  const netWorthChartModel = useMemo(() => buildNetWorthLineChartModel(netWorthOverTime), [netWorthOverTime]);
 
   // Cost basis vs market price for selected asset (independent selector)
   const costVsPrice = useMemo(() => {
@@ -1318,42 +1321,7 @@ This gives you the most complete view of your financial progress.`)}
             <div style={{ padding: 16, color: 'var(--muted)' }}>No net worth data</div>
           )}
           {!loadingTxs && !loadingHist && netWorthOverTime.dates.length > 0 && (
-            <Plot 
-              data={[
-                {
-                  x: netWorthOverTime.dates,
-                  y: netWorthOverTime.totalValue,
-                  type: 'scatter',
-                  mode: 'lines',
-                  name: 'Total Net Worth',
-                  line: { color: '#3b82f6', width: 3 },
-                },
-                {
-                  x: netWorthOverTime.dates,
-                  y: netWorthOverTime.cryptoValue,
-                  type: 'scatter',
-                  mode: 'lines',
-                  name: 'Crypto Value',
-                  line: { color: '#f59e0b', width: 2 },
-                },
-                {
-                  x: netWorthOverTime.dates,
-                  y: netWorthOverTime.cashValue,
-                  type: 'scatter',
-                  mode: 'lines',
-                  name: 'Cash Balance',
-                  line: { color: '#10b981', width: 2 },
-                },
-              ]}
-              layout={{
-                title: { text: 'Total Net Worth Over Time' },
-                xaxis: { title: { text: 'Date' } },
-                yaxis: { title: { text: 'Value (USD)' } },
-                height: 400,
-                hovermode: 'x unified',
-              }}
-              style={{ width: '100%' }}
-            />
+            <LineChart model={netWorthChartModel} />
           )}
         </section>
       </div>
