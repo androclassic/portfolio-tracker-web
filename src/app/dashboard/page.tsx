@@ -1452,12 +1452,9 @@ This helps you understand your entry points and current profit margins.`)}
       </div>
 
       {/* Fourth Row: Portfolio Value Stacked */}
-      <section className="card" style={{ marginBottom: 16 }}>
-        <div className="card-header">
-          <div className="card-title">
-            <h2>Portfolio value over time (stacked)</h2>
-            <button 
-              onClick={() => alert(`Portfolio Value Over Time (Stacked)
+      <ChartCard
+        title="Portfolio value over time (stacked)"
+        infoText={`Portfolio Value Over Time (Stacked)
 
 This chart shows your total portfolio value broken down by asset over time.
 
@@ -1467,24 +1464,33 @@ This chart shows your total portfolio value broken down by asset over time.
 • Stacked areas show how your portfolio composition has evolved
 • Hover to see exact values for each asset at any point
 
-This helps visualize portfolio growth and asset allocation changes over time.`)}
-              className="icon-btn"
-              title="Chart Information"
-            >
-              ℹ️
-            </button>
-          </div>
-        </div>
-        {loadingHist && (
-          <div style={{ padding: 16, color: 'var(--muted)' }}>Loading portfolio value...</div>
-        )}
-        {!loadingHist && stacked.series.length === 0 && (
-          <div style={{ padding: 16, color: 'var(--muted)' }}>No historical data</div>
-        )}
-        {!loadingHist && stacked.series.length > 0 && (
-          <Plot data={stacked.series} layout={{ autosize:true, height:340, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, hovermode: 'x unified' }} style={{ width:'100%' }} />
-        )}
-      </section>
+This helps visualize portfolio growth and asset allocation changes over time.`}
+        style={{ marginBottom: 16 }}
+      >
+        {({ timeframe, expanded }) => {
+          if (loadingHist) return <div style={{ padding: 16, color: 'var(--muted)' }}>Loading portfolio value...</div>;
+          if (!stacked.series.length) return <div style={{ padding: 16, color: 'var(--muted)' }}>No historical data</div>;
+
+          // All traces share the same x axis dates.
+          const first = stacked.series[0] as unknown as { x?: string[] };
+          const dates = Array.isArray(first?.x) ? first.x : [];
+          const idx = sliceStartIndexForIsoDates(dates, timeframe);
+
+          const slicedSeries = (stacked.series as unknown as Array<{ x?: string[]; y?: number[] }>).map((tr) => {
+            const x = Array.isArray(tr.x) ? tr.x.slice(idx) : tr.x;
+            const y = Array.isArray(tr.y) ? tr.y.slice(idx) : tr.y;
+            return { ...(tr as unknown as Record<string, unknown>), x, y } as unknown as Data;
+          });
+
+          return (
+            <Plot
+              data={slicedSeries as unknown as Data[]}
+              layout={{ autosize:true, height: expanded ? undefined : 340, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, hovermode: 'x unified' }}
+              style={{ width:'100%', height: expanded ? '100%' : undefined }}
+            />
+          );
+        }}
+      </ChartCard>
 
       {/* Fifth Row: BTC Analysis */}
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
