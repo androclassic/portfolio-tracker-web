@@ -365,6 +365,50 @@ select option{background:var(--surface);color:var(--text)}
     padding:8px;
     min-width:40px;
   }
+
+  /* Chart card headers: allow controls to wrap cleanly on mobile */
+  .card-header{
+    flex-wrap:wrap;
+    align-items:flex-start;
+    gap:10px;
+  }
+  .card-title{
+    min-width:0;
+    flex:1 1 auto;
+  }
+  .card-title h2{
+    font-size:1.05rem;
+    line-height:1.25;
+  }
+  .card-actions{
+    width:100%;
+    flex-wrap:wrap;
+    justify-content:flex-start;
+    gap:8px;
+  }
+  .card-actions label{
+    flex-wrap:wrap;
+    gap:6px;
+    font-size:0.9rem;
+  }
+
+  /* Segmented timeframe control: prevent overflow */
+  .segmented{
+    max-width:100%;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  .segmented button{
+    flex:0 0 auto;
+    white-space:nowrap;
+    padding:6px 10px;
+  }
+
+  /* Chart modal header should wrap on smaller screens */
+  .chart-modal-header{
+    flex-wrap:wrap;
+    align-items:flex-start;
+  }
 }
 
 @media (max-width: 480px) {
@@ -383,6 +427,20 @@ select option{background:var(--surface);color:var(--text)}
   }
   .card{
     padding:12px;
+  }
+
+  .card-title h2{
+    font-size:1rem;
+  }
+  .card-actions{
+    gap:6px;
+  }
+  .segmented button{
+    padding:6px 8px;
+    font-size:0.85rem;
+  }
+  select,input{
+    padding:9px 10px;
   }
 }
 
