@@ -285,6 +285,38 @@ select option{background:var(--surface);color:var(--text)}
 .icon-btn{background:none;border:none;color:var(--muted);padding:4px;border-radius:8px;cursor:pointer;transition:color .15s ease, background .15s ease}
 .icon-btn:hover{color:var(--text);background:rgba(125,125,125,.08)}
 
+/* Chart cards + maximize modal */
+.chart-card-body{min-height:0}
+.chart-card-footer{margin-top:10px;color:var(--muted);font-size:0.9rem}
+
+.modal-backdrop.chart-modal-backdrop{align-items:center;justify-content:center}
+.modal.chart-modal{
+  width:min(1200px, calc(100vw - 40px));
+  height:calc(100vh - 40px);
+  max-width:calc(100vw - 40px);
+  max-height:calc(100vh - 40px);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+.chart-modal-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding-bottom:10px;
+  border-bottom:1px solid var(--border);
+  margin-bottom:10px;
+}
+.chart-modal-body{
+  flex:1;
+  min-height:0;
+}
+.chart-modal-body .js-plotly-plot,
+.chart-modal-body .js-plotly-plot .plotly{
+  height:100% !important;
+}
+
 /* Segmented control */
 .segmented{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}
 .segmented button{appearance:none;background:none;border:none;color:var(--text);padding:6px 12px;cursor:pointer}

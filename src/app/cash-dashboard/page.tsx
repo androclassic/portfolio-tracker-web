@@ -5,6 +5,9 @@ import { usePortfolio } from '../PortfolioProvider';
 import { getAssetColor, getFiatCurrencies, convertFiat } from '@/lib/assets';
 import AuthGuard from '@/components/AuthGuard';
 import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { TimeframeSelector } from '@/components/TimeframeSelector';
+import type { DashboardTimeframe } from '@/lib/timeframe';
+import { startDateForTimeframe } from '@/lib/timeframe';
 
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
@@ -938,6 +941,7 @@ export default function CashDashboardPage(){
   const { selectedId } = usePortfolio();
   const listKey = selectedId === 'all' ? '/api/transactions' : (selectedId? `/api/transactions?portfolioId=${selectedId}` : null);
   const { data: txs, isLoading: loadingTxs } = useSWR<Tx[]>(listKey, fetcher);
+  const [timeframe, setTimeframe] = useState<DashboardTimeframe>('all');
   const [selectedCurrency, setSelectedCurrency] = useState<string>('USD');
   const [selectedTaxYear, setSelectedTaxYear] = useState<string>('all'); // 'all' | '2024' | '2023' | etc.
   const [selectedAssetLotStrategy, setSelectedAssetLotStrategy] = useState<'FIFO' | 'LIFO' | 'HIFO' | 'LOFO'>('FIFO');
@@ -948,6 +952,8 @@ export default function CashDashboardPage(){
     ? `/api/tax/romania?year=${selectedTaxYear}&assetStrategy=${selectedAssetLotStrategy}&cashStrategy=${selectedCashLotStrategy}${selectedId && selectedId !== 'all' ? `&portfolioId=${selectedId}` : ''}`
     : null;
   const { data: taxReport, isLoading: loadingTax, error: taxError } = useSWR<RomaniaTaxReport>(taxReportKey, fetcher);
+
+  const timeframeStart = useMemo(() => startDateForTimeframe(timeframe), [timeframe]);
 
   // Filter for fiat currency transactions only
   const fiatTxs = useMemo(() => {
@@ -963,10 +969,15 @@ export default function CashDashboardPage(){
         const txYear = new Date(tx.datetime).getFullYear().toString();
         return txYear === selectedTaxYear;
       }
+
+      // Apply timeframe filter
+      if (timeframeStart) {
+        return new Date(tx.datetime) >= timeframeStart;
+      }
       
       return true;
     });
-  }, [txs, selectedTaxYear]);
+  }, [txs, selectedTaxYear, timeframeStart]);
 
   const fiatCurrencies = getFiatCurrencies();
 
@@ -1139,7 +1150,7 @@ export default function CashDashboardPage(){
   ];
 
   const cashFlowLayout: Partial<Layout> = {
-    title: { text: `Cash Flow by Currency${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
+    title: { text: `Cash Flow by Currency${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}${timeframe !== 'all' ? ` • ${timeframe.toUpperCase()}` : ''}` },
     xaxis: { title: { text: 'Currency' } },
     yaxis: { title: { text: 'Amount' } },
     barmode: 'group',
@@ -1160,7 +1171,7 @@ export default function CashDashboardPage(){
   ];
 
   const balanceOverTimeLayout: Partial<Layout> = {
-    title: { text: `Total Cash Balance Over Time (USD)${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
+    title: { text: `Total Cash Balance Over Time (USD)${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}${timeframe !== 'all' ? ` • ${timeframe.toUpperCase()}` : ''}` },
     xaxis: { title: { text: 'Date' } },
     yaxis: { title: { text: 'Balance (USD)' } },
     height: 400,
@@ -1185,7 +1196,7 @@ export default function CashDashboardPage(){
   ];
 
   const monthlyCashFlowLayout: Partial<Layout> = {
-    title: { text: `Monthly Cash Flow - ${selectedCurrency}${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
+    title: { text: `Monthly Cash Flow - ${selectedCurrency}${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}${timeframe !== 'all' ? ` • ${timeframe.toUpperCase()}` : ''}` },
     xaxis: { title: { text: 'Month' } },
     yaxis: { title: { text: `${selectedCurrency} Amount` } },
     barmode: 'group',
@@ -1219,7 +1230,7 @@ export default function CashDashboardPage(){
   }, [totalBalances, fiatCurrencies, colorFor]);
 
   const totalBalancesLayout: Partial<Layout> = {
-    title: { text: `Total Balances (USD Equivalent)${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
+    title: { text: `Total Balances (USD Equivalent)${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}${timeframe !== 'all' ? ` • ${timeframe.toUpperCase()}` : ''}` },
     height: 400,
   };
 
@@ -1243,6 +1254,10 @@ export default function CashDashboardPage(){
         
         {/* Filters */}
         <div style={{ marginBottom: '2rem', display: 'flex', gap: '2rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div>
+            <label style={{ marginRight: '1rem', fontWeight: 'bold' }}>Timeframe:</label>
+            <TimeframeSelector value={timeframe} onChange={setTimeframe} />
+          </div>
           <div>
             <label style={{ marginRight: '1rem', fontWeight: 'bold' }}>Currency:</label>
             <select 

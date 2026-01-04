@@ -3,8 +3,8 @@ import type { LineChartModel } from '@/components/charts/types';
 export type NetWorthOverTime = {
   dates: string[];
   totalValue: number[];
-  cryptoValue: number[];
-  cashValue: number[];
+  cryptoExStableValue: number[];
+  stableValue: number[];
 };
 
 export function buildNetWorthLineChartModel(netWorth: NetWorthOverTime): LineChartModel {
@@ -25,16 +25,16 @@ export function buildNetWorthLineChartModel(netWorth: NetWorthOverTime): LineCha
       },
       {
         id: 'crypto',
-        name: 'Crypto Value',
-        y: netWorth.cryptoValue,
+        name: 'Crypto (ex Stablecoins)',
+        y: netWorth.cryptoExStableValue,
         color: '#f59e0b',
         width: 2,
       },
       {
-        id: 'cash',
-        name: 'Cash Balance',
-        y: netWorth.cashValue,
-        color: '#10b981',
+        id: 'stables',
+        name: 'Stablecoin Balance',
+        y: netWorth.stableValue,
+        color: '#22c55e',
         width: 2,
       },
     ],

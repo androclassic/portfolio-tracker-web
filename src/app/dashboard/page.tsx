@@ -10,6 +10,9 @@ import AuthGuard from '@/components/AuthGuard';
 import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
 import { LineChart } from '@/components/charts/LineChart';
 import { buildNetWorthLineChartModel } from '@/lib/chart-models/net-worth';
+import { TimeframeSelector } from '@/components/TimeframeSelector';
+import type { DashboardTimeframe } from '@/lib/timeframe';
+import { clampDateRangeToTxs } from '@/lib/timeframe';
 
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
@@ -25,9 +28,10 @@ export default function DashboardPage(){
   const { selectedId } = usePortfolio();
   const listKey = selectedId === 'all' ? '/api/transactions' : (selectedId? `/api/transactions?portfolioId=${selectedId}` : null);
   const { data: txs, mutate, isLoading: loadingTxs } = useSWR<Tx[]>(listKey, fetcher);
+  const [timeframe, setTimeframe] = useState<DashboardTimeframe>('all');
   const [selectedAsset, setSelectedAsset] = useState<string>('');
   const [selectedPnLAsset, setSelectedPnLAsset] = useState<string>('');
-  const [selectedBtcChart, setSelectedBtcChart] = useState<string>('ratio'); // 'ratio' | 'accumulation'
+  const [selectedBtcChart, setSelectedBtcChart] = useState<string>('accumulation'); // 'ratio' | 'accumulation'
   const [selectedAltcoin, setSelectedAltcoin] = useState<string>('ALL');
   const [selectedProfitAsset, setSelectedProfitAsset] = useState<string>('ALL');
   const [selectedCostAsset, setSelectedCostAsset] = useState<string>('');
@@ -88,67 +92,14 @@ export default function DashboardPage(){
     return pos;
   }, [txs]);
 
-  // Calculate cash balances (fiat currencies)
-  const cashBalances = useMemo(() => {
-    const balances: Record<string, number> = {};
-    const fiatCurrencies = getFiatCurrencies();
-    
-    if (!txs) return balances;
-    
-    // Initialize balances for all fiat currencies
-    fiatCurrencies.forEach(currency => {
-      balances[currency] = 0;
-    });
-    
-    // Process all transactions in chronological order
-    const sortedTxs = [...txs].sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
-    
-    for (const tx of sortedTxs) {
-      const asset = tx.asset.toUpperCase();
-      
-      if (fiatCurrencies.includes(asset)) {
-        // Handle fiat currency transactions (deposits/withdrawals)
-        if (tx.type === 'Deposit') {
-          balances[asset] += tx.quantity;
-        } else if (tx.type === 'Withdrawal') {
-          balances[asset] -= tx.quantity;
-        }
-      } else if (tx.type === 'Buy') {
-        // Handle crypto purchases - deduct from cash balance
-        // For now, assume all purchases are made from USD (we could enhance this later)
-        const costUsd = tx.costUsd || (tx.priceUsd ? tx.priceUsd * tx.quantity : 0);
-        if (costUsd > 0) {
-          balances['USD'] -= costUsd;
-        }
-      } else if (tx.type === 'Sell') {
-        // Handle crypto sales - add to cash balance
-        const proceedsUsd = tx.proceedsUsd || (tx.priceUsd ? tx.priceUsd * tx.quantity : 0);
-        if (proceedsUsd > 0) {
-          balances['USD'] += proceedsUsd;
-        }
-      }
-    }
-    
-    return balances;
-  }, [txs]);
-
-  // Calculate total cash balance in USD equivalent
-  const totalCashBalanceUsd = useMemo(() => {
-    let total = 0;
-    for (const [currency, balance] of Object.entries(cashBalances)) {
-      total += convertFiat(balance, currency, 'USD');
-    }
-    return total;
-  }, [cashBalances]);
-
   // historical prices for portfolio value stacked area
   const dateRange = useMemo(()=>{
     if (!txs || txs.length===0) return null as null | { start: number; end: number };
     const dts = txs.map(t=> new Date(t.datetime).getTime());
-    const min = Math.min(...dts);
-    const now = Date.now();
-    return { start: Math.floor(min/1000), end: Math.floor(now/1000) };
-  }, [txs]);
+    const minMs = Math.min(...dts);
+    const txMinSec = Math.floor(minMs / 1000);
+    return clampDateRangeToTxs({ timeframe, txMinUnixSec: txMinSec });
+  }, [txs, timeframe]);
 
   // Use shared price data hook
   const { latestPrices, historicalPrices, isLoading: loadingCurr } = usePriceData({
@@ -156,6 +107,20 @@ export default function DashboardPage(){
     dateRange: dateRange || undefined,
     includeCurrentPrices: true
   });
+
+  // Stablecoin balance (Dashboard treats stables as the "cash-like" component, not fiat).
+  const stablecoinBalanceUsd = useMemo(() => {
+    let total = 0;
+    for (const [asset, units] of Object.entries(holdings)) {
+      const sym = asset.toUpperCase();
+      if (!isStablecoin(sym)) continue;
+      const qty = Number(units) || 0;
+      if (qty <= 0) continue;
+      const px = latestPrices[sym] || 1; // stablecoins are hardcoded to ~$1 in price service
+      total += qty * px;
+    }
+    return total;
+  }, [holdings, latestPrices]);
 
   // daily positions time series
   const dailyPos = useMemo(()=>{
@@ -507,20 +472,21 @@ export default function DashboardPage(){
 
   const fxReady = fxRateMap.size > 0;
 
-  // Total Net Worth Over Time (Crypto + Cash)
+  // Total Net Worth Over Time (Crypto ex-stables + Stablecoins)
   const netWorthOverTime = useMemo(() => {
     if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0) {
-      return { dates: [] as string[], cryptoValue: [] as number[], cashValue: [] as number[], totalValue: [] as number[] };
+      return { dates: [] as string[], cryptoExStableValue: [] as number[], stableValue: [] as number[], totalValue: [] as number[] };
     }
 
     const dates = priceIndex.dates;
-    const cryptoValues: number[] = [];
-    const cashValues: number[] = [];
+    const cryptoExStableValues: number[] = [];
+    const stableValues: number[] = [];
     const totalValues: number[] = [];
 
     for (const date of dates) {
-      // Calculate crypto portfolio value for this date using historical positions
-      let cryptoValue = 0;
+      // Calculate crypto portfolio value for this date using historical positions, split by stablecoin vs non-stable.
+      let cryptoExStable = 0;
+      let stableValue = 0;
       for (const asset of assets) {
         const ai = priceIndex.assetIndex[asset];
         const di = priceIndex.dateIndex[date];
@@ -541,67 +507,21 @@ export default function DashboardPage(){
             position -= tx.quantity;
           }
         }
-        
-        cryptoValue += position * price;
+
+        const value = position * price;
+        if (isStablecoin(asset)) stableValue += value;
+        else cryptoExStable += value;
       }
 
-      // Calculate cash balance up to this date (including crypto purchases/sales)
-      let cashValue = 0;
-      const fiatCurrencies = getFiatCurrencies();
-      const balances: Record<string, number> = {};
-      
-      // Initialize balances
-      fiatCurrencies.forEach(currency => {
-        balances[currency] = 0;
-      });
-      
-      // Process all transactions up to this date
-      const relevantTxs = txs.filter(tx => 
-        new Date(tx.datetime) <= new Date(date + 'T23:59:59')
-      );
-      
-      for (const tx of relevantTxs) {
-        const asset = tx.asset.toUpperCase();
-        
-        if (fiatCurrencies.includes(asset)) {
-          // Handle fiat currency transactions
-          if (tx.type === 'Deposit') {
-            balances[asset] += tx.quantity;
-          } else if (tx.type === 'Withdrawal') {
-            balances[asset] -= tx.quantity;
-          }
-        } else if (tx.type === 'Buy') {
-          // Handle crypto purchases - deduct from cash balance
-          const costUsd = tx.costUsd || (tx.priceUsd ? tx.priceUsd * tx.quantity : 0);
-          if (costUsd > 0) {
-            balances['USD'] -= costUsd;
-          }
-        } else if (tx.type === 'Sell') {
-          // Handle crypto sales - add to cash balance
-          const proceedsUsd = tx.proceedsUsd || (tx.priceUsd ? tx.priceUsd * tx.quantity : 0);
-          if (proceedsUsd > 0) {
-            balances['USD'] += proceedsUsd;
-          }
-        }
-      }
-      
-      // Convert all balances to USD using preloaded historical exchange rates
-      for (const [currency, balance] of Object.entries(balances)) {
-        if (balance !== 0) {
-          const historicalRate = fxRateMap.get(date)?.[currency] ?? 0;
-          cashValue += balance * historicalRate;
-        }
-      }
+      const totalValue = cryptoExStable + stableValue;
 
-      const totalValue = cryptoValue + cashValue;
-      
-      cryptoValues.push(cryptoValue);
-      cashValues.push(cashValue);
+      cryptoExStableValues.push(cryptoExStable);
+      stableValues.push(stableValue);
       totalValues.push(totalValue);
     }
 
-    return { dates, cryptoValue: cryptoValues, cashValue: cashValues, totalValue: totalValues };
-  }, [hist, assets, holdings, txs]);
+    return { dates, cryptoExStableValue: cryptoExStableValues, stableValue: stableValues, totalValue: totalValues };
+  }, [hist, assets, txs, priceIndex.dates, priceIndex.assetIndex, priceIndex.dateIndex, priceIndex.prices]);
 
   const netWorthChartModel = useMemo(() => buildNetWorthLineChartModel(netWorthOverTime), [netWorthOverTime]);
 
@@ -1161,7 +1081,10 @@ export default function DashboardPage(){
   return (
     <AuthGuard redirectTo="/dashboard">
       <main>
-      <h1>Dashboard</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <h1 style={{ margin: 0 }}>Dashboard</h1>
+        <TimeframeSelector value={timeframe} onChange={setTimeframe} />
+      </div>
       <div className="stats" style={{ marginBottom: 16 }}>
         <div className="stat">
           <div className="label">Current Balance</div>
@@ -1172,8 +1095,8 @@ export default function DashboardPage(){
           <div className="value" style={{ color: (summary.dayChangeText.startsWith('+')? '#16a34a' : '#dc2626') }}>{summary.dayChangeText} <span style={{ color:'var(--muted)', fontSize: '0.9em' }}>{summary.dayChangePctText}</span></div>
         </div>
         <div className="stat">
-          <div className="label">Cash Balance</div>
-          <div className="value" style={{ color: '#10b981' }}>${totalCashBalanceUsd.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+          <div className="label">Stablecoin Balance</div>
+          <div className="value" style={{ color: '#22c55e' }}>${stablecoinBalanceUsd.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
         </div>
         <div className="stat">
           <div className="label">Total Profit / Loss</div>
@@ -1265,15 +1188,14 @@ Hover over blocks to see exact PnL values.`)}
         <section className="card">
           <div className="card-header">
             <div className="card-title">
-              <h2>Portfolio Allocation (Crypto + Cash)</h2>
+              <h2>Portfolio Allocation (incl. Stablecoins)</h2>
               <button 
-                onClick={() => alert(`Portfolio Allocation (Crypto + Cash)
+                onClick={() => alert(`Portfolio Allocation (incl. Stablecoins)
 
 This pie chart shows how your total portfolio is distributed across different assets.
 
 • Each slice represents an asset's percentage of your total portfolio value
-• Includes both cryptocurrency holdings and cash balances
-• Cash slice shows total fiat currency balance (USD, EUR, RON converted to USD)
+• Includes cryptocurrency holdings, including stablecoins
 • Hover over slices to see exact percentages and values
 • Colors are assigned to each asset for easy identification
 
@@ -1287,7 +1209,6 @@ This gives you a complete picture of your total portfolio composition.`)}
           </div>
           <AllocationPieChart 
             data={allocationData}
-            totalCashBalanceUsd={totalCashBalanceUsd}
             isLoading={loadingCurr && assets.length > 0}
           />
         </section>
@@ -1299,14 +1220,13 @@ This gives you a complete picture of your total portfolio composition.`)}
               <button 
                 onClick={() => alert(`Total Net Worth Over Time
 
-This chart shows your complete financial picture over time, including both crypto and cash.
+This chart shows your portfolio value over time, split into:
 
-• Blue line = Total portfolio value (crypto + cash)
-• Orange line = Crypto portfolio value only
-• Green line = Cash balance over time
-• Shows the impact of deposits/withdrawals on your total wealth
+• Blue line = Total net worth (crypto + stablecoins)
+• Orange line = Crypto value excluding stablecoins
+• Green line = Stablecoin balance
 
-This gives you the most complete view of your financial progress.`)}
+This gives you a clearer view of how much of your portfolio is in stable value vs directional crypto exposure.`)}
                 className="icon-btn"
                 title="Chart Information"
               >
@@ -1400,18 +1320,24 @@ This is different from trading P&L as it focuses on your total investment vs. to
         <section className="card">
           <div className="card-header">
             <div className="card-title">
-              <h2>PnL over time (per asset)</h2>
+              <h2>BTC Ratio & Accumulation</h2>
               <button 
-                onClick={() => alert(`PnL Over Time (Per Asset)
+                onClick={() => alert(`BTC Ratio & Accumulation
 
-This chart shows your profit and loss (PnL) over time for the selected asset, split into realized and unrealized gains/losses.
+This chart shows your Bitcoin strategy metrics over time.
 
-• Realized PnL: Profits/losses from completed transactions (buys/sells)
-• Unrealized PnL: Current paper gains/losses on the held position
-• Total PnL = Realized + Unrealized
+BTC Ratio (%):
+• Shows what percentage of your portfolio is in Bitcoin
+• Higher % = more Bitcoin-focused strategy
+• Lower % = more diversified into altcoins
 
-Use the asset selector to view PnL for a specific asset.
-Note: Aggregated portfolio PnL is intentionally not shown to avoid misleading aggregation.`)}
+BTC Accumulation:
+• Blue area = Actual BTC holdings
+• Orange area = BTC value of altcoin holdings
+• Total height = Total BTC equivalent value
+• Helps visualize your "BTC maximization" strategy
+
+Use the chart type selector to switch between views.`)}
                 className="icon-btn"
                 title="Chart Information"
               >
@@ -1420,28 +1346,71 @@ Note: Aggregated portfolio PnL is intentionally not shown to avoid misleading ag
             </div>
           </div>
           <div style={{ marginBottom: 8 }}>
-            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
-              <select value={selectedPnLAsset} onChange={e=>setSelectedPnLAsset(e.target.value)}>
-                {assets.map(a=> (<option key={a} value={a}>{a}</option>))}
+            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Chart Type
+              <select value={selectedBtcChart} onChange={e=>setSelectedBtcChart(e.target.value)}>
+                <option value="ratio">BTC Ratio (%)</option>
+                <option value="accumulation">BTC Accumulation</option>
               </select>
             </label>
           </div>
-          {(loadingTxs || loadingHist) && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading PnL...</div>
+          {(loadingHist || loadingTxs) && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading BTC charts...</div>
           )}
-          {!loadingTxs && !loadingHist && pnl.dates.length === 0 && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>No PnL data</div>
-          )}
-          {!loadingTxs && !loadingHist && pnl.dates.length > 0 && (
-          <Plot
-            data={[
-              { x: pnl.dates, y: pnl.realized, type:'scatter', mode:'lines', name:'Realized' },
-              { x: pnl.dates, y: pnl.unrealized, type:'scatter', mode:'lines', name:'Unrealized' },
-            ] as Data[]}
-            layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' } }}
-            style={{ width:'100%' }}
-          />
-          )}
+          {!loadingHist && !loadingTxs && (selectedBtcChart === 'ratio' ? (
+            <Plot
+              data={[
+                { x: btcRatio.dates, y: btcRatio.btcPercentage, type:'scatter', mode:'lines', name:'BTC % of Portfolio', line: { color: '#f7931a' } },
+              ] as Data[]}
+              layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, yaxis: { title: { text: 'BTC % of Portfolio' } } }}
+              style={{ width:'100%' }}
+            />
+          ) : (
+            <Plot
+              data={[
+                { 
+                  x: btcAccumulation.dates, 
+                  y: btcAccumulation.btcHeld, 
+                  type: 'scatter', 
+                  mode: 'lines', 
+                  name: 'BTC Held', 
+                  line: { color: '#f7931a' },
+                  fill: 'tonexty',
+                  fillcolor: 'rgba(247, 147, 26, 0.3)'
+                },
+                { 
+                  x: btcAccumulation.dates, 
+                  y: btcAccumulation.altcoinBtcValue, 
+                  type: 'scatter', 
+                  mode: 'lines', 
+                  name: 'Altcoin BTC Value', 
+                  line: { color: '#16a34a' },
+                  fill: 'tonexty',
+                  fillcolor: 'rgba(22, 163, 74, 0.3)'
+                },
+                { 
+                  x: btcAccumulation.dates, 
+                  y: btcAccumulation.dates.map((_d: string, i: number) => 
+                    (btcAccumulation.btcHeld[i] || 0) + (btcAccumulation.altcoinBtcValue[i] || 0)
+                  ), 
+                  type: 'scatter', 
+                  mode: 'lines', 
+                  name: 'Total Portfolio BTC', 
+                  line: { color: '#3b82f6', width: 3 },
+                  fill: 'tonexty',
+                  fillcolor: 'rgba(59, 130, 246, 0.1)'
+                }
+              ] as Data[]}
+              layout={{ 
+                autosize: true, 
+                height: 320, 
+                margin: { t: 30, r: 10, l: 40, b: 40 }, 
+                legend: { orientation: 'h' }, 
+                yaxis: { title: { text: 'BTC Amount' } },
+                hovermode: 'x unified'
+              }}
+              style={{ width:'100%' }}
+            />
+          ))}
         </section>
       </div>
 
@@ -1576,24 +1545,18 @@ This helps visualize portfolio growth and asset allocation changes over time.`)}
         <section className="card">
           <div className="card-header">
             <div className="card-title">
-              <h2>BTC Ratio & Accumulation</h2>
+              <h2>PnL over time (per asset)</h2>
               <button 
-                onClick={() => alert(`BTC Ratio & Accumulation
+                onClick={() => alert(`PnL Over Time (Per Asset)
 
-This chart shows your Bitcoin strategy metrics over time.
+This chart shows your profit and loss (PnL) over time for the selected asset, split into realized and unrealized gains/losses.
 
-BTC Ratio (%):
-• Shows what percentage of your portfolio is in Bitcoin
-• Higher % = more Bitcoin-focused strategy
-• Lower % = more diversified into altcoins
+• Realized PnL: Profits/losses from completed transactions (buys/sells)
+• Unrealized PnL: Current paper gains/losses on the held position
+• Total PnL = Realized + Unrealized
 
-BTC Accumulation:
-• Blue area = Actual BTC holdings
-• Orange area = BTC value of altcoin holdings
-• Total height = Total BTC equivalent value
-• Helps visualize your "BTC maximization" strategy
-
-Use the chart type selector to switch between views.`)}
+Use the asset selector to view PnL for a specific asset.
+Note: Aggregated portfolio PnL is intentionally not shown to avoid misleading aggregation.`)}
                 className="icon-btn"
                 title="Chart Information"
               >
@@ -1602,71 +1565,28 @@ Use the chart type selector to switch between views.`)}
             </div>
           </div>
           <div style={{ marginBottom: 8 }}>
-            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Chart Type
-              <select value={selectedBtcChart} onChange={e=>setSelectedBtcChart(e.target.value)}>
-                <option value="ratio">BTC Ratio (%)</option>
-                <option value="accumulation">BTC Accumulation</option>
+            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
+              <select value={selectedPnLAsset} onChange={e=>setSelectedPnLAsset(e.target.value)}>
+                {assets.map(a=> (<option key={a} value={a}>{a}</option>))}
               </select>
             </label>
           </div>
-          {(loadingHist || loadingTxs) && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading BTC charts...</div>
+          {(loadingTxs || loadingHist) && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading PnL...</div>
           )}
-          {!loadingHist && !loadingTxs && (selectedBtcChart === 'ratio' ? (
-            <Plot
-              data={[
-                { x: btcRatio.dates, y: btcRatio.btcPercentage, type:'scatter', mode:'lines', name:'BTC % of Portfolio', line: { color: '#f7931a' } },
-              ] as Data[]}
-              layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, yaxis: { title: { text: 'BTC % of Portfolio' } } }}
-              style={{ width:'100%' }}
-            />
-          ) : (
-            <Plot
-              data={[
-                { 
-                  x: btcAccumulation.dates, 
-                  y: btcAccumulation.btcHeld, 
-                  type: 'scatter', 
-                  mode: 'lines', 
-                  name: 'BTC Held', 
-                  line: { color: '#f7931a' },
-                  fill: 'tonexty',
-                  fillcolor: 'rgba(247, 147, 26, 0.3)'
-                },
-                { 
-                  x: btcAccumulation.dates, 
-                  y: btcAccumulation.altcoinBtcValue, 
-                  type: 'scatter', 
-                  mode: 'lines', 
-                  name: 'Altcoin BTC Value', 
-                  line: { color: '#16a34a' },
-                  fill: 'tonexty',
-                  fillcolor: 'rgba(22, 163, 74, 0.3)'
-                },
-                { 
-                  x: btcAccumulation.dates, 
-                  y: btcAccumulation.dates.map((_, i) => 
-                    (btcAccumulation.btcHeld[i] || 0) + (btcAccumulation.altcoinBtcValue[i] || 0)
-                  ), 
-                  type: 'scatter', 
-                  mode: 'lines', 
-                  name: 'Total Portfolio BTC', 
-                  line: { color: '#3b82f6', width: 3 },
-                  fill: 'tonexty',
-                  fillcolor: 'rgba(59, 130, 246, 0.1)'
-                }
-              ] as Data[]}
-              layout={{ 
-                autosize: true, 
-                height: 320, 
-                margin: { t: 30, r: 10, l: 40, b: 40 }, 
-                legend: { orientation: 'h' }, 
-                yaxis: { title: { text: 'BTC Amount' } },
-                hovermode: 'x unified'
-              }}
-              style={{ width:'100%' }}
-            />
-          ))}
+          {!loadingTxs && !loadingHist && pnl.dates.length === 0 && (
+            <div style={{ padding: 16, color: 'var(--muted)' }}>No PnL data</div>
+          )}
+          {!loadingTxs && !loadingHist && pnl.dates.length > 0 && (
+          <Plot
+            data={[
+              { x: pnl.dates, y: pnl.realized, type:'scatter', mode:'lines', name:'Realized' },
+              { x: pnl.dates, y: pnl.unrealized, type:'scatter', mode:'lines', name:'Unrealized' },
+            ] as Data[]}
+            layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' } }}
+            style={{ width:'100%' }}
+          />
+          )}
         </section>
         <section className="card">
           <h2>Altcoin Holdings BTC Value</h2>
