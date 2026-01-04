@@ -7,13 +7,16 @@ export type NetWorthOverTime = {
   stableValue: number[];
 };
 
-export function buildNetWorthLineChartModel(netWorth: NetWorthOverTime): LineChartModel {
+export function buildNetWorthLineChartModel(
+  netWorth: NetWorthOverTime,
+  opts?: { height?: number }
+): LineChartModel {
   return {
     title: 'Total Net Worth Over Time',
     x: netWorth.dates,
     xAxisTitle: 'Date',
     yAxisTitle: 'Value (USD)',
-    height: 400,
+    height: opts?.height,
     hovermode: 'x unified',
     series: [
       {

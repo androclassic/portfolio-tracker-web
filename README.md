@@ -38,6 +38,10 @@ Typical workflows:
 - **Tax time (Romania)**:
   - Select year + portfolio + lot strategies → generate report → export CSV for reconciliation.
 
+## Screenshot (example layout)
+
+![Dashboard example layout](./docs/images/dashboard.png)
+
 ## Tech stack (high level)
 
 - **Next.js (App Router)** UI + API routes

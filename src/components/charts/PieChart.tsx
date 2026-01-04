@@ -14,9 +14,10 @@ export type PieChartProps = {
    * Defaults to hiding labels; consumers can override.
    */
   textinfo?: 'none' | 'label' | 'percent' | 'label+percent' | 'label+value' | 'label+percent+value';
+  style?: React.CSSProperties;
 };
 
-export function PieChart({ model, getHoverText, textinfo = 'label+percent' }: PieChartProps) {
+export function PieChart({ model, getHoverText, textinfo = 'label+percent', style }: PieChartProps) {
   const { data, layout } = useMemo(() => {
     const labels = model.slices.map((s) => s.label);
     const values = model.slices.map((s) => s.value);
@@ -48,7 +49,7 @@ export function PieChart({ model, getHoverText, textinfo = 'label+percent' }: Pi
 
   if (!model.slices.length) return null;
 
-  return <PlotlyChart data={data} layout={layout} style={{ width: '100%' }} />;
+  return <PlotlyChart data={data} layout={layout} style={{ width: '100%', ...style }} />;
 }
 
 

@@ -10,9 +10,8 @@ import AuthGuard from '@/components/AuthGuard';
 import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
 import { LineChart } from '@/components/charts/LineChart';
 import { buildNetWorthLineChartModel } from '@/lib/chart-models/net-worth';
-import { TimeframeSelector } from '@/components/TimeframeSelector';
-import type { DashboardTimeframe } from '@/lib/timeframe';
-import { clampDateRangeToTxs } from '@/lib/timeframe';
+import { ChartCard } from '@/components/ChartCard';
+import { sliceStartIndexForIsoDates } from '@/lib/timeframe';
 
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
@@ -28,7 +27,6 @@ export default function DashboardPage(){
   const { selectedId } = usePortfolio();
   const listKey = selectedId === 'all' ? '/api/transactions' : (selectedId? `/api/transactions?portfolioId=${selectedId}` : null);
   const { data: txs, mutate, isLoading: loadingTxs } = useSWR<Tx[]>(listKey, fetcher);
-  const [timeframe, setTimeframe] = useState<DashboardTimeframe>('all');
   const [selectedAsset, setSelectedAsset] = useState<string>('');
   const [selectedPnLAsset, setSelectedPnLAsset] = useState<string>('');
   const [selectedBtcChart, setSelectedBtcChart] = useState<string>('accumulation'); // 'ratio' | 'accumulation'
@@ -98,8 +96,9 @@ export default function DashboardPage(){
     const dts = txs.map(t=> new Date(t.datetime).getTime());
     const minMs = Math.min(...dts);
     const txMinSec = Math.floor(minMs / 1000);
-    return clampDateRangeToTxs({ timeframe, txMinUnixSec: txMinSec });
-  }, [txs, timeframe]);
+    const nowSec = Math.floor(Date.now() / 1000);
+    return { start: txMinSec, end: nowSec };
+  }, [txs]);
 
   // Use shared price data hook
   const { latestPrices, historicalPrices, isLoading: loadingCurr } = usePriceData({
@@ -1081,10 +1080,7 @@ export default function DashboardPage(){
   return (
     <AuthGuard redirectTo="/dashboard">
       <main>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <h1 style={{ margin: 0 }}>Dashboard</h1>
-        <TimeframeSelector value={timeframe} onChange={setTimeframe} />
-      </div>
+      <h1>Dashboard</h1>
       <div className="stats" style={{ marginBottom: 16 }}>
         <div className="stat">
           <div className="label">Current Balance</div>
@@ -1185,12 +1181,9 @@ Hover over blocks to see exact PnL values.`)}
 
       {/* Top Row: Portfolio Overview */}
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
-        <section className="card">
-          <div className="card-header">
-            <div className="card-title">
-              <h2>Portfolio Allocation (incl. Stablecoins)</h2>
-              <button 
-                onClick={() => alert(`Portfolio Allocation (incl. Stablecoins)
+        <ChartCard
+          title="Portfolio Allocation (incl. Stablecoins)"
+          infoText={`Portfolio Allocation (incl. Stablecoins)
 
 This pie chart shows how your total portfolio is distributed across different assets.
 
@@ -1199,26 +1192,21 @@ This pie chart shows how your total portfolio is distributed across different as
 • Hover over slices to see exact percentages and values
 • Colors are assigned to each asset for easy identification
 
-This gives you a complete picture of your total portfolio composition.`)}
-                className="icon-btn"
-                title="Chart Information"
-              >
-                ℹ️
-              </button>
-            </div>
-          </div>
-          <AllocationPieChart 
-            data={allocationData}
-            isLoading={loadingCurr && assets.length > 0}
-          />
-        </section>
+This gives you a complete picture of your total portfolio composition.`}
+          timeframeEnabled={false}
+        >
+          {({ expanded }) => (
+            <AllocationPieChart 
+              data={allocationData}
+              isLoading={loadingCurr && assets.length > 0}
+              height={expanded ? 520 : 320}
+            />
+          )}
+        </ChartCard>
 
-        <section className="card">
-          <div className="card-header">
-            <div className="card-title">
-              <h2>Total Net Worth Over Time</h2>
-              <button 
-                onClick={() => alert(`Total Net Worth Over Time
+        <ChartCard
+          title="Total Net Worth Over Time"
+          infoText={`Total Net Worth Over Time
 
 This chart shows your portfolio value over time, split into:
 
@@ -1226,34 +1214,29 @@ This chart shows your portfolio value over time, split into:
 • Orange line = Crypto value excluding stablecoins
 • Green line = Stablecoin balance
 
-This gives you a clearer view of how much of your portfolio is in stable value vs directional crypto exposure.`)}
-                className="icon-btn"
-                title="Chart Information"
-              >
-                ℹ️
-              </button>
-            </div>
-          </div>
-          {(loadingTxs || loadingHist) && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading net worth data...</div>
-          )}
-          {!loadingTxs && !loadingHist && netWorthOverTime.dates.length === 0 && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>No net worth data</div>
-          )}
-          {!loadingTxs && !loadingHist && netWorthOverTime.dates.length > 0 && (
-            <LineChart model={netWorthChartModel} />
-          )}
-        </section>
+This gives you a clearer view of how much of your portfolio is in stable value vs directional crypto exposure.`}
+        >
+          {({ timeframe, expanded }) => {
+            if (loadingTxs || loadingHist) return <div style={{ padding: 16, color: 'var(--muted)' }}>Loading net worth data...</div>;
+            if (!netWorthOverTime.dates.length) return <div style={{ padding: 16, color: 'var(--muted)' }}>No net worth data</div>;
+            const idx = sliceStartIndexForIsoDates(netWorthOverTime.dates, timeframe);
+            const sliced = {
+              dates: netWorthOverTime.dates.slice(idx),
+              totalValue: netWorthOverTime.totalValue.slice(idx),
+              cryptoExStableValue: netWorthOverTime.cryptoExStableValue.slice(idx),
+              stableValue: netWorthOverTime.stableValue.slice(idx),
+            };
+            const model = buildNetWorthLineChartModel(sliced, { height: expanded ? undefined : 400 });
+            return <LineChart model={model} style={expanded ? { height: '100%' } : undefined} />;
+          }}
+        </ChartCard>
       </div>
 
       {/* Second Row: Performance Analysis */}
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
-        <section className="card">
-          <div className="card-header">
-            <div className="card-title">
-              <h2>Cost Basis vs Portfolio Valuation</h2>
-              <button 
-                onClick={() => alert(`Cost Basis vs Portfolio Valuation
+        <ChartCard
+          title="Cost Basis vs Portfolio Valuation"
+          infoText={`Cost Basis vs Portfolio Valuation
 
 This chart compares the total money you've invested (cost basis) with your current portfolio value over time.
 
@@ -1264,65 +1247,62 @@ This chart compares the total money you've invested (cost basis) with your curre
 
 Cost basis represents the actual money you've put into your portfolio through deposits, minus any withdrawals. This shows your true investment performance - how much your money has grown or shrunk over time.
 
-This is different from trading P&L as it focuses on your total investment vs. total value, not individual buy/sell transactions.`)}
-                className="icon-btn"
-                title="Chart Information"
-              >
-                ℹ️
-              </button>
-            </div>
-          </div>
-          {(loadingTxs || loadingHist || !fxReady) && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>
-              {loadingTxs || loadingHist ? 'Loading cost vs valuation data...' : 'Loading FX rates for cost basis...'}
-            </div>
-          )}
-          {!loadingTxs && !loadingHist && costVsValuation.dates.length === 0 && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>No cost vs valuation data</div>
-          )}
-          {!loadingTxs && !loadingHist && fxReady && costVsValuation.dates.length > 0 && (
-            <Plot 
-              data={[
-                {
-                  x: costVsValuation.dates,
-                  y: costVsValuation.portfolioValue,
-                  type: 'scatter',
-                  mode: 'lines',
-                  name: 'Portfolio Value',
-                  line: { color: '#3b82f6', width: 3 },
-                  fill: 'tonexty',
-                  fillcolor: 'rgba(59, 130, 246, 0.1)',
-                },
-                {
-                  x: costVsValuation.dates,
-                  y: costVsValuation.costBasis,
-                  type: 'scatter',
-                  mode: 'lines',
-                  name: 'Cost Basis',
-                  line: { color: '#dc2626', width: 3 },
-                  fill: 'tozeroy',
-                  fillcolor: 'rgba(220, 38, 38, 0.1)',
-                },
-              ]}
-              layout={{
-                title: { text: 'Cost Basis vs Portfolio Valuation' },
-                xaxis: { title: { text: 'Date' } },
-                yaxis: { title: { text: 'Value (USD)' } },
-                height: 400,
-                hovermode: 'x unified',
-                showlegend: true,
-              }}
-              style={{ width: '100%' }}
-            />
-          )}
-        </section>
+This is different from trading P&L as it focuses on your total investment vs. total value, not individual buy/sell transactions.`}
+        >
+          {({ timeframe, expanded }) => {
+            if (loadingTxs || loadingHist || !fxReady) {
+              return (
+                <div style={{ padding: 16, color: 'var(--muted)' }}>
+                  {loadingTxs || loadingHist ? 'Loading cost vs valuation data...' : 'Loading FX rates for cost basis...'}
+                </div>
+              );
+            }
+            if (!costVsValuation.dates.length) return <div style={{ padding: 16, color: 'var(--muted)' }}>No cost vs valuation data</div>;
+            const idx = sliceStartIndexForIsoDates(costVsValuation.dates, timeframe);
+            const x = costVsValuation.dates.slice(idx);
+            const yVal = costVsValuation.portfolioValue.slice(idx);
+            const yCost = costVsValuation.costBasis.slice(idx);
+            return (
+              <Plot
+                data={[
+                  {
+                    x,
+                    y: yVal,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Portfolio Value',
+                    line: { color: '#3b82f6', width: 3 },
+                    fill: 'tonexty',
+                    fillcolor: 'rgba(59, 130, 246, 0.1)',
+                  },
+                  {
+                    x,
+                    y: yCost,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Cost Basis',
+                    line: { color: '#dc2626', width: 3 },
+                    fill: 'tozeroy',
+                    fillcolor: 'rgba(220, 38, 38, 0.1)',
+                  },
+                ] as Data[]}
+                layout={{
+                  title: { text: 'Cost Basis vs Portfolio Valuation' },
+                  xaxis: { title: { text: 'Date' } },
+                  yaxis: { title: { text: 'Value (USD)' } },
+                  height: expanded ? undefined : 400,
+                  hovermode: 'x unified',
+                  showlegend: true,
+                }}
+                style={{ width: '100%', height: expanded ? '100%' : undefined }}
+              />
+            );
+          }}
+        </ChartCard>
 
-        <section className="card">
-          <div className="card-header">
-            <div className="card-title">
-              <h2>BTC Ratio & Accumulation</h2>
-              <button 
-                onClick={() => alert(`BTC Ratio & Accumulation
+        <ChartCard
+          title="BTC Ratio & Accumulation"
+          infoText={`BTC Ratio & Accumulation
 
 This chart shows your Bitcoin strategy metrics over time.
 
@@ -1337,81 +1317,47 @@ BTC Accumulation:
 • Total height = Total BTC equivalent value
 • Helps visualize your "BTC maximization" strategy
 
-Use the chart type selector to switch between views.`)}
-                className="icon-btn"
-                title="Chart Information"
-              >
-                ℹ️
-              </button>
-            </div>
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Chart Type
+Use the chart type selector to switch between views.`}
+          headerActions={() => (
+            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
+              Chart Type
               <select value={selectedBtcChart} onChange={e=>setSelectedBtcChart(e.target.value)}>
                 <option value="ratio">BTC Ratio (%)</option>
                 <option value="accumulation">BTC Accumulation</option>
               </select>
             </label>
-          </div>
-          {(loadingHist || loadingTxs) && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading BTC charts...</div>
           )}
-          {!loadingHist && !loadingTxs && (selectedBtcChart === 'ratio' ? (
-            <Plot
-              data={[
-                { x: btcRatio.dates, y: btcRatio.btcPercentage, type:'scatter', mode:'lines', name:'BTC % of Portfolio', line: { color: '#f7931a' } },
-              ] as Data[]}
-              layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, yaxis: { title: { text: 'BTC % of Portfolio' } } }}
-              style={{ width:'100%' }}
-            />
-          ) : (
-            <Plot
-              data={[
-                { 
-                  x: btcAccumulation.dates, 
-                  y: btcAccumulation.btcHeld, 
-                  type: 'scatter', 
-                  mode: 'lines', 
-                  name: 'BTC Held', 
-                  line: { color: '#f7931a' },
-                  fill: 'tonexty',
-                  fillcolor: 'rgba(247, 147, 26, 0.3)'
-                },
-                { 
-                  x: btcAccumulation.dates, 
-                  y: btcAccumulation.altcoinBtcValue, 
-                  type: 'scatter', 
-                  mode: 'lines', 
-                  name: 'Altcoin BTC Value', 
-                  line: { color: '#16a34a' },
-                  fill: 'tonexty',
-                  fillcolor: 'rgba(22, 163, 74, 0.3)'
-                },
-                { 
-                  x: btcAccumulation.dates, 
-                  y: btcAccumulation.dates.map((_d: string, i: number) => 
-                    (btcAccumulation.btcHeld[i] || 0) + (btcAccumulation.altcoinBtcValue[i] || 0)
-                  ), 
-                  type: 'scatter', 
-                  mode: 'lines', 
-                  name: 'Total Portfolio BTC', 
-                  line: { color: '#3b82f6', width: 3 },
-                  fill: 'tonexty',
-                  fillcolor: 'rgba(59, 130, 246, 0.1)'
-                }
-              ] as Data[]}
-              layout={{ 
-                autosize: true, 
-                height: 320, 
-                margin: { t: 30, r: 10, l: 40, b: 40 }, 
-                legend: { orientation: 'h' }, 
-                yaxis: { title: { text: 'BTC Amount' } },
-                hovermode: 'x unified'
-              }}
-              style={{ width:'100%' }}
-            />
-          ))}
-        </section>
+        >
+          {({ timeframe, expanded }) => {
+            if (loadingHist || loadingTxs) return <div style={{ padding: 16, color: 'var(--muted)' }}>Loading BTC charts...</div>;
+            const idx = sliceStartIndexForIsoDates(btcRatio.dates, timeframe);
+            const dates = btcRatio.dates.slice(idx);
+            const btcPct = btcRatio.btcPercentage.slice(idx);
+            const btcHeld = btcAccumulation.btcHeld.slice(idx);
+            const altBtc = btcAccumulation.altcoinBtcValue.slice(idx);
+            const totalBtc = dates.map((_d: string, i: number) => (btcHeld[i] || 0) + (altBtc[i] || 0));
+
+            return selectedBtcChart === 'ratio' ? (
+              <Plot
+                data={[
+                  { x: dates, y: btcPct, type:'scatter', mode:'lines', name:'BTC % of Portfolio', line: { color: '#f7931a' } },
+                ] as Data[]}
+                layout={{ autosize:true, height: expanded ? undefined : 320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, yaxis: { title: { text: 'BTC % of Portfolio' } } }}
+                style={{ width:'100%', height: expanded ? '100%' : undefined }}
+              />
+            ) : (
+              <Plot
+                data={[
+                  { x: dates, y: btcHeld, type:'scatter', mode:'lines', name:'BTC Held', line:{ color:'#f7931a' }, fill:'tonexty', fillcolor:'rgba(247, 147, 26, 0.3)' },
+                  { x: dates, y: altBtc, type:'scatter', mode:'lines', name:'Altcoin BTC Value', line:{ color:'#16a34a' }, fill:'tonexty', fillcolor:'rgba(22, 163, 74, 0.3)' },
+                  { x: dates, y: totalBtc, type:'scatter', mode:'lines', name:'Total Portfolio BTC', line:{ color:'#3b82f6', width:3 }, fill:'tonexty', fillcolor:'rgba(59, 130, 246, 0.1)' },
+                ] as Data[]}
+                layout={{ autosize:true, height: expanded ? undefined : 320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, yaxis: { title: { text: 'BTC Amount' } }, hovermode:'x unified' }}
+                style={{ width:'100%', height: expanded ? '100%' : undefined }}
+              />
+            );
+          }}
+        </ChartCard>
       </div>
 
       {/* Third Row: Detailed Analysis */}
@@ -1542,12 +1488,9 @@ This helps visualize portfolio growth and asset allocation changes over time.`)}
 
       {/* Fifth Row: BTC Analysis */}
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
-        <section className="card">
-          <div className="card-header">
-            <div className="card-title">
-              <h2>PnL over time (per asset)</h2>
-              <button 
-                onClick={() => alert(`PnL Over Time (Per Asset)
+        <ChartCard
+          title="PnL over time (per asset)"
+          infoText={`PnL Over Time (Per Asset)
 
 This chart shows your profit and loss (PnL) over time for the selected asset, split into realized and unrealized gains/losses.
 
@@ -1556,90 +1499,79 @@ This chart shows your profit and loss (PnL) over time for the selected asset, sp
 • Total PnL = Realized + Unrealized
 
 Use the asset selector to view PnL for a specific asset.
-Note: Aggregated portfolio PnL is intentionally not shown to avoid misleading aggregation.`)}
-                className="icon-btn"
-                title="Chart Information"
-              >
-                ℹ️
-              </button>
-            </div>
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
+Note: Aggregated portfolio PnL is intentionally not shown to avoid misleading aggregation.`}
+          headerActions={() => (
+            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
+              Asset
               <select value={selectedPnLAsset} onChange={e=>setSelectedPnLAsset(e.target.value)}>
                 {assets.map(a=> (<option key={a} value={a}>{a}</option>))}
               </select>
             </label>
-          </div>
-          {(loadingTxs || loadingHist) && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading PnL...</div>
           )}
-          {!loadingTxs && !loadingHist && pnl.dates.length === 0 && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>No PnL data</div>
-          )}
-          {!loadingTxs && !loadingHist && pnl.dates.length > 0 && (
-          <Plot
-            data={[
-              { x: pnl.dates, y: pnl.realized, type:'scatter', mode:'lines', name:'Realized' },
-              { x: pnl.dates, y: pnl.unrealized, type:'scatter', mode:'lines', name:'Unrealized' },
-            ] as Data[]}
-            layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' } }}
-            style={{ width:'100%' }}
-          />
-          )}
-        </section>
-        <section className="card">
-          <h2>Altcoin Holdings BTC Value</h2>
-          <div style={{ marginBottom: 8 }}>
-            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
+        >
+          {({ timeframe, expanded }) => {
+            if (loadingTxs || loadingHist) return <div style={{ padding: 16, color: 'var(--muted)' }}>Loading PnL...</div>;
+            if (!pnl.dates.length) return <div style={{ padding: 16, color: 'var(--muted)' }}>No PnL data</div>;
+            const idx = sliceStartIndexForIsoDates(pnl.dates, timeframe);
+            const dates = pnl.dates.slice(idx);
+            return (
+              <Plot
+                data={[
+                  { x: dates, y: pnl.realized.slice(idx), type:'scatter', mode:'lines', name:'Realized' },
+                  { x: dates, y: pnl.unrealized.slice(idx), type:'scatter', mode:'lines', name:'Unrealized' },
+                ] as Data[]}
+                layout={{ autosize:true, height: expanded ? undefined : 320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' } }}
+                style={{ width:'100%', height: expanded ? '100%' : undefined }}
+              />
+            );
+          }}
+        </ChartCard>
+
+        <ChartCard
+          title="Altcoin Holdings BTC Value"
+          headerActions={() => (
+            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
+              Asset
               <select value={selectedAltcoin} onChange={e=>setSelectedAltcoin(e.target.value)}>
                 <option value="ALL">All Altcoins</option>
                 {assets.filter(a => a !== 'BTC').map(a=> (<option key={a} value={a}>{a}</option>))}
               </select>
             </label>
-          </div>
-          {(loadingHist || loadingTxs) && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading performance...</div>
           )}
-          {!loadingHist && !loadingTxs && altcoinVsBtc.dates.length === 0 && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>No performance data</div>
-          )}
-          {!loadingHist && !loadingTxs && altcoinVsBtc.dates.length > 0 && (
-          <Plot
-            data={
-              selectedAltcoin === 'ALL' 
-                ? assets.filter(a => a !== 'BTC').map(asset => ({
-                    x: altcoinVsBtc.dates,
-                    y: altcoinVsBtc.performance[asset] || [],
-                    type: 'scatter' as const,
-                    mode: 'lines' as const,
-                    name: asset,
-                    line: { color: colorFor(asset) }
-                  }))
-                : [{
-                    x: altcoinVsBtc.dates,
-                    y: altcoinVsBtc.performance[selectedAltcoin] || [],
-                    type: 'scatter' as const,
-                    mode: 'lines' as const,
-                    name: selectedAltcoin,
-                    line: { color: colorFor(selectedAltcoin) }
-                  }]
-            }
-            layout={{ autosize:true, height:320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, yaxis: { title: { text: 'BTC Value of Holdings' } } }}
-            style={{ width:'100%' }}
-          />
-          )}
-        </section>
+        >
+          {({ timeframe, expanded }) => {
+            if (loadingHist || loadingTxs) return <div style={{ padding: 16, color: 'var(--muted)' }}>Loading performance...</div>;
+            if (!altcoinVsBtc.dates.length) return <div style={{ padding: 16, color: 'var(--muted)' }}>No performance data</div>;
+            const idx = sliceStartIndexForIsoDates(altcoinVsBtc.dates, timeframe);
+            const dates = altcoinVsBtc.dates.slice(idx);
+            const buildTrace = (asset: string) => ({
+              x: dates,
+              y: (altcoinVsBtc.performance[asset] || []).slice(idx),
+              type: 'scatter' as const,
+              mode: 'lines' as const,
+              name: asset,
+              line: { color: colorFor(asset) },
+            });
+            const traces =
+              selectedAltcoin === 'ALL'
+                ? assets.filter(a => a !== 'BTC').map(buildTrace)
+                : [buildTrace(selectedAltcoin)];
+            return (
+              <Plot
+                data={traces as unknown as Data[]}
+                layout={{ autosize:true, height: expanded ? undefined : 320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, yaxis: { title: { text: 'BTC Value of Holdings' } } }}
+                style={{ width:'100%', height: expanded ? '100%' : undefined }}
+              />
+            );
+          }}
+        </ChartCard>
       </div>
 
       {/* Sixth Row: Advanced Analysis */}
       <div className="grid grid-2" style={{ marginBottom: 16 }}>
-        <section className="card">
-          <div className="card-header">
-            <div className="card-title">
-              <h2>Profit-Taking Opportunities (Altcoin vs BTC PnL)</h2>
-              <button 
-                onClick={() => alert(`Profit-Taking Opportunities
+        <ChartCard
+          title="Profit-Taking Opportunities (Altcoin vs BTC PnL)"
+          infoText={`Profit-Taking Opportunities
 
 This chart compares your altcoin PnL vs what BTC PnL would be if you had bought Bitcoin instead.
 
@@ -1651,71 +1583,58 @@ This chart compares your altcoin PnL vs what BTC PnL would be if you had bought 
 
 This helps identify when to take profits on altcoins vs holding BTC longer.
 
-Use the asset selector to compare different altcoins.`)}
-                className="icon-btn"
-                title="Chart Information"
-              >
-                ℹ️
-              </button>
-            </div>
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>Asset
+Use the asset selector to compare different altcoins.`}
+          headerActions={() => (
+            <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
+              Asset
               <select value={selectedProfitAsset} onChange={e=>setSelectedProfitAsset(e.target.value)}>
                 <option value="ALL">All Assets</option>
                 {assets.filter(a => a !== 'BTC').map(a=> (<option key={a} value={a}>{a}</option>))}
               </select>
             </label>
-          </div>
-          {(loadingHist || loadingTxs) && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>Loading opportunities...</div>
           )}
-          {!loadingHist && !loadingTxs && profitOpportunities.dates.length === 0 && (
-            <div style={{ padding: 16, color: 'var(--muted)' }}>No opportunities data</div>
-          )}
-          {!loadingHist && !loadingTxs && profitOpportunities.dates.length > 0 && (
-          <Plot
-            data={[
-              ...(selectedProfitAsset !== 'ALL' ? [
-                {
-                  x: profitOpportunities.dates,
-                  y: profitOpportunities.opportunities[selectedProfitAsset]?.altcoinPnL || [],
-                  type: 'scatter' as const,
-                  mode: 'lines' as const,
-                  name: `${selectedProfitAsset} PnL`,
-                  line: { color: colorFor(selectedProfitAsset) }
-                },
-                {
-                  x: profitOpportunities.dates,
-                  y: profitOpportunities.opportunities[selectedProfitAsset]?.btcPnL || [],
-                  type: 'scatter' as const,
-                  mode: 'lines' as const,
-                  name: 'BTC PnL (if bought instead)',
-                  line: { color: '#f7931a', dash: 'dash' }
-                }
-              ] : [
-                ...assets.filter(a => a !== 'BTC').map(asset => ({
-                  x: profitOpportunities.dates,
-                  y: profitOpportunities.opportunities[asset]?.altcoinPnL || [],
-                  type: 'scatter' as const,
-                  mode: 'lines' as const,
-                  name: `${asset} PnL`,
-                  line: { color: colorFor(asset) }
-                }))
-              ])
-            ] as Data[]}
-            layout={{ 
-              autosize: true, 
-              height: 320, 
-              margin: { t: 30, r: 10, l: 40, b: 40 }, 
-              legend: { orientation: 'h' }, 
-              yaxis: { title: { text: 'PnL (USD)' } },
-              hovermode: 'x unified'
-            }}
-            style={{ width:'100%' }}
-          />
-          )}
-        </section>
+        >
+          {({ timeframe, expanded }) => {
+            if (loadingHist || loadingTxs) return <div style={{ padding: 16, color: 'var(--muted)' }}>Loading opportunities...</div>;
+            if (!profitOpportunities.dates.length) return <div style={{ padding: 16, color: 'var(--muted)' }}>No opportunities data</div>;
+            const idx = sliceStartIndexForIsoDates(profitOpportunities.dates, timeframe);
+            const dates = profitOpportunities.dates.slice(idx);
+
+            const makeAssetTraces = (asset: string) => ([
+              {
+                x: dates,
+                y: (profitOpportunities.opportunities[asset]?.altcoinPnL || []).slice(idx),
+                type: 'scatter' as const,
+                mode: 'lines' as const,
+                name: `${asset} PnL`,
+                line: { color: colorFor(asset) },
+              },
+              {
+                x: dates,
+                y: (profitOpportunities.opportunities[asset]?.btcPnL || []).slice(idx),
+                type: 'scatter' as const,
+                mode: 'lines' as const,
+                name: 'BTC PnL (if bought instead)',
+                line: { color: '#f7931a', dash: 'dash' },
+              },
+            ]);
+
+            const traces =
+              selectedProfitAsset !== 'ALL'
+                ? makeAssetTraces(selectedProfitAsset)
+                : assets
+                    .filter(a => a !== 'BTC')
+                    .flatMap((a) => makeAssetTraces(a));
+
+            return (
+              <Plot
+                data={traces as unknown as Data[]}
+                layout={{ autosize:true, height: expanded ? undefined : 320, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, yaxis:{ title:{ text:'PnL (USD)' } }, hovermode:'x unified' }}
+                style={{ width:'100%', height: expanded ? '100%' : undefined }}
+              />
+            );
+          }}
+        </ChartCard>
       </div>
     </main>
     </AuthGuard>

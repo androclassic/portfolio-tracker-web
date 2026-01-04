@@ -6,9 +6,10 @@ import { PlotlyChart } from './plotly/PlotlyChart';
 
 export type LineChartProps = {
   model: LineChartModel;
+  style?: React.CSSProperties;
 };
 
-export function LineChart({ model }: LineChartProps) {
+export function LineChart({ model, style }: LineChartProps) {
   const { data, layout } = useMemo(() => {
     const traces = model.series.map((s) => {
       return {
@@ -41,7 +42,7 @@ export function LineChart({ model }: LineChartProps) {
 
   if (!model.series.length) return null;
 
-  return <PlotlyChart data={data} layout={layout} style={{ width: '100%' }} />;
+  return <PlotlyChart data={data} layout={layout} style={{ width: '100%', ...style }} />;
 }
 
 

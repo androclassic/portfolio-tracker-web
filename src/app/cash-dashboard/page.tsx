@@ -5,9 +5,8 @@ import { usePortfolio } from '../PortfolioProvider';
 import { getAssetColor, getFiatCurrencies, convertFiat } from '@/lib/assets';
 import AuthGuard from '@/components/AuthGuard';
 import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
-import { TimeframeSelector } from '@/components/TimeframeSelector';
-import type { DashboardTimeframe } from '@/lib/timeframe';
-import { startDateForTimeframe } from '@/lib/timeframe';
+import { ChartCard } from '@/components/ChartCard';
+import { startIsoForTimeframe } from '@/lib/timeframe';
 
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
@@ -941,7 +940,6 @@ export default function CashDashboardPage(){
   const { selectedId } = usePortfolio();
   const listKey = selectedId === 'all' ? '/api/transactions' : (selectedId? `/api/transactions?portfolioId=${selectedId}` : null);
   const { data: txs, isLoading: loadingTxs } = useSWR<Tx[]>(listKey, fetcher);
-  const [timeframe, setTimeframe] = useState<DashboardTimeframe>('all');
   const [selectedCurrency, setSelectedCurrency] = useState<string>('USD');
   const [selectedTaxYear, setSelectedTaxYear] = useState<string>('all'); // 'all' | '2024' | '2023' | etc.
   const [selectedAssetLotStrategy, setSelectedAssetLotStrategy] = useState<'FIFO' | 'LIFO' | 'HIFO' | 'LOFO'>('FIFO');
@@ -952,8 +950,6 @@ export default function CashDashboardPage(){
     ? `/api/tax/romania?year=${selectedTaxYear}&assetStrategy=${selectedAssetLotStrategy}&cashStrategy=${selectedCashLotStrategy}${selectedId && selectedId !== 'all' ? `&portfolioId=${selectedId}` : ''}`
     : null;
   const { data: taxReport, isLoading: loadingTax, error: taxError } = useSWR<RomaniaTaxReport>(taxReportKey, fetcher);
-
-  const timeframeStart = useMemo(() => startDateForTimeframe(timeframe), [timeframe]);
 
   // Filter for fiat currency transactions only
   const fiatTxs = useMemo(() => {
@@ -969,15 +965,10 @@ export default function CashDashboardPage(){
         const txYear = new Date(tx.datetime).getFullYear().toString();
         return txYear === selectedTaxYear;
       }
-
-      // Apply timeframe filter
-      if (timeframeStart) {
-        return new Date(tx.datetime) >= timeframeStart;
-      }
       
       return true;
     });
-  }, [txs, selectedTaxYear, timeframeStart]);
+  }, [txs, selectedTaxYear]);
 
   const fiatCurrencies = getFiatCurrencies();
 
@@ -1150,7 +1141,7 @@ export default function CashDashboardPage(){
   ];
 
   const cashFlowLayout: Partial<Layout> = {
-    title: { text: `Cash Flow by Currency${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}${timeframe !== 'all' ? ` • ${timeframe.toUpperCase()}` : ''}` },
+    title: { text: `Cash Flow by Currency${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
     xaxis: { title: { text: 'Currency' } },
     yaxis: { title: { text: 'Amount' } },
     barmode: 'group',
@@ -1171,7 +1162,7 @@ export default function CashDashboardPage(){
   ];
 
   const balanceOverTimeLayout: Partial<Layout> = {
-    title: { text: `Total Cash Balance Over Time (USD)${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}${timeframe !== 'all' ? ` • ${timeframe.toUpperCase()}` : ''}` },
+    title: { text: `Total Cash Balance Over Time (USD)${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
     xaxis: { title: { text: 'Date' } },
     yaxis: { title: { text: 'Balance (USD)' } },
     height: 400,
@@ -1196,7 +1187,7 @@ export default function CashDashboardPage(){
   ];
 
   const monthlyCashFlowLayout: Partial<Layout> = {
-    title: { text: `Monthly Cash Flow - ${selectedCurrency}${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}${timeframe !== 'all' ? ` • ${timeframe.toUpperCase()}` : ''}` },
+    title: { text: `Monthly Cash Flow - ${selectedCurrency}${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
     xaxis: { title: { text: 'Month' } },
     yaxis: { title: { text: `${selectedCurrency} Amount` } },
     barmode: 'group',
@@ -1230,7 +1221,7 @@ export default function CashDashboardPage(){
   }, [totalBalances, fiatCurrencies, colorFor]);
 
   const totalBalancesLayout: Partial<Layout> = {
-    title: { text: `Total Balances (USD Equivalent)${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}${timeframe !== 'all' ? ` • ${timeframe.toUpperCase()}` : ''}` },
+    title: { text: `Total Balances (USD Equivalent)${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
     height: 400,
   };
 
@@ -1254,10 +1245,6 @@ export default function CashDashboardPage(){
         
         {/* Filters */}
         <div style={{ marginBottom: '2rem', display: 'flex', gap: '2rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <div>
-            <label style={{ marginRight: '1rem', fontWeight: 'bold' }}>Timeframe:</label>
-            <TimeframeSelector value={timeframe} onChange={setTimeframe} />
-          </div>
           <div>
             <label style={{ marginRight: '1rem', fontWeight: 'bold' }}>Currency:</label>
             <select 
@@ -1389,31 +1376,102 @@ export default function CashDashboardPage(){
         gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))', 
         gap: '2rem' 
       }}>
-        {/* Cash Flow by Currency */}
-        <div style={{ backgroundColor: 'var(--surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
-          <Plot data={cashFlowChart} layout={cashFlowLayout} />
-        </div>
+        <ChartCard title="Cash Flow by Currency" infoText="Fiat deposits vs withdrawals grouped by currency.">
+          {({ timeframe, expanded }) => {
+            const startIso = startIsoForTimeframe(timeframe);
+            const filtered = startIso ? fiatTxs.filter((t) => new Date(t.datetime).toISOString().slice(0, 10) >= startIso) : fiatTxs;
 
-        {/* Balance Over Time */}
-        <div style={{ backgroundColor: 'var(--surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
-          <Plot data={balanceOverTimeChart} layout={balanceOverTimeLayout} />
-        </div>
+            const fiatCurrencies = getFiatCurrencies();
+            const cashFlowDataLocal: { [key: string]: { deposits: number; withdrawals: number } } = {};
+            fiatCurrencies.forEach((c) => (cashFlowDataLocal[c] = { deposits: 0, withdrawals: 0 }));
+            for (const tx of filtered) {
+              const cur = tx.asset.toUpperCase();
+              if (!cashFlowDataLocal[cur]) continue;
+              if (tx.type === 'Deposit') cashFlowDataLocal[cur].deposits += tx.quantity;
+              else if (tx.type === 'Withdrawal') cashFlowDataLocal[cur].withdrawals += tx.quantity;
+            }
 
-        {/* Monthly Cash Flow */}
-        <div style={{ backgroundColor: 'var(--surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
-          <Plot data={monthlyCashFlowChart} layout={monthlyCashFlowLayout} />
-        </div>
+            const chart: Data[] = [
+              { x: fiatCurrencies, y: fiatCurrencies.map((c) => cashFlowDataLocal[c].deposits), type: 'bar', name: 'Deposits', marker: { color: '#10b981' } },
+              { x: fiatCurrencies, y: fiatCurrencies.map((c) => cashFlowDataLocal[c].withdrawals), type: 'bar', name: 'Withdrawals', marker: { color: '#ef4444' } },
+            ];
 
-        {/* Total Balances Pie Chart */}
-        <div style={{ backgroundColor: 'var(--surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
-          {totalBalancesChart.length > 0 ? (
-            <Plot data={totalBalancesChart} layout={totalBalancesLayout} />
-          ) : (
-            <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
-              No cash balances to display
-            </div>
-          )}
-        </div>
+            return <Plot data={chart} layout={{ ...cashFlowLayout, height: expanded ? undefined : 400 }} style={{ width: '100%', height: expanded ? '100%' : undefined }} />;
+          }}
+        </ChartCard>
+
+        <ChartCard title="Total Cash Balance Over Time (USD)" infoText="Running fiat cash balance over time, converted to USD.">
+          {({ timeframe, expanded }) => {
+            const startIso = startIsoForTimeframe(timeframe);
+            const idx = startIso ? (() => {
+              const dates = balanceOverTime.dates;
+              for (let i = 0; i < dates.length; i++) if (dates[i] >= startIso) return i;
+              return dates.length;
+            })() : 0;
+            const dates = balanceOverTime.dates.slice(idx);
+            const balances = balanceOverTime.balances.slice(idx);
+            const chart: Data[] = [{ x: dates, y: balances, type: 'scatter', mode: 'lines+markers', name: 'Total Cash Balance (USD)', line: { color: '#3b82f6' }, marker: { size: 6 } }];
+            return <Plot data={chart} layout={{ ...balanceOverTimeLayout, height: expanded ? undefined : 400 }} style={{ width: '100%', height: expanded ? '100%' : undefined }} />;
+          }}
+        </ChartCard>
+
+        <ChartCard title={`Monthly Cash Flow - ${selectedCurrency}`} infoText="Monthly deposits vs withdrawals for the selected currency.">
+          {({ timeframe, expanded }) => {
+            const startIso = startIsoForTimeframe(timeframe);
+            const currencyTxs = fiatTxs
+              .filter((tx) => tx.asset.toUpperCase() === selectedCurrency)
+              .filter((tx) => (startIso ? new Date(tx.datetime).toISOString().slice(0, 10) >= startIso : true));
+
+            const monthlyData: { [key: string]: { deposits: number; withdrawals: number } } = {};
+            for (const tx of currencyTxs) {
+              const date = new Date(tx.datetime);
+              const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+              if (!monthlyData[monthKey]) monthlyData[monthKey] = { deposits: 0, withdrawals: 0 };
+              if (tx.type === 'Deposit') monthlyData[monthKey].deposits += tx.quantity;
+              else if (tx.type === 'Withdrawal') monthlyData[monthKey].withdrawals += tx.quantity;
+            }
+            const months = Object.keys(monthlyData).sort();
+            const deposits = months.map((m) => monthlyData[m].deposits);
+            const withdrawals = months.map((m) => monthlyData[m].withdrawals);
+
+            const chart: Data[] = [
+              { x: months, y: deposits, type: 'bar', name: 'Deposits', marker: { color: '#10b981' } },
+              { x: months, y: withdrawals, type: 'bar', name: 'Withdrawals', marker: { color: '#ef4444' } },
+            ];
+
+            return <Plot data={chart} layout={{ ...monthlyCashFlowLayout, height: expanded ? undefined : 400 }} style={{ width: '100%', height: expanded ? '100%' : undefined }} />;
+          }}
+        </ChartCard>
+
+        <ChartCard title="Total Balances (USD Equivalent)" infoText="Pie chart of USD-equivalent balances by fiat currency.">
+          {({ timeframe, expanded }) => {
+            const startIso = startIsoForTimeframe(timeframe);
+            const filtered = startIso ? fiatTxs.filter((t) => new Date(t.datetime).toISOString().slice(0, 10) >= startIso) : fiatTxs;
+            const fiatCurrencies = getFiatCurrencies();
+            const totals: { [key: string]: number } = {};
+            for (const c of fiatCurrencies) totals[c] = 0;
+            for (const tx of filtered) {
+              const c = tx.asset.toUpperCase();
+              if (!(c in totals)) continue;
+              if (tx.type === 'Deposit') totals[c] += tx.quantity;
+              else if (tx.type === 'Withdrawal') totals[c] -= tx.quantity;
+            }
+            const currenciesWithBalances = fiatCurrencies.filter((c) => Math.abs(convertFiat(totals[c], c, 'USD')) > 0.01);
+            if (!currenciesWithBalances.length) {
+              return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>No cash balances to display</div>;
+            }
+            const pie: Data[] = [
+              {
+                labels: currenciesWithBalances,
+                values: currenciesWithBalances.map((c) => Math.abs(convertFiat(totals[c], c, 'USD'))),
+                type: 'pie',
+                marker: { colors: currenciesWithBalances.map((c) => getAssetColor(c)) },
+                textinfo: 'label+percent',
+              } as unknown as Data,
+            ];
+            return <Plot data={pie} layout={{ ...totalBalancesLayout, height: expanded ? undefined : 400 }} style={{ width: '100%', height: expanded ? '100%' : undefined }} />;
+          }}
+        </ChartCard>
       </div>
 
       {/* Romanian Tax Report Section */}
