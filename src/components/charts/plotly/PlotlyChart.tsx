@@ -37,7 +37,15 @@ export type PlotlyChartProps = {
  * Plotly adapter wrapper. Centralizes the dynamic import so pages/components don't
  * depend on `next/dynamic` or `react-plotly.js` directly.
  */
-export function PlotlyChart({ data, layout, config, style, className, onClick, showModeBar = false }: PlotlyChartProps) {
+export function PlotlyChart({
+  data,
+  layout,
+  config,
+  style,
+  className,
+  onClick,
+  showModeBar = false,
+}: PlotlyChartProps) {
   const theme = usePlotlyTheme();
 
   const mergedLayout = useMemo(() => {

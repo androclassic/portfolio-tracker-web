@@ -1,6 +1,6 @@
 'use client';
 import useSWR from 'swr';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
 import { getAssetColor, getFiatCurrencies, convertFiat, isFiatCurrency, isStablecoin, getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/assets';
 import { usePriceData } from '@/hooks/usePriceData';
@@ -31,9 +31,10 @@ export default function DashboardPage(){
   const [selectedPnLAsset, setSelectedPnLAsset] = useState<string>('');
   const [selectedBtcChart, setSelectedBtcChart] = useState<string>('accumulation'); // 'ratio' | 'accumulation'
   const [selectedAltcoin, setSelectedAltcoin] = useState<string>('ALL');
-  const [selectedProfitAsset, setSelectedProfitAsset] = useState<string>('ALL');
+  const [selectedProfitAsset, setSelectedProfitAsset] = useState<string>('ADA');
   const [selectedCostAsset, setSelectedCostAsset] = useState<string>('');
   const [heatmapTimeframe, setHeatmapTimeframe] = useState<string>('24h'); // 'current' | '24h' | '7d' | '30d'
+  const [stackedMode, setStackedMode] = useState<'usd' | 'percent'>('usd');
 
   const assets = useMemo(()=>{
     const s = new Set<string>();
@@ -65,6 +66,16 @@ export default function DashboardPage(){
   useEffect(()=>{
     if (assets.length && !selectedCostAsset) setSelectedCostAsset(assets[0]);
   }, [assets, selectedCostAsset]);
+
+  // Profit-taking chart should default to ADA, but gracefully fallback if ADA isn't present
+  useEffect(() => {
+    const nonBtcAssets = assets.filter(a => a !== 'BTC');
+    if (!nonBtcAssets.length) return;
+
+    if (!nonBtcAssets.includes(selectedProfitAsset)) {
+      setSelectedProfitAsset(nonBtcAssets.includes('ADA') ? 'ADA' : nonBtcAssets[0]);
+    }
+  }, [assets, selectedProfitAsset]);
 
   // Listen for transaction changes and refresh dashboard data
   useEffect(() => {
@@ -121,16 +132,20 @@ export default function DashboardPage(){
     return total;
   }, [holdings, latestPrices]);
 
-  // daily positions time series
+  // daily positions time series (buy/sell only; use UTC day to align with historical price dates)
   const dailyPos = useMemo(()=>{
     if (!txs || txs.length===0) return [] as { date:string; asset:string; position:number }[];
-    const rows = txs.filter(t=> t.asset.toUpperCase() !== 'USD' && (t.type==='Buy' || t.type==='Sell'))
-      .map(t=> ({ asset: t.asset.toUpperCase(), date: new Date(t.datetime) , signed: (t.type==='Buy'? 1 : -1) * Math.abs(t.quantity) }));
+    const rows = txs
+      .filter(t => t.asset.toUpperCase() !== 'USD' && (t.type==='Buy' || t.type==='Sell'))
+      .map(t => ({
+        asset: t.asset.toUpperCase(),
+        day: new Date(t.datetime).toISOString().slice(0, 10), // UTC day key
+        signed: (t.type === 'Buy' ? 1 : -1) * Math.abs(t.quantity),
+      }));
     // group by day and asset
     const byKey = new Map<string, number>();
     for (const r of rows){
-      const day = new Date(r.date.getFullYear(), r.date.getMonth(), r.date.getDate());
-      const key = day.toISOString().slice(0,10) + '|' + r.asset;
+      const key = r.day + '|' + r.asset;
       byKey.set(key, (byKey.get(key)||0) + r.signed);
     }
     // build per-asset sorted days, cumsum
@@ -237,39 +252,91 @@ export default function DashboardPage(){
   // Calculate P&L using shared logic
   const pnlData = usePnLCalculation(txs, latestPrices, historicalPrices);
 
-  // derive portfolio value over time stacked by asset
-  const stacked = useMemo(()=>{
-    if (!hist || !hist.prices || dailyPos.length===0) return { x: [], series: [] as Data[] };
-    // index price by date+asset
+  // derive portfolio value over time stacked by asset (positive-only values)
+  const stacked = useMemo(() => {
+    if (!hist || !hist.prices || dailyPos.length === 0) {
+      return { dates: [] as string[], totals: [] as number[], perAssetUsd: new Map<string, number[]>() };
+    }
+    const EPS = 1e-9;
     const priceMap = new Map<string, number>();
-    for (const p of hist.prices){ priceMap.set(p.date + '|' + p.asset.toUpperCase(), p.price_usd); }
-    // positions by date+asset
+    for (const p of hist.prices) priceMap.set(p.date + '|' + p.asset.toUpperCase(), p.price_usd);
     const posMap = new Map<string, number>();
-    for (const p of dailyPos){ posMap.set(p.date + '|' + p.asset.toUpperCase(), p.position); }
-    // all dates
-    const dates = Array.from(new Set(hist.prices.map(p=>p.date))).sort();
-    const traces: Data[] = [];
+    for (const p of dailyPos) posMap.set(p.date + '|' + p.asset.toUpperCase(), p.position);
+
+    const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
     const totals: number[] = new Array(dates.length).fill(0);
-    for (const a of assets){
-      const y:number[] = [];
+    const perAssetUsd = new Map<string, number[]>();
+
+    for (const a of assets) {
+      const y: number[] = new Array(dates.length).fill(0);
       let lastPos = 0;
-      for (const d of dates){
+      let lastPx: number | undefined = undefined;
+      for (let di = 0; di < dates.length; di++) {
+        const d = dates[di]!;
         const key = d + '|' + a;
         if (posMap.has(key)) lastPos = posMap.get(key)!;
         const price = priceMap.get(key);
-        const val = price? price*lastPos : 0;
-        y.push(val);
-        // accumulate total per date index
-        const idx = dates.indexOf(d);
-        if (idx >= 0) totals[idx] += val;
+        if (price !== undefined && price > 0) lastPx = price;
+        // If historical price is missing for an asset (common for illiquid tokens),
+        // fall back to last known historical price, then latest price.
+        const px = (price !== undefined && price > 0)
+          ? price
+          : (lastPx ?? (latestPrices[a] ?? 0));
+        const pos = Math.max(lastPos, 0);
+        const val = px > 0 ? px * pos : 0;
+        const v = val > EPS ? val : 0;
+        y[di] = v;
+        totals[di] += v;
       }
-      const lc = colorFor(a);
-      traces.push({ x: dates, y, type:'scatter', mode:'lines', stackgroup:'one', name: a, line: { color: lc }, fillcolor: withAlpha(lc, 0.25) } as Data);
+      perAssetUsd.set(a, y);
     }
-    // Add invisible total line just for unified hover
-    traces.push({ x: dates, y: totals, type:'scatter', mode:'lines', name:'Total', line:{ width:0 }, hovertemplate: 'Total: %{y:.2f}<extra></extra>', showlegend:false } as Data);
-    return { x: [], series: traces };
-  }, [hist, dailyPos, assets, colorFor]);
+    return { dates, totals, perAssetUsd };
+  }, [hist, dailyPos, assets, latestPrices]);
+
+  const stackedTraces = useMemo(() => {
+    const dates = stacked.dates;
+    if (!dates.length) return { usd: [] as Data[], percent: [] as Data[] };
+
+    const usd: Data[] = [];
+    const percent: Data[] = [];
+
+    for (const a of assets) {
+      const yUsd: number[] = stacked.perAssetUsd.get(a) || new Array(dates.length).fill(0);
+      const lc = colorFor(a);
+
+      usd.push({
+        x: dates,
+        y: yUsd,
+        type: 'scatter',
+        mode: 'lines',
+        stackgroup: 'one',
+        name: a,
+        // Keep the stacked area, but avoid drawing prominent boundary lines.
+        line: { color: lc, width: 0.5 },
+        fillcolor: withAlpha(lc, 0.25),
+        hovertemplate: `<b>${a}</b><br>%{x}<br>$%{y:,.2f}<extra></extra>`,
+      } as Data);
+
+      const yPct: number[] = yUsd.map((v: number, i: number) => {
+        const t = stacked.totals[i] || 0;
+        return t > 0 ? (v / t) * 100 : 0;
+      });
+
+      percent.push({
+        x: dates,
+        y: yPct,
+        type: 'scatter',
+        mode: 'lines',
+        stackgroup: 'one',
+        name: a,
+        line: { color: lc, width: 0.5 },
+        fillcolor: withAlpha(lc, 0.25),
+        hovertemplate: `<b>${a}</b><br>%{x}<br>%{y:.2f}%<extra></extra>`,
+      } as Data);
+    }
+
+    return { usd, percent };
+  }, [stacked, assets, colorFor]);
 
   // PnL over time (realized/unrealized split) - per-asset only
   const pnl = useMemo(() => {
@@ -1453,30 +1520,39 @@ This helps you understand your entry points and current profit margins.`)}
 
       {/* Fourth Row: Portfolio Value Stacked */}
       <ChartCard
-        title="Portfolio value over time (stacked)"
+        title="Portfolio value over time (stacked, USD / %)"
         infoText={`Portfolio Value Over Time (Stacked)
 
-This chart shows your total portfolio value broken down by asset over time.
+This chart shows your portfolio value over time, broken down by asset (stacked area).
 
-• Each colored area represents an asset's contribution to total value
-• The height of each area shows the USD value of that asset
-• The total height = your complete portfolio value
-• Stacked areas show how your portfolio composition has evolved
-• Hover to see exact values for each asset at any point
+Use the "View" selector to switch between:
+
+• USD: stacked by each asset's USD value
+• Normalized (%): stacked by each asset's percentage share of the total (always sums to 100% when total > 0)
+
+Notes:
+• Assets are only drawn when their value is > 0 (inactive assets won't clutter the chart/hover)
+• The total line represents the overall portfolio total (USD) or 100% (normalized)
 
 This helps visualize portfolio growth and asset allocation changes over time.`}
+        headerActions={() => (
+          <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
+            View
+            <select value={stackedMode} onChange={(e: ChangeEvent<HTMLSelectElement>) => setStackedMode(e.target.value as 'usd' | 'percent')}>
+              <option value="usd">USD</option>
+              <option value="percent">Normalized (%)</option>
+            </select>
+          </label>
+        )}
         style={{ marginBottom: 16 }}
       >
         {({ timeframe, expanded }) => {
           if (loadingHist) return <div style={{ padding: 16, color: 'var(--muted)' }}>Loading portfolio value...</div>;
-          if (!stacked.series.length) return <div style={{ padding: 16, color: 'var(--muted)' }}>No historical data</div>;
+          const baseSeries = stackedMode === 'percent' ? stackedTraces.percent : stackedTraces.usd;
+          if (!baseSeries.length) return <div style={{ padding: 16, color: 'var(--muted)' }}>No historical data</div>;
 
-          // All traces share the same x axis dates.
-          const first = stacked.series[0] as unknown as { x?: string[] };
-          const dates = Array.isArray(first?.x) ? first.x : [];
-          const idx = sliceStartIndexForIsoDates(dates, timeframe);
-
-          const slicedSeries = (stacked.series as unknown as Array<{ x?: string[]; y?: number[] }>).map((tr) => {
+          const idx = sliceStartIndexForIsoDates(stacked.dates, timeframe);
+          const slicedSeries = (baseSeries as unknown as Array<{ x?: string[]; y?: number[] }>).map((tr) => {
             const x = Array.isArray(tr.x) ? tr.x.slice(idx) : tr.x;
             const y = Array.isArray(tr.y) ? tr.y.slice(idx) : tr.y;
             return { ...(tr as unknown as Record<string, unknown>), x, y } as unknown as Data;
@@ -1485,7 +1561,18 @@ This helps visualize portfolio growth and asset allocation changes over time.`}
           return (
             <Plot
               data={slicedSeries as unknown as Data[]}
-              layout={{ autosize:true, height: expanded ? undefined : 340, margin:{ t:30, r:10, l:40, b:40 }, legend:{ orientation:'h' }, hovermode: 'x unified' }}
+              layout={{
+                autosize: true,
+                height: expanded ? undefined : 340,
+                margin: { t: 30, r: 10, l: 40, b: 40 },
+                legend: { orientation: 'h' },
+                // Default single-series hover to avoid the full unified list.
+                hovermode: 'closest',
+                yaxis:
+                  stackedMode === 'percent'
+                    ? { title: { text: 'Share of total (%)' }, ticksuffix: '%', range: [0, 100] }
+                    : { title: { text: 'Value (USD)' } },
+              }}
               style={{ width:'100%', height: expanded ? '100%' : undefined }}
             />
           );
@@ -1594,7 +1681,6 @@ Use the asset selector to compare different altcoins.`}
             <label style={{ display:'inline-flex', alignItems:'center', gap:8 }}>
               Asset
               <select value={selectedProfitAsset} onChange={e=>setSelectedProfitAsset(e.target.value)}>
-                <option value="ALL">All Assets</option>
                 {assets.filter(a => a !== 'BTC').map(a=> (<option key={a} value={a}>{a}</option>))}
               </select>
             </label>
@@ -1625,12 +1711,7 @@ Use the asset selector to compare different altcoins.`}
               },
             ]);
 
-            const traces =
-              selectedProfitAsset !== 'ALL'
-                ? makeAssetTraces(selectedProfitAsset)
-                : assets
-                    .filter(a => a !== 'BTC')
-                    .flatMap((a) => makeAssetTraces(a));
+            const traces = makeAssetTraces(selectedProfitAsset);
 
             return (
               <Plot
