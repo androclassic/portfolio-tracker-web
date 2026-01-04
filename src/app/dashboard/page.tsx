@@ -295,7 +295,10 @@ export default function DashboardPage(){
 
   const stackedTraces = useMemo(() => {
     const dates = stacked.dates;
-    if (!dates.length) return { usd: [] as Data[], percent: [] as Data[] };
+    if (!dates.length) return { usd: [] as Data[], percent: [] as Data[], dateIndex: new Map<string, number>() };
+
+    const dateIndex = new Map<string, number>();
+    for (let i = 0; i < dates.length; i++) dateIndex.set(dates[i]!, i);
 
     const usd: Data[] = [];
     const percent: Data[] = [];
@@ -311,10 +314,11 @@ export default function DashboardPage(){
         mode: 'lines',
         stackgroup: 'one',
         name: a,
-        // Keep the stacked area, but avoid drawing prominent boundary lines.
         line: { color: lc, width: 0.5 },
         fillcolor: withAlpha(lc, 0.25),
-        hovertemplate: `<b>${a}</b><br>%{x}<br>$%{y:,.2f}<extra></extra>`,
+        // Disable Plotly hover labels; we'll render a custom unified list.
+        hoverinfo: 'none',
+        hovertemplate: '<extra></extra>',
       } as Data);
 
       const yPct: number[] = yUsd.map((v: number, i: number) => {
@@ -331,12 +335,50 @@ export default function DashboardPage(){
         name: a,
         line: { color: lc, width: 0.5 },
         fillcolor: withAlpha(lc, 0.25),
-        hovertemplate: `<b>${a}</b><br>%{x}<br>%{y:.2f}%<extra></extra>`,
+        hoverinfo: 'none',
+        hovertemplate: '<extra></extra>',
       } as Data);
     }
 
-    return { usd, percent };
+    return { usd, percent, dateIndex };
   }, [stacked, assets, colorFor]);
+
+  const [stackedHoverDate, setStackedHoverDate] = useState<string | null>(null);
+  const normalizeHoverDate = useCallback((x: unknown): string | null => {
+    if (!x) return null;
+    if (typeof x === 'string') {
+      const m = x.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (m?.[1]) return m[1];
+      const d = new Date(x);
+      return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : null;
+    }
+    if (typeof x === 'number') {
+      const d = new Date(x);
+      return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : null;
+    }
+    if (x instanceof Date) return x.toISOString().slice(0, 10);
+    return null;
+  }, []);
+
+  const stackedHoverItems = useMemo(() => {
+    if (!stackedHoverDate) return null;
+    const di = stackedTraces.dateIndex.get(stackedHoverDate);
+    if (di === undefined) return null;
+
+    const total = stacked.totals[di] || 0;
+    if (total <= 0) return { date: stackedHoverDate, total: 0, items: [] as Array<{ asset: string; value: number }> };
+
+    const items: Array<{ asset: string; value: number }> = [];
+    for (const a of assets) {
+      const yUsd = stacked.perAssetUsd.get(a);
+      const v = yUsd ? (yUsd[di] || 0) : 0;
+      if (v > 0) {
+        items.push({ asset: a, value: stackedMode === 'percent' ? (v / total) * 100 : v });
+      }
+    }
+    items.sort((x, y) => y.value - x.value);
+    return { date: stackedHoverDate, total, items };
+  }, [stackedHoverDate, stackedTraces.dateIndex, stacked.totals, stacked.perAssetUsd, assets, stackedMode]);
 
   // PnL over time (realized/unrealized split) - per-asset only
   const pnl = useMemo(() => {
@@ -1559,22 +1601,87 @@ This helps visualize portfolio growth and asset allocation changes over time.`}
           });
 
           return (
-            <Plot
-              data={slicedSeries as unknown as Data[]}
-              layout={{
-                autosize: true,
-                height: expanded ? undefined : 340,
-                margin: { t: 30, r: 10, l: 40, b: 40 },
-                legend: { orientation: 'h' },
-                // Default single-series hover to avoid the full unified list.
-                hovermode: 'closest',
-                yaxis:
-                  stackedMode === 'percent'
-                    ? { title: { text: 'Share of total (%)' }, ticksuffix: '%', range: [0, 100] }
-                    : { title: { text: 'Value (USD)' } },
-              }}
-              style={{ width:'100%', height: expanded ? '100%' : undefined }}
-            />
+            <div style={{ position: 'relative' }}>
+              <Plot
+                data={slicedSeries as unknown as Data[]}
+                layout={{
+                  autosize: true,
+                  height: expanded ? undefined : 340,
+                  margin: { t: 30, r: 10, l: 40, b: 40 },
+                  legend: { orientation: 'h' },
+                  hovermode: 'x',
+                  xaxis: { showspikes: true, spikemode: 'across', spikesnap: 'cursor', spikethickness: 1 },
+                  yaxis:
+                    stackedMode === 'percent'
+                      ? { title: { text: 'Share of total (%)' }, ticksuffix: '%', range: [0, 100] }
+                      : { title: { text: 'Value (USD)' } },
+                }}
+                style={{ width:'100%', height: expanded ? '100%' : undefined }}
+                onHover={(evt: unknown) => {
+                  const e = evt as { points?: Array<{ x?: unknown }> } | null;
+                  const x = e?.points?.[0]?.x;
+                  const day = normalizeHoverDate(x);
+                  if (day) setStackedHoverDate(day);
+                }}
+                onUnhover={() => {}}
+              />
+
+              {stackedHoverItems && stackedHoverItems.items.length > 0 ? (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 12,
+                    top: 12,
+                    background: 'var(--surface)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    padding: '10px 12px',
+                    color: 'var(--text)',
+                    fontSize: 12,
+                    lineHeight: 1.25,
+                    minWidth: 220,
+                    maxWidth: 280,
+                    pointerEvents: 'none',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+                  }}
+                >
+                  <div style={{ fontWeight: 800, marginBottom: 2 }}>{stackedHoverItems.date}</div>
+                  <div style={{ color: 'var(--muted)', marginBottom: 8 }}>
+                    Total:{' '}
+                    {stackedMode === 'percent'
+                      ? '100%'
+                      : `$${(stackedHoverItems.total || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    {stackedHoverItems.items.map((it: { asset: string; value: number }) => (
+                      <div key={it.asset} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              width: 18,
+                              height: 0,
+                              borderTop: `3px solid ${colorFor(it.asset)}`,
+                              borderRadius: 2,
+                              flex: '0 0 auto',
+                            }}
+                          />
+                          <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {it.asset}
+                          </span>
+                        </span>
+                        <span>
+                          {stackedMode === 'percent'
+                            ? `${it.value.toFixed(2)}%`
+                            : `$${it.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           );
         }}
       </ChartCard>

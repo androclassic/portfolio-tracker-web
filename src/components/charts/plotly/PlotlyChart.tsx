@@ -27,6 +27,8 @@ export type PlotlyChartProps = {
   style?: React.CSSProperties;
   className?: string;
   onClick?: (event: unknown) => void;
+  onHover?: (event: unknown) => void;
+  onUnhover?: (event: unknown) => void;
   /**
    * Show Plotly modebar. Defaults to false for a more app-native feel.
    */
@@ -44,6 +46,8 @@ export function PlotlyChart({
   style,
   className,
   onClick,
+  onHover,
+  onUnhover,
   showModeBar = false,
 }: PlotlyChartProps) {
   const theme = usePlotlyTheme();
@@ -70,6 +74,8 @@ export function PlotlyChart({
       style={{ width: '100%', ...style }}
       className={className}
       onClick={onClick as never}
+      onHover={onHover as never}
+      onUnhover={onUnhover as never}
     />
   );
 }
