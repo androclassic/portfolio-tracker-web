@@ -9,6 +9,7 @@ export default function PortfolioSelector() {
   const [isOpen, setIsOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [renameMap, setRenameMap] = useState<Record<number, string>>({});
+  const hasPortfolios = portfolios.length > 0;
 
   useEffect(()=>{ setRenameMap(Object.fromEntries(portfolios.map(p=> [p.id, p.name]))); }, [portfolios]);
 
@@ -47,6 +48,82 @@ export default function PortfolioSelector() {
     await refresh();
   }
 
+  const modal = isOpen && createPortal(
+        <div className="modal-backdrop" onClick={(e)=>{ if (e.target === e.currentTarget) setIsOpen(false); }}>
+          <div className="modal" role="dialog" aria-modal="true">
+            <div className="card-header">
+              <div className="card-title">
+                <h3>Manage portfolios</h3>
+              </div>
+              <div className="card-actions">
+                <button className="btn btn-secondary btn-sm" onClick={()=>setIsOpen(false)}>
+                  <span style={{ marginRight: 6 }}>✕</span>
+                  Close
+                </button>
+              </div>
+            </div>
+            <section style={{ display:'grid', gap:10 }}>
+              {hasPortfolios ? (
+                portfolios.map(p=> (
+                  <div key={p.id} style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <input value={renameMap[p.id]||''} onChange={e=>setRenameMap(m=>({ ...m, [p.id]: e.target.value }))} />
+                    <button className="btn btn-secondary btn-sm" onClick={()=>rename(p.id)}>Rename</button>
+                    <button className="btn btn-danger btn-sm" onClick={()=>remove(p.id)}>Delete</button>
+                  </div>
+                ))
+              ) : (
+                <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)' }}>
+                  You don&apos;t have any portfolios yet. Create your first one to start tracking your assets.
+                </p>
+              )}
+              <form onSubmit={createPortfolio} style={{ display:'flex', gap:8 }}>
+                <input placeholder="New portfolio name" value={newName} onChange={e=>setNewName(e.target.value)} />
+                <button className="btn btn-primary btn-sm" type="submit">Add</button>
+              </form>
+            </section>
+          </div>
+        </div>,
+        document.body
+      );
+
+  if (!hasPortfolios) {
+    return (
+      <div className="portfolio-selector">
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem',
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            padding: '0.75rem 1rem',
+            borderRadius: 12,
+            background: 'var(--card)',
+            border: '1px solid var(--border)',
+            width: '100%',
+            maxWidth: 420,
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>Create your first portfolio</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+              Portfolios group your assets and transactions. Start by creating one to unlock the dashboards.
+            </div>
+          </div>
+          <button
+            className="btn btn-primary"
+            onClick={() => setIsOpen(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <span>➕</span>
+            Create portfolio
+          </button>
+        </div>
+        {modal}
+      </div>
+    );
+  }
+
   return (
     <div className="portfolio-selector">
       <div className="portfolio-dropdown-content">
@@ -70,37 +147,7 @@ export default function PortfolioSelector() {
         </button>
       </div>
 
-      {isOpen && createPortal(
-        <div className="modal-backdrop" onClick={(e)=>{ if (e.target === e.currentTarget) setIsOpen(false); }}>
-          <div className="modal" role="dialog" aria-modal="true">
-            <div className="card-header">
-              <div className="card-title">
-                <h3>Manage portfolios</h3>
-              </div>
-              <div className="card-actions">
-                <button className="btn btn-secondary btn-sm" onClick={()=>setIsOpen(false)}>
-                  <span style={{ marginRight: 6 }}>✕</span>
-                  Close
-                </button>
-              </div>
-            </div>
-            <section style={{ display:'grid', gap:10 }}>
-              {portfolios.map(p=> (
-                <div key={p.id} style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  <input value={renameMap[p.id]||''} onChange={e=>setRenameMap(m=>({ ...m, [p.id]: e.target.value }))} />
-                  <button className="btn btn-secondary btn-sm" onClick={()=>rename(p.id)}>Rename</button>
-                  <button className="btn btn-danger btn-sm" onClick={()=>remove(p.id)}>Delete</button>
-                </div>
-              ))}
-              <form onSubmit={createPortfolio} style={{ display:'flex', gap:8 }}>
-                <input placeholder="New portfolio name" value={newName} onChange={e=>setNewName(e.target.value)} />
-                <button className="btn btn-primary btn-sm" type="submit">Add</button>
-              </form>
-            </section>
-          </div>
-        </div>,
-        document.body
-      )}
+      {modal}
     </div>
   );
 }
