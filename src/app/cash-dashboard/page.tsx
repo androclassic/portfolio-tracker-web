@@ -1244,18 +1244,20 @@ export default function CashDashboardPage(){
         </p>
         
         {/* Filters */}
-        <div style={{ marginBottom: '2rem', display: 'flex', gap: '2rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <div>
-            <label style={{ marginRight: '1rem', fontWeight: 'bold' }}>Currency:</label>
+        <div style={{ marginBottom: '2rem', display: 'flex', gap: '2.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <label style={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>Currency:</label>
             <select 
               value={selectedCurrency} 
               onChange={(e) => setSelectedCurrency(e.target.value)}
               style={{ 
-                padding: '0.5rem', 
-                borderRadius: '4px', 
+                padding: '0.625rem 0.875rem', 
+                borderRadius: '6px', 
                 border: '1px solid var(--border)',
                 backgroundColor: 'var(--surface)',
-                color: 'var(--text)'
+                color: 'var(--text)',
+                fontSize: '0.95rem',
+                minWidth: '120px'
               }}
             >
               {fiatCurrencies.map(currency => (
@@ -1264,17 +1266,19 @@ export default function CashDashboardPage(){
             </select>
           </div>
           
-          <div>
-            <label style={{ marginRight: '1rem', fontWeight: 'bold' }}>Tax Year:</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <label style={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>Tax Year:</label>
             <select 
               value={selectedTaxYear} 
               onChange={(e) => setSelectedTaxYear(e.target.value)}
               style={{ 
-                padding: '0.5rem', 
-                borderRadius: '4px', 
+                padding: '0.625rem 0.875rem', 
+                borderRadius: '6px', 
                 border: '1px solid var(--border)',
                 backgroundColor: 'var(--surface)',
-                color: 'var(--text)'
+                color: 'var(--text)',
+                fontSize: '0.95rem',
+                minWidth: '140px'
               }}
             >
               {availableTaxYears.map(year => (
@@ -1285,17 +1289,19 @@ export default function CashDashboardPage(){
             </select>
           </div>
 
-          <div>
-            <label style={{ marginRight: '1rem', fontWeight: 'bold' }}>Asset Lot Strategy:</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <label style={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>Asset Lot Strategy:</label>
             <select 
               value={selectedAssetLotStrategy} 
               onChange={(e) => setSelectedAssetLotStrategy(e.target.value as 'FIFO' | 'LIFO' | 'HIFO' | 'LOFO')}
               style={{ 
-                padding: '0.5rem', 
-                borderRadius: '4px', 
+                padding: '0.625rem 0.875rem', 
+                borderRadius: '6px', 
                 border: '1px solid var(--border)',
                 backgroundColor: 'var(--surface)',
-                color: 'var(--text)'
+                color: 'var(--text)',
+                fontSize: '0.95rem',
+                minWidth: '160px'
               }}
               title="Applied when selling crypto assets (affects realized gains on sells). Romania may require FIFO; use alternatives for scenario analysis."
             >
@@ -1306,17 +1312,19 @@ export default function CashDashboardPage(){
             </select>
           </div>
 
-          <div>
-            <label style={{ marginRight: '1rem', fontWeight: 'bold' }}>Cash Lot Strategy:</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <label style={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>Cash Lot Strategy:</label>
             <select 
               value={selectedCashLotStrategy} 
               onChange={(e) => setSelectedCashLotStrategy(e.target.value as 'FIFO' | 'LIFO' | 'HIFO' | 'LOFO')}
               style={{ 
-                padding: '0.5rem', 
-                borderRadius: '4px', 
+                padding: '0.625rem 0.875rem', 
+                borderRadius: '6px', 
                 border: '1px solid var(--border)',
                 backgroundColor: 'var(--surface)',
-                color: 'var(--text)'
+                color: 'var(--text)',
+                fontSize: '0.95rem',
+                minWidth: '180px'
               }}
               title="Applied when consuming cash lots (buys + withdrawals). Use FIFO for clean chronological withdrawal traceability; try LIFO/HIFO/LOFO for scenario analysis."
             >
