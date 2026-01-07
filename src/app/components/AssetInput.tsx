@@ -15,12 +15,16 @@ export default function AssetInput({ value, onChange, placeholder = "Search cryp
   const [searchResults, setSearchResults] = useState<SupportedAsset[]>([]);
   const [inputValue, setInputValue] = useState(value);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const isTypingRef = useRef(false);
   
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   
+  // Only sync with value prop when not actively typing (e.g., when value changes externally)
   useEffect(() => {
-    setInputValue(value);
+    if (!isTypingRef.current) {
+      setInputValue(value);
+    }
   }, [value]);
 
   useEffect(() => {
@@ -28,6 +32,15 @@ export default function AssetInput({ value, onChange, placeholder = "Search cryp
     setSearchResults(results);
     setHighlightedIndex(-1);
   }, [inputValue]);
+
+  const selectAsset = (asset: SupportedAsset) => {
+    isTypingRef.current = false;
+    setInputValue(asset.symbol);
+    setIsOpen(false);
+    setHighlightedIndex(-1);
+    onChange(asset, asset.symbol);
+    inputRef.current?.blur();
+  };
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -42,15 +55,25 @@ export default function AssetInput({ value, onChange, placeholder = "Search cryp
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
+    isTypingRef.current = true;
     setInputValue(newValue);
     setIsOpen(true);
     
-    // Check if it's a valid asset
-    const matchingAsset = searchResults.find(asset => 
+    // Only call onChange with the symbol for typing, not the full async handler
+    // This prevents the parent from triggering async operations on every keystroke
+    // The parent will only get the full asset when user selects from dropdown
+    const results = searchAssets(newValue);
+    const matchingAsset = results.find(asset => 
       asset.symbol.toLowerCase() === newValue.toLowerCase()
     );
     
-    onChange(matchingAsset || null, newValue);
+    // Only pass null for asset to avoid triggering async operations
+    onChange(null, newValue);
+    
+    // Reset typing flag after a short delay
+    setTimeout(() => {
+      isTypingRef.current = false;
+    }, 100);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -88,13 +111,6 @@ export default function AssetInput({ value, onChange, placeholder = "Search cryp
     }
   };
 
-  const selectAsset = (asset: SupportedAsset) => {
-    setInputValue(asset.symbol);
-    setIsOpen(false);
-    setHighlightedIndex(-1);
-    onChange(asset, asset.symbol);
-    inputRef.current?.blur();
-  };
 
   const handleFocus = () => {
     setIsOpen(true);

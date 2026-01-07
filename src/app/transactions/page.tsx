@@ -18,8 +18,81 @@ const fetcher = jsonFetcher;
 export default function TransactionsPage(){
   const { selectedId } = usePortfolio();
   const swrKey = selectedId === 'all' ? '/api/transactions' : (selectedId? `/api/transactions?portfolioId=${selectedId}` : null);
-  const { data: txs } = useSWR<Tx[]>(swrKey, fetcher);
-  const { mutate } = useSWRConfig();
+  const { data: txs, mutate: mutateLocal } = useSWR<Tx[]>(swrKey, fetcher, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+  });
+  const { mutate: mutateGlobal } = useSWRConfig();
+
+  // Helper function to force a complete refresh - blocks until data is reloaded from DB
+  const forceRefresh = async (deletedId?: number): Promise<void> => {
+    if (!swrKey) return;
+    
+    // Clear the SWR cache first
+    await mutateGlobal(swrKey, undefined, { revalidate: false });
+    
+    // Wait to ensure DB transaction is fully committed and visible
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // For delete operations, retry until the item is confirmed gone (max 3 retries)
+    let retries = 0;
+    const maxRetries = deletedId !== undefined ? 6 : 0;
+    let freshData: Tx[] | null = null;
+    
+    while (retries <= maxRetries) {
+      // Fetch fresh data directly from the API (bypassing cache)
+      const freshRes = await fetch(swrKey, { 
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' }
+      });
+      
+      if (!freshRes.ok) {
+        throw new Error('Failed to fetch fresh data');
+      }
+      
+      freshData = await freshRes.json();
+      
+      // If we're checking for a deleted item, verify it's actually gone
+      if (deletedId !== undefined && freshData) {
+        const stillExists = freshData.some(tx => tx.id === deletedId);
+        if (!stillExists) {
+          // Item is confirmed deleted, break out of retry loop
+          break;
+        }
+        
+        // Item still exists, retry if we haven't exceeded max retries
+        if (retries < maxRetries) {
+          retries++;
+          // Wait progressively longer on each retry
+          await new Promise(resolve => setTimeout(resolve, 300 * retries));
+          continue;
+        } else {
+          // Max retries reached, log warning but continue with current data
+          console.warn(`Deleted transaction ${deletedId} still appears after ${maxRetries} retries`);
+          break;
+        }
+      } else {
+        // Not checking for deletion, break immediately
+        break;
+      }
+    }
+    
+    if (freshData) {
+      // Update cache with fresh data
+      await mutateLocal(freshData, { revalidate: false });
+      await mutateGlobal(swrKey, freshData, { revalidate: false });
+    }
+    
+    // Trigger global revalidation for all transaction-related keys
+    await mutateGlobal(
+      (key: unknown) => typeof key === 'string' && key.startsWith('/api/transactions'),
+      undefined,
+      { revalidate: true }
+    );
+    
+    // Wait a bit more to ensure React has re-rendered with new data
+    await new Promise(resolve => setTimeout(resolve, 150));
+  };
   const [assetFilter, setAssetFilter] = useState<string>('All');
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc');
   const [isOpen, setIsOpen] = useState(false);
@@ -45,6 +118,7 @@ export default function TransactionsPage(){
   const [txErrors, setTxErrors] = useState<string[]>([]);
   const [isLoadingPrice, setIsLoadingPrice] = useState(false);
   const [editing, setEditing] = useState<Tx|null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Using centralized asset colors from lib/assets
 
@@ -73,6 +147,18 @@ export default function TransactionsPage(){
 
   // Handle asset selection and auto-fill price
   const handleAssetSelection = async (asset: SupportedAsset | null, symbol: string) => {
+    // If just typing (asset is null), only update the symbol synchronously
+    // This prevents async operations from running on every keystroke
+    if (!asset) {
+      setNewTx(prev => ({
+        ...prev,
+        asset: symbol.toUpperCase(),
+        // Keep selectedAsset unchanged while typing
+      }));
+      return;
+    }
+    
+    // If an asset was actually selected from dropdown, trigger async operations
     setIsLoadingPrice(true);
     setTxErrors([]);
     
@@ -242,10 +328,18 @@ export default function TransactionsPage(){
       }
     }
     
+    setIsSaving(true);
     try {
       const payload = txs.length > 1 ? { portfolioId, transactions: txs } : txs[0];
       const res = await fetch('/api/transactions', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
-      if (res.ok) { 
+      if (res.ok) {
+        // Wait for the response body to be fully processed - this ensures the DB transaction is committed
+        await res.json();
+        
+        // Force a complete refresh - this blocks until data is reloaded from DB
+        await forceRefresh();
+        
+        // Now update the UI after data is confirmed reloaded
         setIsOpen(false); 
         setNewTx({ 
           asset:'', 
@@ -258,24 +352,46 @@ export default function TransactionsPage(){
           settlementStable: 'USDT',
         }); 
         setTxErrors([]);
-        if (swrKey) mutate(swrKey);
+        
         // Notify other components that transaction data changed
         window.dispatchEvent(new CustomEvent('transactions-changed')); 
       } else {
         const errorData = await res.json();
         setTxErrors([errorData.error || 'Failed to save transaction']);
       }
-    } catch {
+    } catch (error) {
+      console.error('Error adding transaction:', error);
       setTxErrors(['Network error. Please try again.']);
+    } finally {
+      setIsSaving(false);
     }
   }
 
   async function removeTx(id: number){
     if (!confirm('Delete this transaction?')) return;
-    await fetch(`/api/transactions?id=${id}`, { method:'DELETE' });
-    if (swrKey) mutate(swrKey);
-    // Notify other components that transaction data changed
-    window.dispatchEvent(new CustomEvent('transactions-changed'));
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/transactions?id=${id}`, { method:'DELETE' });
+      if (res.ok) {
+        // Wait for the response body to be fully processed - this ensures the DB delete is committed
+        await res.json();
+        
+        // Force a complete refresh - pass the deleted ID to verify it's gone
+        // This blocks until data is reloaded from DB and verified
+        await forceRefresh(id);
+        
+        // Notify other components that transaction data changed
+        window.dispatchEvent(new CustomEvent('transactions-changed'));
+      } else {
+        const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+        alert(errorData.error || 'Failed to delete transaction. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error deleting transaction:', error);
+      alert('Network error. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   function startEdit(t: Tx){ setEditing(t); }
@@ -283,20 +399,39 @@ export default function TransactionsPage(){
   async function saveEdit(e: React.FormEvent){
     e.preventDefault();
     if (!editing) return;
-    const body: Partial<Tx> = {
-      id: editing.id,
-      asset: editing.asset.toUpperCase(),
-      type: editing.type,
-      priceUsd: editing.priceUsd ?? null,
-      quantity: editing.quantity,
-      datetime: editing.datetime,
-      notes: editing.notes ?? null,
-    };
-    await fetch('/api/transactions', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
-    setEditing(null);
-    if (swrKey) mutate(swrKey);
-    // Notify other components that transaction data changed
-    window.dispatchEvent(new CustomEvent('transactions-changed'));
+    setIsSaving(true);
+    try {
+      const body: Partial<Tx> = {
+        id: editing.id,
+        asset: editing.asset.toUpperCase(),
+        type: editing.type,
+        priceUsd: editing.priceUsd ?? null,
+        quantity: editing.quantity,
+        datetime: editing.datetime,
+        notes: editing.notes ?? null,
+      };
+      const res = await fetch('/api/transactions', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+      if (res.ok) {
+        // Wait for the response body to be fully processed
+        await res.json();
+        
+        // Force a complete refresh - this blocks until data is reloaded from DB
+        await forceRefresh();
+        
+        setEditing(null);
+        
+        // Notify other components that transaction data changed
+        window.dispatchEvent(new CustomEvent('transactions-changed'));
+      } else {
+        const errorData = await res.json();
+        alert(errorData.error || 'Failed to update transaction. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error updating transaction:', error);
+      alert('Network error. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   const nf = new Intl.NumberFormat(undefined,{ maximumFractionDigits: 8 });
@@ -327,6 +462,7 @@ export default function TransactionsPage(){
           <button 
             className="btn btn-primary" 
             onClick={()=>setIsOpen(true)}
+            disabled={isSaving}
             style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}
           >
             <span>➕</span>
@@ -386,11 +522,31 @@ export default function TransactionsPage(){
                   Import CSV
                   <input type="file" accept=".csv" style={{ display:'none' }} onChange={async (e)=>{
                     const file = e.target.files?.[0]; if (!file) return;
-                    const fd = new FormData(); fd.append('file', file);
-                    await fetch(`/api/transactions/import?portfolioId=${selectedId}`, { method:'POST', body: fd });
-                    if (swrKey) mutate(swrKey);
-                    // Notify other components that transaction data changed
-                    window.dispatchEvent(new CustomEvent('transactions-changed'));
+                    setIsSaving(true);
+                    try {
+                      const fd = new FormData(); fd.append('file', file);
+                      const res = await fetch(`/api/transactions/import?portfolioId=${selectedId}`, { method:'POST', body: fd });
+                      if (res.ok) {
+                        // Wait for the response body to be fully processed
+                        await res.json();
+                        
+                        // Force a complete refresh - this blocks until data is reloaded from DB
+                        await forceRefresh();
+                        
+                        // Notify other components that transaction data changed
+                        window.dispatchEvent(new CustomEvent('transactions-changed'));
+                        // Reset file input
+                        e.target.value = '';
+                      } else {
+                        const errorData = await res.json();
+                        alert(errorData.error || 'Failed to import transactions. Please check the file format.');
+                      }
+                    } catch (error) {
+                      console.error('Error importing transactions:', error);
+                      alert('Network error. Please try again.');
+                    } finally {
+                      setIsSaving(false);
+                    }
                   }} />
                 </label>
                 <div className="transaction-template-links">
@@ -416,6 +572,37 @@ export default function TransactionsPage(){
           )}
         </div>
       </div>
+
+      {/* Loading overlay that blocks the page during save operations */}
+      {isSaving && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          cursor: 'wait'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--surface)',
+            padding: '2rem',
+            borderRadius: '12px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '1rem'
+          }}>
+            <div className="loading-spinner" style={{ width: '40px', height: '40px' }}></div>
+            <div style={{ fontSize: '1rem', fontWeight: 600 }}>Saving transaction...</div>
+            <div style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>Please wait while we update the database</div>
+          </div>
+        </div>
+      )}
 
       <section className="card">
         <div className="table-wrapper">
@@ -450,6 +637,7 @@ export default function TransactionsPage(){
                     <button 
                       className="btn btn-secondary btn-sm" 
                       onClick={()=>startEdit(t)}
+                      disabled={isSaving}
                       style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
                     >
                       <span style={{ fontSize: '0.8rem' }}>✏️</span>
@@ -458,6 +646,7 @@ export default function TransactionsPage(){
                     <button 
                       className="btn btn-danger btn-sm" 
                       onClick={()=>removeTx(t.id)}
+                      disabled={isSaving}
                       style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
                     >
                       <span style={{ fontSize: '0.8rem' }}>🗑️</span>
@@ -660,13 +849,13 @@ export default function TransactionsPage(){
                 <button 
                   type="submit" 
                   className="btn btn-primary" 
-                  disabled={isLoadingPrice}
+                  disabled={isLoadingPrice || isSaving}
                   style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
                 >
-                  {isLoadingPrice ? (
+                  {isLoadingPrice || isSaving ? (
                     <>
                       <span className="loading-spinner"></span>
-                      Loading...
+                      {isSaving ? 'Saving...' : 'Loading...'}
                     </>
                   ) : (
                     'Save Transaction'
@@ -705,8 +894,10 @@ export default function TransactionsPage(){
               <input type="datetime-local" value={editing.datetime && !isNaN(new Date(editing.datetime).getTime()) ? new Date(editing.datetime).toISOString().slice(0,16) : ''} onChange={e=>setEditing(v=> v? { ...v, datetime:e.target.value } : v)} required />
               <input placeholder="Notes (optional)" value={editing.notes ?? ''} onChange={e=>setEditing(v=> v? { ...v, notes:e.target.value } : v)} />
               <div className="actions">
-                <button type="button" className="btn btn-secondary" onClick={()=>setEditing(null)}>Cancel</button>
-                <button type="submit" className="btn btn-primary">Save</button>
+                <button type="button" className="btn btn-secondary" onClick={()=>setEditing(null)} disabled={isSaving}>Cancel</button>
+                <button type="submit" className="btn btn-primary" disabled={isSaving}>
+                  {isSaving ? 'Saving...' : 'Save'}
+                </button>
               </div>
             </form>
           </div>
