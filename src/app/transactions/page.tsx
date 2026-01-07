@@ -323,11 +323,11 @@ export default function TransactionsPage(){
             </select>
           </label>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className="transaction-toolbar-actions">
           <button 
             className="btn btn-primary" 
             onClick={()=>setIsOpen(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}
           >
             <span>➕</span>
             Add Transaction
@@ -358,7 +358,7 @@ export default function TransactionsPage(){
                     console.error('Export failed:', error);
                   }
                 }}
-                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                className="transaction-export-form"
               >
                 <select 
                   name="format" 
@@ -377,21 +377,41 @@ export default function TransactionsPage(){
                   Export CSV
                 </button>
               </form>
-              <label 
-                className="btn btn-secondary" 
-                style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-              >
-                <span>📁</span>
-                Import CSV
-                <input type="file" accept=".csv" style={{ display:'none' }} onChange={async (e)=>{
-                  const file = e.target.files?.[0]; if (!file) return;
-                  const fd = new FormData(); fd.append('file', file);
-                  await fetch(`/api/transactions/import?portfolioId=${selectedId}`, { method:'POST', body: fd });
-                  if (swrKey) mutate(swrKey);
-                  // Notify other components that transaction data changed
-                  window.dispatchEvent(new CustomEvent('transactions-changed'));
-                }} />
-              </label>
+              <div className="transaction-import-wrapper">
+                <label 
+                  className="btn btn-secondary" 
+                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center' }}
+                >
+                  <span>📁</span>
+                  Import CSV
+                  <input type="file" accept=".csv" style={{ display:'none' }} onChange={async (e)=>{
+                    const file = e.target.files?.[0]; if (!file) return;
+                    const fd = new FormData(); fd.append('file', file);
+                    await fetch(`/api/transactions/import?portfolioId=${selectedId}`, { method:'POST', body: fd });
+                    if (swrKey) mutate(swrKey);
+                    // Notify other components that transaction data changed
+                    window.dispatchEvent(new CustomEvent('transactions-changed'));
+                  }} />
+                </label>
+                <div className="transaction-template-links">
+                  <span>Need a template?</span>
+                  <a 
+                    href="/transaction-import-default-sample.csv" 
+                    download 
+                    style={{ textDecoration: 'underline', color: 'var(--primary)' }}
+                  >
+                    Download default CSV sample
+                  </a>
+                  <span>·</span>
+                  <a 
+                    href="/transaction-import-tradingview-sample.csv" 
+                    download 
+                    style={{ textDecoration: 'underline', color: 'var(--primary)' }}
+                  >
+                    Download TradingView CSV sample
+                  </a>
+                </div>
+              </div>
             </>
           )}
         </div>
@@ -693,6 +713,50 @@ export default function TransactionsPage(){
         </div>
       )}
     <style jsx>{`
+      .transaction-toolbar-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.5rem;
+      }
+
+      .transaction-export-form {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+
+      .transaction-export-form select {
+        padding: 0.5rem;
+        border-radius: 4px;
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+      }
+
+      .transaction-import-wrapper {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        align-items: flex-start;
+      }
+
+      .transaction-template-links {
+        font-size: 0.8rem;
+        color: var(--muted);
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      .transaction-template-links a {
+        text-decoration: underline;
+        color: var(--primary);
+      }
+
       .transaction-modal {
         max-width: 600px;
         width: 100%;
@@ -774,6 +838,42 @@ export default function TransactionsPage(){
       }
 
       @media (max-width: 768px) {
+        .transaction-toolbar-actions {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .transaction-toolbar-actions > * {
+          width: 100%;
+        }
+
+        .transaction-export-form {
+          justify-content: space-between;
+        }
+
+        .transaction-export-form select {
+          flex: 1;
+        }
+
+        .transaction-export-form button {
+          width: auto;
+          white-space: nowrap;
+        }
+
+        .transaction-import-wrapper {
+          align-items: stretch;
+        }
+
+        .transaction-import-wrapper .btn {
+          width: 100%;
+          justify-content: center;
+        }
+
+        .transaction-template-links {
+          justify-content: center;
+          text-align: center;
+        }
+
         .transaction-modal {
           margin: 16px;
           max-height: 90vh;

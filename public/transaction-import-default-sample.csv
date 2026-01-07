@@ -1,0 +1,9 @@
+id,asset,type,price_usd,quantity,datetime,fees_usd,cost_usd,proceeds_usd,notes
+1,BTC,Buy,30000,0.1,2024-01-15T10:30:00.000Z,5,3005,,First BTC purchase
+2,BTC,Sell,35000,0.05,2024-01-20T11:00:00.000Z,3,,1747,Realizing partial profits on BTC
+3,ETH,Buy,2000,1.5,2024-02-01T14:15:00.000Z,3,3003,,Accumulating ETH position
+4,ETH,Sell,2200,0.5,2024-02-15T16:45:00.000Z,2,,1098,Partial ETH sale with small fee
+5,USD,Deposit,,1000,2024-03-10T09:00:00.000Z,,1000,,Initial fiat deposit (adds cash to portfolio)
+6,USD,Withdrawal,,250,2024-03-25T13:30:00.000Z,,,-250,Partial cash withdrawal from portfolio
+
+

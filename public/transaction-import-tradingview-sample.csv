@@ -1,0 +1,9 @@
+Symbol,Side,Qty,Fill Price,Commission,Closing Time
+"BTCUSD","Buy",0.1,30000,5,"2024-01-15 10:30:00"
+"BTCUSD","Sell",0.05,35000,3,"2024-01-20 11:00:00"
+"ETHUSD","Buy",1.5,2000,3,"2024-02-01 14:15:00"
+"ETHUSD","Sell",0.5,2200,2,"2024-02-15 16:45:00"
+"$CASH","Deposit",1000,,0,"2024-03-10 09:00:00"
+"$CASH","Withdrawal",250,,0,"2024-03-25 13:30:00"
+
+
