@@ -16,6 +16,7 @@ import { sliceStartIndexForIsoDates } from '@/lib/timeframe';
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
 import type { Transaction as Tx, PricesResp, HistResp } from '@/lib/types';
+import { STABLECOINS } from '@/lib/types';
 import { fetchHistoricalWithLocalCache } from '@/lib/prices-cache';
 
 const fetcher = jsonFetcher;
@@ -39,7 +40,16 @@ export default function DashboardPage(){
 
   const assets = useMemo(()=>{
     const s = new Set<string>();
-    (txs||[]).forEach(t=> { const a=t.asset.toUpperCase(); if (a!== 'USD') s.add(a); });
+    (txs||[]).forEach(t=> {
+      if (t.fromAsset) {
+        const a = t.fromAsset.toUpperCase();
+        if (a !== 'USD') s.add(a);
+      }
+      if (t.toAsset) {
+        const a = t.toAsset.toUpperCase();
+        if (a !== 'USD') s.add(a);
+      }
+    });
     return Array.from(s).sort();
   }, [txs]);
 
@@ -56,17 +66,26 @@ export default function DashboardPage(){
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   }
 
-  useEffect(()=>{
-    if (assets.length && !selectedAsset) setSelectedAsset(assets[0]);
-  }, [assets, selectedAsset]);
+  // Convert assets array to string for stable comparison
+  const assetsKey = useMemo(() => assets.join(','), [assets]);
 
   useEffect(()=>{
-    if (assets.length && !selectedPnLAsset) setSelectedPnLAsset(assets[0]);
-  }, [assets, selectedPnLAsset]);
+    if (assets.length && !selectedAsset) {
+      setSelectedAsset(assets[0]);
+    }
+  }, [assetsKey, assets.length, selectedAsset]);
 
   useEffect(()=>{
-    if (assets.length && !selectedCostAsset) setSelectedCostAsset(assets[0]);
-  }, [assets, selectedCostAsset]);
+    if (assets.length && !selectedPnLAsset) {
+      setSelectedPnLAsset(assets[0]);
+    }
+  }, [assetsKey, assets.length, selectedPnLAsset]);
+
+  useEffect(()=>{
+    if (assets.length && !selectedCostAsset) {
+      setSelectedCostAsset(assets[0]);
+    }
+  }, [assetsKey, assets.length, selectedCostAsset]);
 
   // Profit-taking chart should default to ADA, but gracefully fallback if ADA isn't present
   useEffect(() => {
@@ -76,7 +95,7 @@ export default function DashboardPage(){
     if (!nonBtcAssets.includes(selectedProfitAsset)) {
       setSelectedProfitAsset(nonBtcAssets.includes('ADA') ? 'ADA' : nonBtcAssets[0]);
     }
-  }, [assets, selectedProfitAsset]);
+  }, [assetsKey, selectedProfitAsset]);
 
   // Listen for transaction changes and refresh dashboard data
   useEffect(() => {
@@ -93,11 +112,33 @@ export default function DashboardPage(){
     const pos: Record<string, number> = {};
     if (!txs) return pos;
     for (const t of txs){
-      const a = t.asset.toUpperCase();
-      if (a==='USD') continue;
-      if (!(t.type==='Buy' || t.type==='Sell')) continue;
-      const q = Math.abs(t.quantity);
-      pos[a] = (pos[a]||0) + (t.type === 'Buy' ? q : -q);
+      if (t.type === 'Swap') {
+        // For swaps: toAsset increases, fromAsset decreases
+        if (t.toAsset) {
+          const toA = t.toAsset.toUpperCase();
+          if (toA !== 'USD') {
+            pos[toA] = (pos[toA]||0) + Math.abs(t.toQuantity);
+          }
+        }
+        if (t.fromAsset) {
+          const fromA = t.fromAsset.toUpperCase();
+          if (fromA !== 'USD') {
+            pos[fromA] = (pos[fromA]||0) - Math.abs(t.fromQuantity || 0);
+          }
+        }
+      } else if (t.type === 'Deposit') {
+        // Deposit increases toAsset
+        const a = t.toAsset.toUpperCase();
+        if (a !== 'USD') {
+          pos[a] = (pos[a]||0) + Math.abs(t.toQuantity);
+        }
+      } else if (t.type === 'Withdrawal') {
+        // Withdrawal decreases toAsset
+        const a = t.toAsset.toUpperCase();
+        if (a !== 'USD') {
+          pos[a] = (pos[a]||0) - Math.abs(t.toQuantity);
+        }
+      }
     }
     return pos;
   }, [txs]);
@@ -112,9 +153,13 @@ export default function DashboardPage(){
     return { start: txMinSec, end: nowSec };
   }, [txs]);
 
-  // Use shared price data hook
+  // Use shared price data hook - exclude stablecoins as they're always $1
+  const nonStableAssets = useMemo(() => 
+    assets.filter(a => !isStablecoin(a)),
+    [assets]
+  );
   const { latestPrices, historicalPrices, isLoading: loadingCurr } = usePriceData({
-    symbols: [...assets, 'BTC'], // Always include BTC for conversion
+    symbols: [...nonStableAssets, 'BTC'], // Always include BTC for conversion, exclude stablecoins
     dateRange: dateRange || undefined,
     includeCurrentPrices: true
   });
@@ -136,13 +181,37 @@ export default function DashboardPage(){
   // daily positions time series (buy/sell only; use UTC day to align with historical price dates)
   const dailyPos = useMemo(()=>{
     if (!txs || txs.length===0) return [] as { date:string; asset:string; position:number }[];
-    const rows = txs
-      .filter(t => t.asset.toUpperCase() !== 'USD' && (t.type==='Buy' || t.type==='Sell'))
-      .map(t => ({
-        asset: t.asset.toUpperCase(),
-        day: new Date(t.datetime).toISOString().slice(0, 10), // UTC day key
-        signed: (t.type === 'Buy' ? 1 : -1) * Math.abs(t.quantity),
-      }));
+    const rows: Array<{ asset: string; day: string; signed: number }> = [];
+    
+    for (const t of txs) {
+      const day = new Date(t.datetime).toISOString().slice(0, 10); // UTC day key
+      
+      if (t.type === 'Swap') {
+        // For swaps: toAsset increases (buy), fromAsset decreases (sell)
+        if (t.toAsset) {
+          const toA = t.toAsset.toUpperCase();
+          if (toA !== 'USD') {
+            rows.push({ asset: toA, day, signed: Math.abs(t.toQuantity) });
+          }
+        }
+        if (t.fromAsset) {
+          const fromA = t.fromAsset.toUpperCase();
+          if (fromA !== 'USD') {
+            rows.push({ asset: fromA, day, signed: -Math.abs(t.fromQuantity || 0) });
+          }
+        }
+      } else if (t.type === 'Deposit') {
+        const a = t.toAsset.toUpperCase();
+        if (a !== 'USD') {
+          rows.push({ asset: a, day, signed: Math.abs(t.toQuantity) });
+        }
+      } else if (t.type === 'Withdrawal') {
+        const a = t.toAsset.toUpperCase();
+        if (a !== 'USD') {
+          rows.push({ asset: a, day, signed: -Math.abs(t.toQuantity) });
+        }
+      }
+    }
     // group by day and asset
     const byKey = new Map<string, number>();
     for (const r of rows){
@@ -169,13 +238,21 @@ export default function DashboardPage(){
     const map = new Map<string, string>();
     if (!txs) return map;
     for (const t of txs){
-      const a = t.asset.toUpperCase();
+      // Collect notes for all involved assets
+      const assets: string[] = [];
+      if (t.fromAsset) assets.push(t.fromAsset.toUpperCase());
+      if (t.toAsset) assets.push(t.toAsset.toUpperCase());
+      
       const day = new Date(new Date(t.datetime).getFullYear(), new Date(t.datetime).getMonth(), new Date(t.datetime).getDate());
-      const key = day.toISOString().slice(0,10) + '|' + a;
       const note = t.notes ? String(t.notes).trim() : '';
       if (!note) continue;
-      const prev = map.get(key);
-      map.set(key, prev ? `${prev}\n• ${note}` : `• ${note}`);
+      
+      // Add note to each involved asset
+      for (const a of assets) {
+        const key = day.toISOString().slice(0,10) + '|' + a;
+        const prev = map.get(key);
+        map.set(key, prev ? `${prev}\n• ${note}` : `• ${note}`);
+      }
     }
     return map;
   }, [txs]);
@@ -431,8 +508,16 @@ export default function DashboardPage(){
 
     // Filter transactions by selected asset (per-asset view only)
     const filteredTxs = txs
-      .filter(t => t.asset.toUpperCase() === selectedPnLAsset)
-      .filter(t => t.asset.toUpperCase() !== 'USD' && (t.type==='Buy' || t.type==='Sell'));
+      .filter(t => {
+        if (t.type === 'Swap') {
+          return t.toAsset.toUpperCase() === selectedPnLAsset || t.fromAsset?.toUpperCase() === selectedPnLAsset;
+        }
+        return false;
+      })
+      .filter(t => {
+        // Exclude pure stablecoin operations
+        return ![...STABLECOINS, 'USD'].includes(selectedPnLAsset);
+      });
 
     // Only the selected asset is relevant
     const relevantAssets = [selectedPnLAsset];
@@ -442,18 +527,27 @@ export default function DashboardPage(){
       type TxEnriched = { asset: string; type: 'Buy'|'Sell'; units: number; unitPrice: number };
       const txByDate = new Map<string, TxEnriched[]>();
       for (const t of subset) {
-        const asset = t.asset.toUpperCase();
+        if (t.type !== 'Swap') continue;
+        
         const day = new Date(new Date(t.datetime).getFullYear(), new Date(t.datetime).getMonth(), new Date(t.datetime).getDate()).toISOString().slice(0, 10);
         const key = day;
-        const qtyAbs = Math.abs(t.quantity) || 0;
-        const fromAmounts = t.type === 'Sell'
-          ? (t.proceedsUsd && qtyAbs > 0 ? (t.proceedsUsd / qtyAbs) : undefined)
-          : (t.costUsd && qtyAbs > 0 ? (t.costUsd / qtyAbs) : undefined);
-        const fallback = priceMap.get(day + '|' + asset) ?? 0;
-        const unitPrice = (fromAmounts ?? (t.priceUsd ?? fallback)) || 0;
-        const units = Math.abs(t.quantity);
         const arr = txByDate.get(key) || [];
-        arr.push({ asset, type: t.type as 'Buy'|'Sell', units, unitPrice });
+        
+        // Determine if buying or selling the selected asset
+        if (t.toAsset.toUpperCase() === selectedPnLAsset) {
+          // Buying this asset
+          const asset = t.toAsset.toUpperCase();
+          const units = Math.abs(t.toQuantity);
+          const unitPrice = t.toPriceUsd || priceMap.get(day + '|' + asset) || 0;
+          arr.push({ asset, type: 'Buy' as const, units, unitPrice });
+        } else if (t.fromAsset?.toUpperCase() === selectedPnLAsset) {
+          // Selling this asset
+          const asset = t.fromAsset.toUpperCase();
+          const units = Math.abs(t.fromQuantity || 0);
+          const unitPrice = t.fromPriceUsd || priceMap.get(day + '|' + asset) || 0;
+          arr.push({ asset, type: 'Sell' as const, units, unitPrice });
+        }
+        
         txByDate.set(key, arr);
       }
 
@@ -550,30 +644,23 @@ export default function DashboardPage(){
         })
         .forEach(tx => {
         if (tx.type === 'Deposit') {
-          const asset = tx.asset.toUpperCase();
-          // DB typically stores deposits as crypto assets with an explicit USD cost.
-          if (typeof tx.costUsd === 'number' && tx.costUsd > 0) {
-            cumulativeCost += tx.costUsd;
-          } else if (typeof tx.priceUsd === 'number' && tx.priceUsd > 0) {
-            cumulativeCost += tx.quantity * tx.priceUsd;
-          } else if (isFiatCurrency(asset)) {
-            const txDay = new Date(tx.datetime).toISOString().slice(0, 10);
-            const historicalRate = fxRateMap.get(txDay)?.[asset] ?? 0;
-            cumulativeCost += tx.quantity * historicalRate;
-          }
+          // Deposits add to cost basis (money in)
+          // Cost basis = fiat amount deposited in USD (fromQuantity * fromPriceUsd)
+          // NOT the stablecoin received value, which includes exchange rate effects
+          const depositValue = tx.fromQuantity && tx.fromPriceUsd 
+            ? tx.fromQuantity * tx.fromPriceUsd 
+            : tx.toQuantity * (tx.toPriceUsd || 1); // Fallback for old transactions
+          cumulativeCost += depositValue;
         } else if (tx.type === 'Withdrawal') {
-          const asset = tx.asset.toUpperCase();
-          if (typeof tx.proceedsUsd === 'number' && tx.proceedsUsd > 0) {
-            cumulativeCost -= tx.proceedsUsd;
-          } else if (typeof tx.priceUsd === 'number' && tx.priceUsd > 0) {
-            cumulativeCost -= tx.quantity * tx.priceUsd;
-          } else if (isFiatCurrency(asset)) {
-            const txDay = new Date(tx.datetime).toISOString().slice(0, 10);
-            const historicalRate = fxRateMap.get(txDay)?.[asset] ?? 0;
-            cumulativeCost -= tx.quantity * historicalRate;
-          }
+          // Withdrawals reduce cost basis (money out)
+          // Cost basis = stablecoin amount withdrawn in USD (fromQuantity * fromPriceUsd)
+          // NOT the fiat received value, which includes exchange rate effects
+          const withdrawalValue = tx.fromQuantity && tx.fromPriceUsd 
+            ? tx.fromQuantity * tx.fromPriceUsd 
+            : tx.toQuantity * (tx.toPriceUsd || 1); // Fallback for old transactions
+          cumulativeCost -= withdrawalValue;
         }
-        // Note: Buy/Sell transactions don't affect cost basis directly
+        // Note: Swap transactions don't affect cost basis directly
         // as they represent exchanges between assets, not new money invested
       });
 
@@ -587,10 +674,16 @@ export default function DashboardPage(){
 
       // Process all transactions up to this date to calculate holdings
       txs.filter(tx => new Date(tx.datetime) <= new Date(date)).forEach(tx => {
-        if (tx.type === 'Buy') {
-          historicalHoldings[tx.asset] = (historicalHoldings[tx.asset] || 0) + tx.quantity;
-        } else if (tx.type === 'Sell') {
-          historicalHoldings[tx.asset] = (historicalHoldings[tx.asset] || 0) - tx.quantity;
+        if (tx.type === 'Swap') {
+          // Swap: remove from fromAsset, add to toAsset
+          if (tx.fromAsset) {
+            historicalHoldings[tx.fromAsset] = (historicalHoldings[tx.fromAsset] || 0) - (tx.fromQuantity || 0);
+          }
+          historicalHoldings[tx.toAsset] = (historicalHoldings[tx.toAsset] || 0) + tx.toQuantity;
+        } else if (tx.type === 'Deposit') {
+          historicalHoldings[tx.toAsset] = (historicalHoldings[tx.toAsset] || 0) + tx.toQuantity;
+        } else if (tx.type === 'Withdrawal') {
+          historicalHoldings[tx.toAsset] = (historicalHoldings[tx.toAsset] || 0) - tx.toQuantity;
         }
       });
 
@@ -600,7 +693,13 @@ export default function DashboardPage(){
         if (assetUnits && assetUnits > 0) {
           const ai = priceIndex.assetIndex[asset];
           const di = priceIndex.dateIndex[date];
-          const px = ai !== undefined && di !== undefined ? priceIndex.prices[ai][di] : 0;
+          let px = ai !== undefined && di !== undefined ? priceIndex.prices[ai][di] : 0;
+          
+          // For stablecoins, default to $1 if no price data available
+          if ((px === 0 || px === undefined) && isStablecoin(asset)) {
+            px = 1.0;
+          }
+          
           if (px > 0) portfolioVal += assetUnits * px;
         }
       });
@@ -637,21 +736,32 @@ export default function DashboardPage(){
       for (const asset of assets) {
         const ai = priceIndex.assetIndex[asset];
         const di = priceIndex.dateIndex[date];
-        const price = ai !== undefined && di !== undefined ? priceIndex.prices[ai][di] : 0;
+        let price = ai !== undefined && di !== undefined ? priceIndex.prices[ai][di] : 0;
+        
+        // For stablecoins, default to $1 if no price data available
+        if ((price === 0 || price === undefined) && isStablecoin(asset)) {
+          price = 1.0;
+        }
         
         // Calculate position at this historical date
         let position = 0;
         const relevantTxs = txs.filter(tx => 
-          tx.asset.toUpperCase() === asset && 
-          (tx.type === 'Buy' || tx.type === 'Sell') &&
           new Date(tx.datetime) <= new Date(date + 'T23:59:59')
         );
         
         for (const tx of relevantTxs) {
-          if (tx.type === 'Buy') {
-            position += tx.quantity;
-          } else if (tx.type === 'Sell') {
-            position -= tx.quantity;
+          if (tx.type === 'Swap') {
+            // Check if this asset is being bought or sold
+            if (tx.toAsset.toUpperCase() === asset) {
+              position += tx.toQuantity;
+            }
+            if (tx.fromAsset?.toUpperCase() === asset) {
+              position -= (tx.fromQuantity || 0);
+            }
+          } else if (tx.type === 'Deposit' && tx.toAsset.toUpperCase() === asset) {
+            position += tx.toQuantity;
+          } else if (tx.type === 'Withdrawal' && tx.toAsset.toUpperCase() === asset) {
+            position -= tx.toQuantity;
           }
         }
 
@@ -678,8 +788,22 @@ export default function DashboardPage(){
     const asset = selectedCostAsset.toUpperCase();
     const dates = Array.from(new Set(hist.prices.filter(p => p.asset.toUpperCase() === asset).map(p => p.date))).sort();
     // build tx map for this asset
-    const txsA = (txs || []).filter(t => t.asset.toUpperCase() === asset && (t.type==='Buy' || t.type==='Sell'))
-      .map(t => ({ date: new Date(new Date(t.datetime).getFullYear(), new Date(t.datetime).getMonth(), new Date(t.datetime).getDate()).toISOString().slice(0,10), type: t.type as 'Buy'|'Sell', units: Math.abs(t.quantity), unitPrice: t.priceUsd || 0 }));
+    const txsA = (txs || []).filter(t => {
+      if (t.type === 'Swap') {
+        return t.toAsset.toUpperCase() === asset || t.fromAsset?.toUpperCase() === asset;
+      }
+      return false;
+    }).map(t => {
+      const date = new Date(new Date(t.datetime).getFullYear(), new Date(t.datetime).getMonth(), new Date(t.datetime).getDate()).toISOString().slice(0,10);
+      // Check if buying or selling this asset
+      if (t.toAsset.toUpperCase() === asset) {
+        // Buying this asset
+        return { date, type: 'Buy' as const, units: Math.abs(t.toQuantity), unitPrice: t.toPriceUsd || 0 };
+      } else {
+        // Selling this asset
+        return { date, type: 'Sell' as const, units: Math.abs(t.fromQuantity || 0), unitPrice: t.fromPriceUsd || 0 };
+      }
+    });
     const txByDate = new Map<string, { type:'Buy'|'Sell'; units:number; unitPrice:number }[]>();
     for (const tx of txsA) { const arr = txByDate.get(tx.date) || []; arr.push(tx); txByDate.set(tx.date, arr); }
     let units = 0; let costVal = 0;
@@ -752,7 +876,15 @@ export default function DashboardPage(){
   const allocationData = useMemo(() => {
     return Object.entries(holdings)
       .map(([asset, units]) => {
-        const price = latestPrices[asset] || 0;
+        // For stablecoins, default price to $1 if not available from API
+        let price = latestPrices[asset];
+        if (price === undefined || price === 0) {
+          if (isStablecoin(asset)) {
+            price = 1.0;
+          } else {
+            price = 0;
+          }
+        }
         return { asset, units, value: price * units };
       })
       .filter(p => p.value > 0);
@@ -774,7 +906,11 @@ export default function DashboardPage(){
     if (latestPrices && Object.keys(latestPrices).length > 0) {
       for (const [a, units] of Object.entries(holdings)) {
         if (units <= 0) continue;
-        const price = latestPrices[a] || 0;
+        // For stablecoins, default price to $1 if not available from API
+        let price = latestPrices[a];
+        if (price === undefined || price === 0) {
+          price = isStablecoin(a) ? 1.0 : 0;
+        }
         currentValue += price * units;
       }
       const btcPrice = latestPrices['BTC'] || 0;
@@ -842,12 +978,36 @@ export default function DashboardPage(){
     // Group crypto buy/sell transactions by YYYY-MM-DD once
     const txsByDate = new Map<string, { asset: string; type: 'Buy' | 'Sell'; qty: number }[]>();
     for (const t of txs) {
-      const a = t.asset.toUpperCase();
-      if (a === 'USD') continue;
-      if (!(t.type === 'Buy' || t.type === 'Sell')) continue;
       const day = new Date(t.datetime).toISOString().slice(0, 10);
       const arr = txsByDate.get(day) || [];
-      arr.push({ asset: a, type: t.type, qty: Math.abs(t.quantity) });
+      
+      if (t.type === 'Swap') {
+        // For Swap: toAsset is what we're buying, fromAsset is what we're selling
+        if (t.toAsset) {
+          const toA = t.toAsset.toUpperCase();
+          if (toA !== 'USD') {
+            arr.push({ asset: toA, type: 'Buy' as const, qty: Math.abs(t.toQuantity) });
+          }
+        }
+        if (t.fromAsset) {
+          const fromA = t.fromAsset.toUpperCase();
+          if (fromA !== 'USD') {
+            arr.push({ asset: fromA, type: 'Sell' as const, qty: Math.abs(t.fromQuantity || 0) });
+          }
+        }
+      } else if (t.type === 'Deposit') {
+        // Deposit: add to holdings
+        const toA = t.toAsset.toUpperCase();
+        if (toA !== 'USD') {
+          arr.push({ asset: toA, type: 'Buy' as const, qty: Math.abs(t.toQuantity) });
+        }
+      } else if (t.type === 'Withdrawal') {
+        // Withdrawal: remove from holdings
+        const toA = t.toAsset.toUpperCase();
+        if (toA !== 'USD') {
+          arr.push({ asset: toA, type: 'Sell' as const, qty: Math.abs(t.toQuantity) });
+        }
+      }
       txsByDate.set(day, arr);
     }
 
@@ -919,14 +1079,24 @@ export default function DashboardPage(){
       for (const date of dates) {
         // Find all transactions for this asset up to this date
         const relevantTxs = txs.filter(tx => 
-          tx.asset.toUpperCase() === asset && 
           new Date(tx.datetime).toISOString().slice(0, 10) <= date
         );
         
         // Calculate position for this asset up to this date
         currentPosition = relevantTxs.reduce((pos, tx) => {
-          const quantity = Math.abs(tx.quantity);
-          return pos + (tx.type === 'Buy' ? quantity : -quantity);
+          if (tx.type === 'Swap') {
+            if (tx.toAsset.toUpperCase() === asset) {
+              return pos + tx.toQuantity;
+            }
+            if (tx.fromAsset?.toUpperCase() === asset) {
+              return pos - (tx.fromQuantity || 0);
+            }
+          } else if (tx.type === 'Deposit' && tx.toAsset.toUpperCase() === asset) {
+            return pos + tx.toQuantity;
+          } else if (tx.type === 'Withdrawal' && tx.toAsset.toUpperCase() === asset) {
+            return pos - tx.toQuantity;
+          }
+          return pos;
         }, 0);
         
         dailyPositions.get(date)![asset] = currentPosition;
@@ -986,7 +1156,6 @@ export default function DashboardPage(){
         
         // Calculate cumulative position and cost basis for this asset up to this date
         const relevantTxs = txs.filter(tx => 
-          tx.asset.toUpperCase() === asset && 
           new Date(tx.datetime).toISOString().slice(0, 10) <= date
         );
         
@@ -994,17 +1163,36 @@ export default function DashboardPage(){
         let totalCostUsd = 0;
         
         for (const tx of relevantTxs) {
-          const quantity = Math.abs(tx.quantity);
-          if (tx.type === 'Buy') {
+          if (tx.type === 'Swap') {
+            // Check if buying or selling this asset
+            if (tx.toAsset.toUpperCase() === asset) {
+              // Buying this asset
+              const quantity = Math.abs(tx.toQuantity);
+              totalQuantity += quantity;
+              totalCostUsd += quantity * (tx.toPriceUsd || 0);
+            } else if (tx.fromAsset?.toUpperCase() === asset) {
+              // Selling this asset - use average cost method
+              const quantity = Math.abs(tx.fromQuantity || 0);
+              if (totalQuantity > 0) {
+                const currentAvgCost = totalCostUsd / totalQuantity;
+                const unitsToSell = Math.min(quantity, totalQuantity);
+                totalCostUsd -= unitsToSell * currentAvgCost;
+                totalQuantity -= unitsToSell;
+              }
+            }
+          } else if (tx.type === 'Deposit' && tx.toAsset.toUpperCase() === asset) {
+            // Deposit: add to holdings
+            const quantity = Math.abs(tx.toQuantity);
             totalQuantity += quantity;
-            totalCostUsd += quantity * (tx.priceUsd || 0);
-          } else {
-            // For sells, use average cost method
+            totalCostUsd += quantity * (tx.toPriceUsd || 1);
+          } else if (tx.type === 'Withdrawal' && tx.toAsset.toUpperCase() === asset) {
+            // Withdrawal: remove from holdings using average cost method
+            const quantity = Math.abs(tx.toQuantity);
             if (totalQuantity > 0) {
               const currentAvgCost = totalCostUsd / totalQuantity;
-              const unitsToSell = Math.min(quantity, totalQuantity);
-              totalCostUsd -= unitsToSell * currentAvgCost;
-              totalQuantity -= unitsToSell;
+              const unitsToWithdraw = Math.min(quantity, totalQuantity);
+              totalCostUsd -= unitsToWithdraw * currentAvgCost;
+              totalQuantity -= unitsToWithdraw;
             }
           }
         }
@@ -1023,20 +1211,40 @@ export default function DashboardPage(){
           let totalBtcCostUsd = 0;
           
           for (const tx of relevantTxs) {
-            const quantity = Math.abs(tx.quantity);
             const txDate = new Date(tx.datetime).toISOString().slice(0, 10);
             const btcPriceAtTx = priceMap.get(txDate + '|' + 'BTC') || currentBtcPrice; // Use BTC price at transaction time
             
-            if (tx.type === 'Buy') {
-              const costUsd = quantity * (tx.priceUsd || 0);
+            if (tx.type === 'Swap' && tx.toAsset.toUpperCase() === asset) {
+              // Buying this altcoin - calculate equivalent BTC purchase
+              const quantity = Math.abs(tx.toQuantity);
+              const costUsd = quantity * (tx.toPriceUsd || 0);
               const btcQuantity = costUsd / btcPriceAtTx;
               totalBtcQuantity += btcQuantity;
               totalBtcCostUsd += costUsd;
-            } else {
-              // For sells, reduce BTC position using average cost method
+            } else if (tx.type === 'Swap' && tx.fromAsset?.toUpperCase() === asset) {
+              // Selling this altcoin - reduce BTC position using average cost method
+              const quantity = Math.abs(tx.fromQuantity || 0);
               if (totalBtcQuantity > 0) {
                 const currentAvgBtcCost = totalBtcCostUsd / totalBtcQuantity;
-                const costUsd = quantity * (tx.priceUsd || 0);
+                const costUsd = quantity * (tx.fromPriceUsd || 0);
+                const btcQuantityToSell = costUsd / btcPriceAtTx;
+                const unitsToSell = Math.min(btcQuantityToSell, totalBtcQuantity);
+                totalBtcCostUsd -= unitsToSell * currentAvgBtcCost;
+                totalBtcQuantity -= unitsToSell;
+              }
+            } else if (tx.type === 'Deposit' && tx.toAsset.toUpperCase() === asset) {
+              // Deposit: calculate equivalent BTC purchase
+              const quantity = Math.abs(tx.toQuantity);
+              const costUsd = quantity * (tx.toPriceUsd || 1);
+              const btcQuantity = costUsd / btcPriceAtTx;
+              totalBtcQuantity += btcQuantity;
+              totalBtcCostUsd += costUsd;
+            } else if (tx.type === 'Withdrawal' && tx.toAsset.toUpperCase() === asset) {
+              // Withdrawal: reduce BTC position using average cost method
+              const quantity = Math.abs(tx.toQuantity);
+              if (totalBtcQuantity > 0) {
+                const currentAvgBtcCost = totalBtcCostUsd / totalBtcQuantity;
+                const costUsd = quantity * (tx.toPriceUsd || 1);
                 const btcQuantityToSell = costUsd / btcPriceAtTx;
                 const unitsToSell = Math.min(btcQuantityToSell, totalBtcQuantity);
                 totalBtcCostUsd -= unitsToSell * currentAvgBtcCost;
@@ -1076,16 +1284,43 @@ export default function DashboardPage(){
     const txsByDate: { ai: number; dq: number }[][] = new Array(dates.length);
     for (let i = 0; i < dates.length; i++) txsByDate[i] = [];
     for (const t of txs) {
-      const type = t.type;
-      if (!(type === 'Buy' || type === 'Sell')) continue;
-      const a = t.asset.toUpperCase();
-      const ai = priceIndex.assetIndex[a];
-      if (ai === undefined) continue;
       const day = new Date(t.datetime).toISOString().slice(0, 10);
       const di = priceIndex.dateIndex[day];
       if (di === undefined) continue;
-      const dq = (type === 'Buy' ? 1 : -1) * Math.abs(t.quantity);
-      txsByDate[di].push({ ai, dq });
+      
+      if (t.type === 'Swap') {
+        // For swaps: toAsset increases (buy), fromAsset decreases (sell)
+        if (t.toAsset) {
+          const toA = t.toAsset.toUpperCase();
+          const ai = priceIndex.assetIndex[toA];
+          if (ai !== undefined) {
+            const dq = Math.abs(t.toQuantity);
+            txsByDate[di].push({ ai, dq });
+          }
+        }
+        if (t.fromAsset) {
+          const fromA = t.fromAsset.toUpperCase();
+          const ai = priceIndex.assetIndex[fromA];
+          if (ai !== undefined) {
+            const dq = -Math.abs(t.fromQuantity || 0);
+            txsByDate[di].push({ ai, dq });
+          }
+        }
+      } else if (t.type === 'Deposit') {
+        const a = t.toAsset.toUpperCase();
+        const ai = priceIndex.assetIndex[a];
+        if (ai !== undefined) {
+          const dq = Math.abs(t.toQuantity);
+          txsByDate[di].push({ ai, dq });
+        }
+      } else if (t.type === 'Withdrawal') {
+        const a = t.toAsset.toUpperCase();
+        const ai = priceIndex.assetIndex[a];
+        if (ai !== undefined) {
+          const dq = -Math.abs(t.toQuantity);
+          txsByDate[di].push({ ai, dq });
+        }
+      }
     }
 
     // Rolling holdings for assets that are currently non-zero
@@ -1134,8 +1369,14 @@ export default function DashboardPage(){
     // Group transactions once by asset symbol (uppercased)
     const grouped: Record<string, typeof txs> = {};
     for (const t of txs) {
-      const a = t.asset.toUpperCase();
-      (grouped[a] ||= []).push(t);
+      // Group by all involved assets
+      const assets: string[] = [];
+      if (t.fromAsset) assets.push(t.fromAsset.toUpperCase());
+      if (t.toAsset) assets.push(t.toAsset.toUpperCase());
+      
+      for (const a of assets) {
+        (grouped[a] ||= []).push(t);
+      }
     }
 
     const heatmapData: { asset: string; pnl: number; color: string }[] = [];
@@ -1180,16 +1421,21 @@ export default function DashboardPage(){
       let totalQuantity = 0;
       let totalCostUsd = 0;
       for (const tx of arr) {
-        const quantity = Math.abs(tx.quantity);
-        if (tx.type === 'Buy') {
-          totalQuantity += quantity;
-          totalCostUsd += quantity * (tx.priceUsd || 0);
-        } else {
-          if (totalQuantity > 0) {
-            const currentAvgCost = totalCostUsd / totalQuantity;
-            const unitsToSell = Math.min(quantity, totalQuantity);
-            totalCostUsd -= unitsToSell * currentAvgCost;
-            totalQuantity -= unitsToSell;
+        if (tx.type === 'Swap') {
+          if (tx.toAsset.toUpperCase() === asset) {
+            // Buying
+            const quantity = Math.abs(tx.toQuantity);
+            totalQuantity += quantity;
+            totalCostUsd += quantity * (tx.toPriceUsd || 0);
+          } else if (tx.fromAsset?.toUpperCase() === asset) {
+            // Selling
+            const quantity = Math.abs(tx.fromQuantity || 0);
+            if (totalQuantity > 0) {
+              const currentAvgCost = totalCostUsd / totalQuantity;
+              const unitsToSell = Math.min(quantity, totalQuantity);
+              totalCostUsd -= unitsToSell * currentAvgCost;
+              totalQuantity -= unitsToSell;
+            }
           }
         }
       }

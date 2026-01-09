@@ -40,24 +40,55 @@ export function usePnLCalculation(
     const realizedPnL: Record<string, number> = {};
 
     // Process all transactions
+    // Note: For PORTFOLIO tracking, we calculate P&L on swaps based on USD values (opportunity cost)
+    // This is different from TAX calculations where crypto-to-crypto swaps are not taxable in Romania
     txs.forEach(tx => {
-      if (tx.type === 'Buy') {
-        holdings[tx.asset] = (holdings[tx.asset] || 0) + tx.quantity;
-        costBasis[tx.asset] = (costBasis[tx.asset] || 0) + (tx.priceUsd || 0) * tx.quantity;
-      } else if (tx.type === 'Sell') {
-        const sellQuantity = Math.min(tx.quantity, holdings[tx.asset] || 0);
-        const avgCost = holdings[tx.asset] > 0 ? (costBasis[tx.asset] || 0) / holdings[tx.asset] : 0;
+      if (tx.type === 'Swap' && tx.fromAsset && tx.fromQuantity && tx.fromPriceUsd) {
+        // Swap transaction: exchange one asset for another
+        const fromAsset = tx.fromAsset;
+        const toAsset = tx.toAsset;
         
-        // Realize P&L on sale
-        const sellValue = (tx.priceUsd || 0) * sellQuantity;
-        const sellCost = avgCost * sellQuantity;
-        const realizedGain = sellValue - sellCost;
+        // Remove from source asset
+        const fromQty = Math.min(tx.fromQuantity, holdings[fromAsset] || 0);
+        const avgCost = holdings[fromAsset] > 0 ? (costBasis[fromAsset] || 0) / holdings[fromAsset] : 0;
+        const transferredCost = avgCost * fromQty;
         
-        realizedPnL[tx.asset] = (realizedPnL[tx.asset] || 0) + realizedGain;
+        holdings[fromAsset] = (holdings[fromAsset] || 0) - fromQty;
+        costBasis[fromAsset] = (costBasis[fromAsset] || 0) - transferredCost;
+        
+        // Calculate realized P&L from this swap (USD opportunity cost)
+        const valueReceived = tx.toQuantity * (tx.toPriceUsd || 0); // What you got in USD
+        const realizedGain = valueReceived - transferredCost; // Gain/loss vs your cost basis
+        
+        realizedPnL[fromAsset] = (realizedPnL[fromAsset] || 0) + realizedGain;
+        
+        // Add to target asset with NEW cost basis = current USD value
+        holdings[toAsset] = (holdings[toAsset] || 0) + tx.toQuantity;
+        costBasis[toAsset] = (costBasis[toAsset] || 0) + valueReceived;
+        
+      } else if (tx.type === 'Deposit') {
+        // Deposits add to holdings (fiat → crypto)
+        holdings[tx.toAsset] = (holdings[tx.toAsset] || 0) + tx.toQuantity;
+        // Deposits establish cost basis at the deposit value
+        const cost = tx.toQuantity * (tx.toPriceUsd || 1);
+        costBasis[tx.toAsset] = (costBasis[tx.toAsset] || 0) + cost;
+        
+      } else if (tx.type === 'Withdrawal') {
+        // Withdrawals remove from holdings (crypto → fiat)
+        // This is the ONLY taxable event in Romanian tax law
+        const withdrawQuantity = Math.min(tx.toQuantity, holdings[tx.toAsset] || 0);
+        const avgCost = holdings[tx.toAsset] > 0 ? (costBasis[tx.toAsset] || 0) / holdings[tx.toAsset] : 0;
+        
+        // Realize P&L on withdrawal
+        const withdrawValue = tx.toQuantity * (tx.toPriceUsd || 1);
+        const withdrawCost = avgCost * withdrawQuantity;
+        const realizedGain = withdrawValue - withdrawCost;
+        
+        realizedPnL[tx.toAsset] = (realizedPnL[tx.toAsset] || 0) + realizedGain;
         
         // Update holdings and cost basis
-        holdings[tx.asset] = (holdings[tx.asset] || 0) - sellQuantity;
-        costBasis[tx.asset] = (costBasis[tx.asset] || 0) - sellCost;
+        holdings[tx.toAsset] = (holdings[tx.toAsset] || 0) - withdrawQuantity;
+        costBasis[tx.toAsset] = (costBasis[tx.toAsset] || 0) - withdrawCost;
       }
     });
 

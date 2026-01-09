@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerAuth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { calculateRomaniaTax } from '@/lib/tax/romania';
+import { calculateRomaniaTax } from '@/lib/tax/romania-v2';
 import { getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/exchange-rates';
 import type { LotStrategy } from '@/lib/tax/lot-strategy';
 
@@ -51,25 +51,21 @@ export async function GET(req: NextRequest) {
     // Crypto buys/sells are already in USD (USDC) so they don't need FX.
     if (transactions.length) {
       const fiatAssets = new Set(['EUR', 'USD', 'RON']);
-      const relevant = transactions.filter((t) => fiatAssets.has(String(t.asset || '').toUpperCase()));
+      const relevant = transactions.filter((t) => 
+        fiatAssets.has(String(t.fromAsset || '').toUpperCase()) || 
+        fiatAssets.has(String(t.toAsset || '').toUpperCase())
+      );
       const list = relevant.length ? relevant : transactions;
       const start = list[0].datetime.toISOString().slice(0, 10);
       const end = list[list.length - 1].datetime.toISOString().slice(0, 10);
       await preloadExchangeRates(start, end);
     }
 
-    // Convert to Transaction type
+    // Convert to Transaction type (with datetime as ISO string)
     const txs = transactions.map((tx) => ({
-      id: tx.id,
-      asset: tx.asset,
-      type: tx.type as 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal',
-      priceUsd: tx.priceUsd,
-      quantity: tx.quantity,
+      ...tx,
+      type: tx.type as 'Deposit' | 'Withdrawal' | 'Swap',
       datetime: tx.datetime.toISOString(),
-      costUsd: tx.costUsd,
-      proceedsUsd: tx.proceedsUsd,
-      notes: tx.notes,
-      portfolioId: tx.portfolioId,
     }));
 
     // Get USD to RON exchange rate for the year

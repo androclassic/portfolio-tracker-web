@@ -13,30 +13,46 @@ export async function POST(req: NextRequest) {
     // TradingView header: Symbol,Side,Qty,Fill Price,Commission,Closing Time
     lines = ['Symbol,Side,Qty,Fill Price,Commission,Closing Time'];
     for (const r of rows) {
-      const symbol = r.asset.toUpperCase() === 'USD' ? '$CASH' : `${r.asset.toUpperCase()}USD`;
-      const side = r.type;
-      const qty = Math.abs(r.quantity);
-      const fill = (r.type === 'Buy' || r.type === 'Sell') ? (r.priceUsd ?? '') : '';
-      const comm = r.feesUsd ?? '';
       const ts = new Date(r.datetime).toISOString().replace('T',' ').slice(0,19);
-      const vals = [symbol, side, qty, fill, comm, ts];
-      const line = vals.map(v => typeof v === 'string' ? `"${String(v).replace(/"/g,'""')}"` : String(v)).join(',');
-      lines.push(line);
+      const comm = r.feesUsd ?? '';
+      
+      if (r.type === 'Swap' && r.fromAsset && r.fromQuantity && r.fromPriceUsd) {
+        // Export Swap as two rows: Sell (from) and Buy (to)
+        // Sell side
+        const sellSymbol = r.fromAsset.toUpperCase() === 'USD' ? '$CASH' : `${r.fromAsset.toUpperCase()}USD`;
+        const sellVals = [sellSymbol, 'Sell', Math.abs(r.fromQuantity), r.fromPriceUsd, comm, ts];
+        lines.push(sellVals.map(v => typeof v === 'string' ? `"${String(v).replace(/"/g,'""')}"` : String(v)).join(','));
+        
+        // Buy side
+        const buySymbol = r.toAsset.toUpperCase() === 'USD' ? '$CASH' : `${r.toAsset.toUpperCase()}USD`;
+        const buyVals = [buySymbol, 'Buy', Math.abs(r.toQuantity), r.toPriceUsd ?? '', '', ts];
+        lines.push(buyVals.map(v => typeof v === 'string' ? `"${String(v).replace(/"/g,'""')}"` : String(v)).join(','));
+      } else {
+        // Deposit or Withdrawal
+        const symbol = r.toAsset.toUpperCase() === 'USD' ? '$CASH' : `${r.toAsset.toUpperCase()}USD`;
+        const side = r.type;
+        const qty = Math.abs(r.toQuantity);
+        const fill = r.toPriceUsd ?? '';
+        const vals = [symbol, side, qty, fill, comm, ts];
+        const line = vals.map(v => typeof v === 'string' ? `"${String(v).replace(/"/g,'""')}"` : String(v)).join(',');
+        lines.push(line);
+      }
     }
   } else {
-    const header = ['id','asset','type','price_usd','quantity','datetime','fees_usd','cost_usd','proceeds_usd','notes'];
+    const header = ['id','type','datetime','from_asset','from_quantity','from_price_usd','to_asset','to_quantity','to_price_usd','fees_usd','notes'];
     lines = [header.join(',')];
     for (const r of rows) {
       const vals = [
         r.id,
-        r.asset,
         r.type,
-        r.priceUsd ?? '',
-        r.quantity,
         new Date(r.datetime).toISOString(),
+        r.fromAsset ?? '',
+        r.fromQuantity ?? '',
+        r.fromPriceUsd ?? '',
+        r.toAsset,
+        r.toQuantity,
+        r.toPriceUsd ?? '',
         r.feesUsd ?? '',
-        r.costUsd ?? '',
-        r.proceedsUsd ?? '',
         (r.notes || '').replace(/\"/g,'\"\"'),
       ];
       const line = vals.map(v => typeof v === 'string' ? `"${v}"` : String(v)).join(',');

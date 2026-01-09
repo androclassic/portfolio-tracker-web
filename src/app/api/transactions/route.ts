@@ -6,16 +6,32 @@ import type { Transaction } from '@prisma/client';
 import { getServerAuth } from '@/lib/auth';
 
 const TxSchema = z.object({
-  asset: z.string().min(1),
-  type: z.enum(['Buy','Sell','Deposit','Withdrawal']),
-  priceUsd: z.number().nullable().optional(),
-  quantity: z.number().nonnegative(),
+  type: z.enum(['Deposit','Withdrawal','Swap']),
   datetime: z.string(),
   feesUsd: z.number().nullable().optional(),
-  costUsd: z.number().nullable().optional(),
-  proceedsUsd: z.number().nullable().optional(),
   notes: z.string().nullable().optional(),
-});
+  
+  // For Swap transactions: what you give up
+  fromAsset: z.string().nullable().optional(),
+  fromQuantity: z.number().nonnegative().nullable().optional(),
+  fromPriceUsd: z.number().nullable().optional(),
+  
+  // What you receive/move (always populated)
+  toAsset: z.string().min(1),
+  toQuantity: z.number().nonnegative(),
+  toPriceUsd: z.number().nullable().optional(),
+}).refine(
+  (data) => {
+    // For Swap transactions, fromAsset, fromQuantity, and fromPriceUsd must all be present
+    if (data.type === 'Swap') {
+      return data.fromAsset && data.fromQuantity && data.fromPriceUsd;
+    }
+    return true;
+  },
+  {
+    message: 'Swap transactions require fromAsset, fromQuantity, and fromPriceUsd',
+  }
+);
 
 const TxBatchSchema = z.object({
   portfolioId: z.number().optional(),
@@ -74,11 +90,12 @@ export async function POST(req: NextRequest) {
   }
   const created = await prisma.$transaction(
     txs.map((t) => {
-      const { datetime, asset, ...rest } = t;
+      const { datetime, toAsset, fromAsset, ...rest } = t;
       return prisma.transaction.create({
         data: {
           ...rest,
-          asset: asset.toUpperCase(),
+          toAsset: toAsset.toUpperCase(),
+          fromAsset: fromAsset ? fromAsset.toUpperCase() : null,
           datetime: new Date(datetime),
           portfolioId: portfolio.id,
         },

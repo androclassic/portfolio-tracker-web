@@ -1,25 +1,31 @@
 /**
  * Romanian Tax Calculation (FIFO)
  *
- * DB semantics (confirmed from SQLite):
- * - `Deposit`: fiat deposited to the exchange (usually EUR) with `costUsd` set as USD equivalent.
- * - `Buy`: buying a crypto asset with `costUsd` set (USD spent).
- * - `Sell`: selling a crypto asset with `proceedsUsd` set (USD received).
- * - `Withdrawal`: fiat withdrawn from the exchange (usually USD) with `proceedsUsd` sometimes set.
+ * Transaction Model:
+ * - `Deposit`: Fiat -> Stablecoin (typically USDC). Adds to cash queue.
+ * - `Swap`: All crypto-to-crypto transactions (including stablecoin ↔ crypto).
+ *   - Stablecoin -> Crypto: Consumes from cash queue, adds to asset queue (transfers cost basis).
+ *   - Crypto -> Stablecoin: Consumes from asset queue, adds to cash queue (transfers cost basis).
+ *   - Crypto -> Crypto: Consumes from one asset queue, adds to another (transfers cost basis).
+ * - `Withdrawal`: Stablecoin -> Fiat. Consumes cash lots for gain/loss calculation.
+ *
+ * Key insight: At the end of the day, any transaction besides deposits and withdrawals 
+ * are crypto-to-crypto transactions (swaps). This makes tracing easier to follow.
  *
  * We model this like an accountant:
- * - Maintain a FIFO **cash queue** in USD-equivalent.
+ * - Maintain a FIFO **cash queue** in USD-equivalent (for stablecoins).
  *   - Deposits add principal cash lots (cost basis == amount).
- *   - Sells add cash lots whose cost basis comes from the crypto lots sold (basis transfer).
- *   - Buys consume cash lots (transferring their embedded cost basis into the acquired crypto lots).
+ *   - Swaps to stablecoin add cash lots whose cost basis comes from the crypto lots swapped (basis transfer).
+ *   - Swaps from stablecoin consume cash lots (transferring their embedded cost basis into the acquired crypto lots).
  *   - Withdrawals consume cash lots; the consumed cost basis is used for gain/loss.
- * - Maintain FIFO **asset queues** for each crypto/stablecoin asset.
+ * - Maintain FIFO **asset queues** for each crypto asset (non-stablecoin).
  *
  * Taxable events (per your request): fiat withdrawals.
  * All calculations are done in USD and converted to RON only at the end.
  */
 
 import type { Transaction } from '@/lib/types';
+import { STABLECOINS, isStablecoin } from '@/lib/types';
 import { getFiatCurrencies } from '@/lib/assets';
 import { getHistoricalExchangeRateSyncStrict } from '@/lib/exchange-rates';
 import {
@@ -62,10 +68,14 @@ export interface SourceTrace {
   quantity: number;
   costBasisUsd: number;
   datetime: string;
-  type: 'Deposit' | 'Buy';
+  type: 'Deposit' | 'Swap' | 'CryptoSwap';
   pricePerUnitUsd?: number;
   originalCurrency?: string;
   exchangeRateAtPurchase?: number;
+  // For crypto-to-crypto swaps: what asset was swapped from
+  swappedFromAsset?: string;
+  swappedFromQuantity?: number;
+  swappedFromTransactionId?: number;
 }
 
 export interface BuyLotTrace {
@@ -82,6 +92,17 @@ export interface BuyLotTrace {
     asset: string; // asset that was sold to fund this buy
     amountUsd: number; // USD amount from that sale used to fund this buy lot
     costBasisUsd?: number; // embedded cost basis transferred from that sale into this buy (USD)
+  }>;
+  // For crypto-to-crypto swaps: track what was swapped from
+  swappedFromAsset?: string;
+  swappedFromQuantity?: number;
+  swappedFromTransactionId?: number;
+  swappedFromBuyLots?: Array<{
+    buyTransactionId: number;
+    buyDatetime: string;
+    asset: string;
+    quantity: number;
+    costBasisUsd: number;
   }>;
 }
 
@@ -145,6 +166,17 @@ type CashMeta = {
         amountUsd: number;
         costBasisUsd?: number;
       }>;
+      // For crypto-to-crypto swaps: track what was swapped from
+      swappedFromAsset?: string;
+      swappedFromQuantity?: number;
+      swappedFromTransactionId?: number;
+      swappedFromBuyLots?: Array<{
+        buyTransactionId: number;
+        buyDatetime: string;
+        asset: string;
+        quantity: number;
+        costBasisUsd: number;
+      }>;
     }>;
   };
 };
@@ -164,6 +196,17 @@ type AssetMeta = {
       asset: string;
       amountUsd: number;
       costBasisUsd?: number;
+    }>;
+    // For crypto-to-crypto swaps: track what was swapped from
+    swappedFromAsset?: string;
+    swappedFromQuantity?: number;
+    swappedFromTransactionId?: number;
+    swappedFromBuyLots?: Array<{
+      buyTransactionId: number;
+      buyDatetime: string;
+      asset: string;
+      quantity: number;
+      costBasisUsd: number;
     }>;
   }>;
 };
@@ -242,6 +285,18 @@ function splitAssetMeta(meta: unknown, ratioUsed: number): { usedMeta: unknown; 
             costBasisUsd: fs.costBasisUsd === undefined ? undefined : fs.costBasisUsd * ratioUsed,
           }))
         : undefined,
+      // Preserve swap information (don't scale these - they're metadata about the swap)
+      swappedFromAsset: bl.swappedFromAsset,
+      swappedFromQuantity: bl.swappedFromQuantity,
+      swappedFromTransactionId: bl.swappedFromTransactionId,
+      // Scale swappedFromBuyLots quantities and cost basis
+      swappedFromBuyLots: bl.swappedFromBuyLots
+        ? bl.swappedFromBuyLots.map((sbl) => ({
+            ...sbl,
+            quantity: sbl.quantity * ratioUsed,
+            costBasisUsd: sbl.costBasisUsd * ratioUsed,
+          }))
+        : undefined,
     })),
   };
   const remaining: AssetMeta = {
@@ -258,6 +313,18 @@ function splitAssetMeta(meta: unknown, ratioUsed: number): { usedMeta: unknown; 
             costBasisUsd: fs.costBasisUsd === undefined ? undefined : fs.costBasisUsd * (1 - ratioUsed),
           }))
         : undefined,
+      // Preserve swap information (don't scale these - they're metadata about the swap)
+      swappedFromAsset: bl.swappedFromAsset,
+      swappedFromQuantity: bl.swappedFromQuantity,
+      swappedFromTransactionId: bl.swappedFromTransactionId,
+      // Scale swappedFromBuyLots quantities and cost basis
+      swappedFromBuyLots: bl.swappedFromBuyLots
+        ? bl.swappedFromBuyLots.map((sbl) => ({
+            ...sbl,
+            quantity: sbl.quantity * (1 - ratioUsed),
+            costBasisUsd: sbl.costBasisUsd * (1 - ratioUsed),
+          }))
+        : undefined,
     })),
   };
   return { usedMeta: used, remainingMeta: remaining };
@@ -271,31 +338,30 @@ function txDateISO(txDatetime: string): string {
 
 function getFiatUsdAmount(tx: Transaction): { amountUsd: number; fxRateToUsd: number } {
   const fiatCurrencies = getFiatCurrencies();
-  const asset = tx.asset.toUpperCase();
+  const asset = tx.toAsset.toUpperCase();
   const isFiat = fiatCurrencies.includes(asset);
   if (!isFiat) return { amountUsd: 0, fxRateToUsd: 1 };
 
   if (asset === 'USD') {
-    const usd = tx.proceedsUsd ?? tx.costUsd ?? tx.quantity;
+    const usd = tx.toQuantity;
     return { amountUsd: usd, fxRateToUsd: 1 };
   }
 
-  // Optional explicit per-unit FX stored on the tx (e.g. EUR tx with priceUsd = USD per 1 EUR).
+  // Optional explicit per-unit FX stored on the tx (e.g. EUR tx with toPriceUsd = USD per 1 EUR).
   // If present, it should be preferred over any historical fallback.
-  const fxFromTx = tx.priceUsd && tx.priceUsd > 0 ? tx.priceUsd : null;
+  const fxFromTx = tx.toPriceUsd && tx.toPriceUsd > 0 ? tx.toPriceUsd : null;
 
   const date = txDateISO(tx.datetime);
   const fx = fxFromTx ?? getHistoricalExchangeRateSyncStrict(asset, 'USD', date);
-  const expectedUsd = (tx.quantity || 0) * fx;
+  const expectedUsd = (tx.toQuantity || 0) * fx;
 
-  // Some imports incorrectly populate costUsd/proceedsUsd for fiat rows (fees, partials, etc).
-  // Only trust explicit USD if it matches quantity*FX within a small tolerance.
-  const explicitUsd = tx.proceedsUsd ?? tx.costUsd;
+  // For the new model, we can use toPriceUsd * toQuantity as the USD amount
+  const explicitUsd = tx.toPriceUsd ? tx.toQuantity * tx.toPriceUsd : null;
   if (explicitUsd && explicitUsd > 0) {
     const denom = Math.max(1e-9, expectedUsd);
     const relDiff = Math.abs(explicitUsd - expectedUsd) / denom;
     if (relDiff <= 0.05) {
-      const inferredFx = tx.quantity > 0 ? explicitUsd / tx.quantity : fx;
+      const inferredFx = tx.toQuantity > 0 ? explicitUsd / tx.toQuantity : fx;
       return { amountUsd: explicitUsd, fxRateToUsd: fxFromTx ?? inferredFx };
     }
   }
@@ -305,13 +371,13 @@ function getFiatUsdAmount(tx: Transaction): { amountUsd: number; fxRateToUsd: nu
 
 function getFiatRonAmount(tx: Transaction): { amountRon: number; fxRateToRon: number } {
   const fiatCurrencies = getFiatCurrencies();
-  const asset = tx.asset.toUpperCase();
+  const asset = tx.toAsset.toUpperCase();
   const isFiat = fiatCurrencies.includes(asset);
   if (!isFiat) return { amountRon: 0, fxRateToRon: 1 };
-  if (asset === 'RON') return { amountRon: tx.quantity || 0, fxRateToRon: 1 };
+  if (asset === 'RON') return { amountRon: tx.toQuantity || 0, fxRateToRon: 1 };
   const date = txDateISO(tx.datetime);
   const fx = getHistoricalExchangeRateSyncStrict(asset, 'RON', date);
-  return { amountRon: (tx.quantity || 0) * fx, fxRateToRon: fx };
+  return { amountRon: (tx.toQuantity || 0) * fx, fxRateToRon: fx };
 }
 
 function contributionsToDepositTrace(contribs: Contribution[]): SourceTrace[] {
@@ -334,7 +400,23 @@ function contributionsToDepositTrace(contribs: Contribution[]): SourceTrace[] {
 
 function buyLotsToSourceTrace(buyLots: BuyLotTrace[]): SourceTrace[] {
   // Aggregate buy lots by buy tx id to keep the UI/report readable
-  const map = new Map<number, { asset: string; datetime: string; quantity: number; costBasisUsd: number }>();
+  // But preserve swap information for crypto-to-crypto swaps
+  const map = new Map<number, { 
+    asset: string; 
+    datetime: string; 
+    quantity: number; 
+    costBasisUsd: number;
+    swappedFromAsset?: string;
+    swappedFromQuantity?: number;
+    swappedFromTransactionId?: number;
+    swappedFromBuyLots?: Array<{
+      buyTransactionId: number;
+      buyDatetime: string;
+      asset: string;
+      quantity: number;
+      costBasisUsd: number;
+    }>;
+  }>();
   for (const bl of buyLots) {
     const prev = map.get(bl.buyTransactionId);
     if (!prev) {
@@ -343,25 +425,70 @@ function buyLotsToSourceTrace(buyLots: BuyLotTrace[]): SourceTrace[] {
         datetime: bl.buyDatetime,
         quantity: bl.quantity,
         costBasisUsd: bl.costBasisUsd,
+        swappedFromAsset: bl.swappedFromAsset,
+        swappedFromQuantity: bl.swappedFromQuantity,
+        swappedFromTransactionId: bl.swappedFromTransactionId,
+        swappedFromBuyLots: bl.swappedFromBuyLots,
       });
     } else {
       prev.quantity += bl.quantity;
       prev.costBasisUsd += bl.costBasisUsd;
+      // Preserve swap info from first occurrence
+      if (!prev.swappedFromAsset && bl.swappedFromAsset) {
+        prev.swappedFromAsset = bl.swappedFromAsset;
+        prev.swappedFromQuantity = bl.swappedFromQuantity;
+        prev.swappedFromTransactionId = bl.swappedFromTransactionId;
+        prev.swappedFromBuyLots = bl.swappedFromBuyLots;
+      }
       map.set(bl.buyTransactionId, prev);
     }
   }
 
-  return Array.from(map.entries()).map(([buyTxId, v]) => ({
-    transactionId: buyTxId,
-    asset: v.asset,
-    quantity: v.quantity,
-    costBasisUsd: v.costBasisUsd,
-    datetime: v.datetime,
-    type: 'Buy',
-    pricePerUnitUsd: v.quantity > 0 ? v.costBasisUsd / v.quantity : undefined,
-    originalCurrency: 'USD',
-    exchangeRateAtPurchase: 1.0,
-  }));
+  const result: SourceTrace[] = [];
+  
+  // First, add all original buy lots from swappedFromBuyLots (e.g., SOL buy before ADA swap)
+  const originalBuyTxIds = new Set<number>();
+  for (const v of map.values()) {
+    if (v.swappedFromBuyLots) {
+      for (const originalLot of v.swappedFromBuyLots) {
+        if (!originalBuyTxIds.has(originalLot.buyTransactionId)) {
+          originalBuyTxIds.add(originalLot.buyTransactionId);
+          result.push({
+            transactionId: originalLot.buyTransactionId,
+            asset: originalLot.asset,
+            quantity: originalLot.quantity,
+            costBasisUsd: originalLot.costBasisUsd,
+            datetime: originalLot.buyDatetime,
+            type: 'Swap', // Original buy (e.g., USDC → SOL)
+            pricePerUnitUsd: originalLot.quantity > 0 ? originalLot.costBasisUsd / originalLot.quantity : undefined,
+            originalCurrency: 'USD',
+            exchangeRateAtPurchase: 1.0,
+          });
+        }
+      }
+    }
+  }
+  
+  // Then add the swap/buy transactions themselves
+  for (const [buyTxId, v] of map.entries()) {
+    result.push({
+      transactionId: buyTxId,
+      asset: v.asset,
+      quantity: v.quantity,
+      costBasisUsd: v.costBasisUsd,
+      datetime: v.datetime,
+      type: v.swappedFromAsset ? 'CryptoSwap' : 'Swap',
+      pricePerUnitUsd: v.quantity > 0 ? v.costBasisUsd / v.quantity : undefined,
+      originalCurrency: 'USD',
+      exchangeRateAtPurchase: 1.0,
+      swappedFromAsset: v.swappedFromAsset,
+      swappedFromQuantity: v.swappedFromQuantity,
+      swappedFromTransactionId: v.swappedFromTransactionId,
+    });
+  }
+  
+  // Sort by datetime to show chronological order
+  return result.sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
 }
 
 export function calculateRomaniaTax(
@@ -384,12 +511,10 @@ export function calculateRomaniaTax(
     switch (t) {
       case 'Deposit':
         return 0;
-      case 'Sell':
+      case 'Swap':
         return 1;
-      case 'Buy':
-        return 2;
       case 'Withdrawal':
-        return 3;
+        return 2;
       default:
         return 9;
     }
@@ -448,12 +573,50 @@ export function calculateRomaniaTax(
   const warnings: string[] = [];
 
   for (const tx of sortedTxs) {
-    const asset = tx.asset.toUpperCase();
+    // For deposits, fiat currency is in fromAsset; for withdrawals, it's in toAsset
+    const asset = tx.type === 'Deposit' && tx.fromAsset 
+      ? tx.fromAsset.toUpperCase() 
+      : tx.toAsset.toUpperCase();
     const isFiat = fiatCurrencies.includes(asset);
 
     if (tx.type === 'Deposit') {
-      if (!isFiat) continue;
-      const { amountUsd, fxRateToUsd } = getFiatUsdAmount(tx);
+      if (!isFiat || !tx.fromAsset) continue;
+      // For deposits: fromAsset = fiat, fromQuantity = fiat amount
+      // toAsset = stablecoin, toQuantity = stablecoin amount received
+      // Use the actual stablecoin amount received (toQuantity * toPriceUsd) for the cash queue
+      // This accounts for fees and exchange rate differences
+      const fiatAmount = tx.fromQuantity || 0;
+      if (fiatAmount <= 0) continue;
+      
+      let amountUsd: number;
+      let fxRateToUsd: number;
+      
+      // If toAsset is a stablecoin, use the actual amount received
+      const toAsset = tx.toAsset?.toUpperCase();
+      if (toAsset && isStablecoin(toAsset)) {
+        // Use the actual stablecoin amount received (stablecoins are always worth $1.0 per unit)
+        // toPriceUsd might store the fiat/USD rate, but the stablecoin itself is worth $1.0
+        amountUsd = (tx.toQuantity || 0) * 1.0;
+        // Calculate FX rate from fiat to USD for reporting purposes
+        if (asset === 'USD') {
+          fxRateToUsd = 1.0;
+        } else {
+          const fxFromTx = tx.fromPriceUsd && tx.fromPriceUsd > 0 ? tx.fromPriceUsd : null;
+          const date = txDateISO(tx.datetime);
+          fxRateToUsd = fxFromTx ?? getHistoricalExchangeRateSyncStrict(asset, 'USD', date);
+        }
+      } else if (asset === 'USD') {
+        amountUsd = fiatAmount;
+        fxRateToUsd = 1.0;
+      } else {
+        // For EUR or other fiat, use fromPriceUsd if available, otherwise fetch historical rate
+        const fxFromTx = tx.fromPriceUsd && tx.fromPriceUsd > 0 ? tx.fromPriceUsd : null;
+        const date = txDateISO(tx.datetime);
+        const fx = fxFromTx ?? getHistoricalExchangeRateSyncStrict(asset, 'USD', date);
+        amountUsd = fiatAmount * fx;
+        fxRateToUsd = fx;
+      }
+      
       if (amountUsd <= 0) continue;
 
       const contrib: Contribution = {
@@ -470,10 +633,14 @@ export function calculateRomaniaTax(
       continue;
     }
 
-    if (tx.type === 'Buy') {
+    // Swap: Stablecoin → Crypto (consume cash, acquire crypto)
+    // This is NOT a taxable event in Romania, but we track for cost basis
+    const isStableToCrypto = tx.type === 'Swap' && tx.fromAsset && isStablecoin(tx.fromAsset);
+    if (isStableToCrypto) {
       if (isFiat) continue;
-      const spendUsd = tx.costUsd ?? ((tx.priceUsd || 0) * tx.quantity);
-      if (!spendUsd || spendUsd <= 0 || !tx.quantity || tx.quantity <= 0) continue;
+      const spendUsd = (tx.fromQuantity || 0) * (tx.fromPriceUsd || 0);
+      const quantity = tx.toQuantity;
+      if (!spendUsd || spendUsd <= 0 || !quantity || quantity <= 0) continue;
 
       const cashBal = cashQueue.entries.reduce((s, e) => s + e.quantity, 0);
       const spendActualUsd = Math.min(spendUsd, cashBal);
@@ -522,7 +689,7 @@ export function calculateRomaniaTax(
       if (!assetQueues.has(asset)) assetQueues.set(asset, createFIFOQueue(asset));
       const q = assetQueues.get(asset)!;
       const qtyRatio = spendUsd > 0 ? (spendActualUsd / spendUsd) : 1;
-      const actualQty = tx.quantity * qtyRatio;
+      const actualQty = quantity * qtyRatio;
       const meta: AssetMeta = {
         buyLots: [
           {
@@ -534,38 +701,50 @@ export function calculateRomaniaTax(
             costBasisUsd: totalCostBasis,
             contributions,
             fundingSells: fundingSells.length ? fundingSells : undefined,
+            // Track that this came from a stablecoin swap
+            swappedFromAsset: tx.fromAsset || undefined,
+            swappedFromQuantity: tx.fromQuantity || 0,
+            swappedFromTransactionId: tx.id,
           },
         ],
       };
-      const updated = addToFIFO(q, tx.id, actualQty, totalCostBasis, tx.datetime, `Buy ${asset}`, meta);
+      const updated = addToFIFO(q, tx.id, actualQty, totalCostBasis, tx.datetime, `Swap ${tx.fromAsset || '?'}→${asset}`, meta);
       assetQueues.set(asset, updated);
       continue;
     }
 
-    if (tx.type === 'Sell') {
+    // Swap: Crypto → Stablecoin (swap crypto for stablecoin)
+    // Consumes from asset queue, adds to cash queue (transfers cost basis)
+    // This is NOT a taxable event in Romania, but we track for cost basis
+    const isCryptoToStable = tx.type === 'Swap' && 
+      tx.fromAsset && !isStablecoin(tx.fromAsset) &&
+      isStablecoin(tx.toAsset);
+    if (isCryptoToStable) {
       if (isFiat) continue;
-      if (!assetQueues.has(asset)) continue;
-      if (!tx.quantity || tx.quantity <= 0) continue;
-      const proceedsUsd = tx.proceedsUsd ?? ((tx.priceUsd || 0) * tx.quantity);
+      const sellAsset = tx.fromAsset || '';
+      if (!assetQueues.has(sellAsset)) continue;
+      const quantity = tx.fromQuantity || 0;
+      if (!quantity || quantity <= 0) continue;
+      const proceedsUsd = (tx.toQuantity || 0) * (tx.toPriceUsd || 0);
       if (!proceedsUsd || proceedsUsd <= 0) continue;
 
-      const q = assetQueues.get(asset)!;
+      const q = assetQueues.get(sellAsset)!;
       const assetBal = q.entries.reduce((s, e) => s + e.quantity, 0);
-      const sellActualQty = Math.min(tx.quantity, assetBal);
+      const sellActualQty = Math.min(quantity, assetBal);
       if (sellActualQty <= 0) {
-        warnings.push(`Sell tx ${tx.id} (${tx.datetime}) could not be processed (no holdings for ${asset}). Skipped.`);
+        warnings.push(`Sell tx ${tx.id} (${tx.datetime}) could not be processed (no holdings for ${sellAsset}). Skipped.`);
         continue;
       }
-      if (sellActualQty + 1e-9 < tx.quantity) {
+      if (sellActualQty + 1e-9 < quantity) {
         warnings.push(
-          `Sell tx ${tx.id} (${tx.datetime}) quantity=${tx.quantity} exceeds holdings=${assetBal}. ` +
-          `Scaling proceeds and quantity by ${(sellActualQty / tx.quantity).toFixed(6)}.`
+          `Sell tx ${tx.id} (${tx.datetime}) quantity=${quantity} exceeds holdings=${assetBal}. ` +
+          `Scaling proceeds and quantity by ${(sellActualQty / quantity).toFixed(6)}.`
         );
       }
-      const proceedsActualUsd = proceedsUsd * (sellActualQty / tx.quantity);
+      const proceedsActualUsd = proceedsUsd * (sellActualQty / quantity);
 
       const { removed, remaining, totalCostBasis } = removeFromLots(q, sellActualQty, { strategy: assetStrategy, splitMeta: splitAssetMeta });
-      assetQueues.set(asset, remaining);
+      assetQueues.set(sellAsset, remaining);
 
       const removedBuyLots = removed.flatMap((e) => ((e.meta as AssetMeta | undefined)?.buyLots ?? []));
       const contributions = mergeContributions(removedBuyLots.flatMap((bl) => bl.contributions));
@@ -576,7 +755,7 @@ export function calculateRomaniaTax(
         sale: {
           saleTransactionId: tx.id,
           saleDatetime: tx.datetime,
-          asset,
+          asset: sellAsset,
           proceedsUsd: proceedsActualUsd,
           costBasisUsd: totalCostBasis,
           buyLots: removedBuyLots.map((bl) => ({
@@ -588,6 +767,10 @@ export function calculateRomaniaTax(
             costBasisUsd: bl.costBasisUsd,
             contributions: bl.contributions,
             fundingSells: bl.fundingSells,
+            swappedFromAsset: bl.swappedFromAsset,
+            swappedFromQuantity: bl.swappedFromQuantity,
+            swappedFromTransactionId: bl.swappedFromTransactionId,
+            swappedFromBuyLots: bl.swappedFromBuyLots,
           })),
         },
       };
@@ -595,8 +778,87 @@ export function calculateRomaniaTax(
       // Store full sale metadata for later deep tracing
       if (meta.sale) saleMetaById.set(tx.id, meta.sale);
 
-      const updated = addToFIFO(cashQueue, tx.id, proceedsActualUsd, totalCostBasis, tx.datetime, `Sell ${asset}`, meta);
+      const updated = addToFIFO(cashQueue, tx.id, proceedsActualUsd, totalCostBasis, tx.datetime, `Sell ${sellAsset}`, meta);
       cashQueue.entries = updated.entries;
+      continue;
+    }
+
+    // Swap: Crypto → Crypto (e.g., BTC → ETH)
+    // This is NOT a taxable event in Romania
+    // We consume from one asset queue and add to another, transferring cost basis
+    const isCryptoToCrypto = tx.type === 'Swap' && 
+      tx.fromAsset && !isStablecoin(tx.fromAsset) &&
+      !isStablecoin(tx.toAsset);
+    if (isCryptoToCrypto) {
+      if (isFiat) continue;
+      const fromAssetName = tx.fromAsset || '';
+      const toAssetName = tx.toAsset;
+      
+      if (!assetQueues.has(fromAssetName)) {
+        warnings.push(`Crypto swap tx ${tx.id} (${tx.datetime}) could not be processed (no holdings for ${fromAssetName}). Skipped.`);
+        continue;
+      }
+      
+      const fromQty = tx.fromQuantity || 0;
+      const toQty = tx.toQuantity || 0;
+      if (!fromQty || fromQty <= 0 || !toQty || toQty <= 0) continue;
+      
+      // Remove from source asset
+      const fromQueue = assetQueues.get(fromAssetName)!;
+      const fromBal = fromQueue.entries.reduce((s, e) => s + e.quantity, 0);
+      const actualFromQty = Math.min(fromQty, fromBal);
+      
+      if (actualFromQty <= 0) {
+        warnings.push(`Crypto swap tx ${tx.id} (${tx.datetime}) could not be processed (no holdings for ${fromAssetName}). Skipped.`);
+        continue;
+      }
+      
+      const { removed, remaining, totalCostBasis } = removeFromLots(fromQueue, actualFromQty, { strategy: assetStrategy, splitMeta: splitAssetMeta });
+      assetQueues.set(fromAssetName, remaining);
+      
+      // Add to target asset with transferred cost basis
+      const removedBuyLots = removed.flatMap((e) => ((e.meta as AssetMeta | undefined)?.buyLots ?? []));
+      const contributions = mergeContributions(removedBuyLots.flatMap((bl) => bl.contributions));
+      
+      const toQtyRatio = fromQty > 0 ? (actualFromQty / fromQty) : 1;
+      const actualToQty = toQty * toQtyRatio;
+      
+      if (!assetQueues.has(toAssetName)) assetQueues.set(toAssetName, createFIFOQueue(toAssetName));
+      const toQueue = assetQueues.get(toAssetName)!;
+      
+      // Track the swap chain: preserve original buy lots from the source asset
+      // NOTE: removedBuyLots already have the correct quantities and cost basis from removeFromLots
+      // We should NOT scale them by toQtyRatio - that ratio is only for scaling the TO quantity
+      const swappedFromBuyLots = removedBuyLots.map(bl => ({
+        buyTransactionId: bl.buyTransactionId,
+        buyDatetime: bl.buyDatetime,
+        asset: bl.asset,
+        quantity: bl.quantity, // Use the actual removed quantity (already correct from removeFromLots)
+        costBasisUsd: bl.costBasisUsd, // Use the actual removed cost basis (already correct from removeFromLots)
+      }));
+      
+      const meta: AssetMeta = {
+        buyLots: [
+          {
+            buyTransactionId: tx.id,
+            buyDatetime: tx.datetime,
+            asset: toAssetName,
+            quantity: actualToQty,
+            cashSpentUsd: undefined, // No cash involved in crypto-to-crypto
+            costBasisUsd: totalCostBasis, // Transfer cost basis from source asset
+            contributions,
+            fundingSells: undefined,
+            // Track the swap chain
+            swappedFromAsset: fromAssetName,
+            swappedFromQuantity: actualFromQty,
+            swappedFromTransactionId: tx.id,
+            swappedFromBuyLots: swappedFromBuyLots.length > 0 ? swappedFromBuyLots : undefined,
+          },
+        ],
+      };
+      
+      const updatedTo = addToFIFO(toQueue, tx.id, actualToQty, totalCostBasis, tx.datetime, `Swap ${fromAssetName} to ${toAssetName}`, meta);
+      assetQueues.set(toAssetName, updatedTo);
       continue;
     }
 
@@ -607,30 +869,60 @@ export function calculateRomaniaTax(
       const { amountRon, fxRateToRon } = getFiatRonAmount(tx);
 
       const cashBal = cashQueue.entries.reduce((s, e) => s + e.quantity, 0);
-      if (cashBal <= 0) continue;
-
-      const withdrawActualUsd = Math.min(amountUsd, cashBal);
-      const withdrawScale = amountUsd > 0 ? (withdrawActualUsd / amountUsd) : 0;
-      const withdrawActualRon = amountRon * withdrawScale;
-      const withdrawActualOriginal = (tx.quantity || 0) * withdrawScale;
-      if (withdrawActualUsd + 1e-9 < amountUsd) {
+      
+      // Handle withdrawals even if cash balance is 0 (record as taxable event with 0 cost basis)
+      let withdrawActualUsd: number;
+      let withdrawScale: number;
+      let withdrawActualRon: number;
+      let withdrawActualOriginal: number;
+      let totalCostBasis: number;
+      let removed: ReturnType<typeof removeFromLots>['removed'];
+      let remaining: ReturnType<typeof removeFromLots>['remaining'];
+      
+      if (cashBal <= 0) {
+        // No cash available - still record as taxable event but with 0 cost basis
         warnings.push(
-          `Withdrawal tx ${tx.id} (${tx.datetime}) amountUsd=${amountUsd.toFixed(2)} exceeds cash balance=${cashBal.toFixed(2)}. ` +
-          `Treating only ${withdrawActualUsd.toFixed(2)} as sourced from tracked cash lots.`
+          `Withdrawal tx ${tx.id} (${tx.datetime}) amountUsd=${amountUsd.toFixed(2)} has no tracked cash balance. ` +
+          `This withdrawal will be recorded with 0 cost basis (full amount is taxable gain).`
         );
+        withdrawActualUsd = amountUsd;
+        withdrawScale = 1.0;
+        withdrawActualRon = amountRon;
+        withdrawActualOriginal = tx.toQuantity || 0;
+        totalCostBasis = 0;
+        removed = [];
+        remaining = createFIFOQueue('CASH_USD');
+      } else {
+        withdrawActualUsd = Math.min(amountUsd, cashBal);
+        withdrawScale = amountUsd > 0 ? (withdrawActualUsd / amountUsd) : 0;
+        withdrawActualRon = amountRon * withdrawScale;
+        withdrawActualOriginal = (tx.toQuantity || 0) * withdrawScale;
+        if (withdrawActualUsd + 1e-9 < amountUsd) {
+          warnings.push(
+            `Withdrawal tx ${tx.id} (${tx.datetime}) amountUsd=${amountUsd.toFixed(2)} exceeds cash balance=${cashBal.toFixed(2)}. ` +
+            `Treating only ${withdrawActualUsd.toFixed(2)} as sourced from tracked cash lots.`
+          );
+        }
+        const result = removeFromLots(cashQueue, withdrawActualUsd, { strategy: cashStrategy, splitMeta: splitCashMeta });
+        removed = result.removed;
+        remaining = result.remaining;
+        totalCostBasis = result.totalCostBasis;
+        cashQueue.entries = remaining.entries;
       }
-      const { removed, remaining, totalCostBasis } = removeFromLots(cashQueue, withdrawActualUsd, { strategy: cashStrategy, splitMeta: splitCashMeta });
-      cashQueue.entries = remaining.entries;
 
-      const contributions = mergeContributions(
-        removed.flatMap((e) => ((e.meta as CashMeta | undefined)?.contributions ?? []))
-      );
+      const contributions = removed.length > 0 
+        ? mergeContributions(
+            removed.flatMap((e) => ((e.meta as CashMeta | undefined)?.contributions ?? []))
+          )
+        : [];
       const depositTrace: SourceTrace[] = contributionsToDepositTrace(contributions);
 
       // Build sell->buy traceability for "how you made the money"
-      const saleEntries = removed
-        .map((e) => (e.meta as CashMeta | undefined)?.sale)
-        .filter((s): s is NonNullable<CashMeta['sale']> => Boolean(s));
+      const saleEntries = removed.length > 0
+        ? removed
+            .map((e) => (e.meta as CashMeta | undefined)?.sale)
+            .filter((s): s is NonNullable<CashMeta['sale']> => Boolean(s))
+        : [];
 
       const saleMap = new Map<number, SaleTrace>();
       for (const s of saleEntries) {
@@ -668,6 +960,10 @@ export function calculateRomaniaTax(
               costBasisUsd: bl.costBasisUsd,
               fundingDeposits: contributionsToDepositTrace(bl.contributions),
               fundingSells: bl.fundingSells,
+              swappedFromAsset: bl.swappedFromAsset,
+              swappedFromQuantity: bl.swappedFromQuantity,
+              swappedFromTransactionId: bl.swappedFromTransactionId,
+              swappedFromBuyLots: bl.swappedFromBuyLots,
             });
           } else {
             existing.quantity += bl.quantity;
@@ -703,6 +999,28 @@ export function calculateRomaniaTax(
                 }
               });
               existing.fundingSells = Array.from(m.values());
+            }
+            
+            // Preserve swap information if not already set (should be the same for same buyTransactionId, but preserve if missing)
+            if (!existing.swappedFromAsset && bl.swappedFromAsset) {
+              existing.swappedFromAsset = bl.swappedFromAsset;
+              existing.swappedFromQuantity = bl.swappedFromQuantity;
+              existing.swappedFromTransactionId = bl.swappedFromTransactionId;
+              existing.swappedFromBuyLots = bl.swappedFromBuyLots;
+            } else if (existing.swappedFromBuyLots && bl.swappedFromBuyLots) {
+              // Merge swappedFromBuyLots if both exist (shouldn't happen for same buyTransactionId, but handle it)
+              const mergedSwappedFromBuyLots = new Map<number, typeof existing.swappedFromBuyLots[0]>();
+              existing.swappedFromBuyLots.forEach((sbl) => mergedSwappedFromBuyLots.set(sbl.buyTransactionId, { ...sbl }));
+              bl.swappedFromBuyLots.forEach((sbl) => {
+                const prev = mergedSwappedFromBuyLots.get(sbl.buyTransactionId);
+                if (!prev) {
+                  mergedSwappedFromBuyLots.set(sbl.buyTransactionId, { ...sbl });
+                } else {
+                  prev.quantity += sbl.quantity;
+                  prev.costBasisUsd += sbl.costBasisUsd;
+                }
+              });
+              existing.swappedFromBuyLots = Array.from(mergedSwappedFromBuyLots.values());
             }
           }
         }
@@ -774,6 +1092,18 @@ export function calculateRomaniaTax(
                   ...fs,
                   amountUsd: fs.amountUsd * ratio,
                   costBasisUsd: fs.costBasisUsd === undefined ? undefined : fs.costBasisUsd * ratio,
+                }))
+              : undefined,
+            // Preserve swap information (don't scale these - they're metadata about the swap)
+            swappedFromAsset: bl.swappedFromAsset,
+            swappedFromQuantity: bl.swappedFromQuantity,
+            swappedFromTransactionId: bl.swappedFromTransactionId,
+            // Scale swappedFromBuyLots quantities and cost basis
+            swappedFromBuyLots: bl.swappedFromBuyLots
+              ? bl.swappedFromBuyLots.map((sbl) => ({
+                  ...sbl,
+                  quantity: sbl.quantity * ratio,
+                  costBasisUsd: sbl.costBasisUsd * ratio,
                 }))
               : undefined,
           }));
