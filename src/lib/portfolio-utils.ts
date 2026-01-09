@@ -1,4 +1,4 @@
-import { Transaction as Tx, PricePoint } from '@/lib/types';
+import { Transaction as Tx, PricePoint, TransactionHelpers } from '@/lib/types';
 import { SUPPORTED_ASSETS } from '@/lib/assets';
 
 export interface HoldingData {
@@ -34,10 +34,18 @@ export const calculateHoldings = (txs: Tx[]): Record<string, number> => {
   const holdings: Record<string, number> = {};
   
   txs.forEach(tx => {
-    if (tx.type === 'Buy') {
-      holdings[tx.asset] = (holdings[tx.asset] || 0) + tx.quantity;
-    } else if (tx.type === 'Sell') {
-      holdings[tx.asset] = (holdings[tx.asset] || 0) - tx.quantity;
+    if (tx.type === 'Swap') {
+      // For swaps, update both assets
+      if (tx.fromAsset) {
+        holdings[tx.fromAsset] = (holdings[tx.fromAsset] || 0) - (tx.fromQuantity || 0);
+      }
+      holdings[tx.toAsset] = (holdings[tx.toAsset] || 0) + tx.toQuantity;
+    } else if (tx.type === 'Deposit') {
+      // Deposit adds to holdings
+      holdings[tx.toAsset] = (holdings[tx.toAsset] || 0) + tx.toQuantity;
+    } else if (tx.type === 'Withdrawal') {
+      // Withdrawal removes from holdings
+      holdings[tx.toAsset] = (holdings[tx.toAsset] || 0) - tx.toQuantity;
     }
   });
   
@@ -46,14 +54,23 @@ export const calculateHoldings = (txs: Tx[]): Record<string, number> => {
 
 // Calculate cost basis for an asset
 export const calculateCostBasis = (asset: string, txs: Tx[]): { avgCost: number; costBasis: number } => {
-  const buyTxs = txs.filter(tx => tx.asset === asset && tx.type === 'Buy');
+  // Filter transactions where we're acquiring this asset (including deposits)
+  const acquisitionTxs = txs.filter(tx => 
+    (tx.type === 'Swap' && tx.toAsset === asset) ||
+    (tx.type === 'Deposit' && tx.toAsset === asset)
+  );
   
   let totalCost = 0;
   let totalQuantity = 0;
   
-  buyTxs.forEach(tx => {
-    totalCost += tx.quantity * (tx.priceUsd || 0);
-    totalQuantity += tx.quantity;
+  acquisitionTxs.forEach(tx => {
+    if (tx.type === 'Swap') {
+      totalCost += TransactionHelpers.getFromValueUsd(tx);
+      totalQuantity += tx.toQuantity;
+    } else if (tx.type === 'Deposit') {
+      totalCost += TransactionHelpers.getToValueUsd(tx);
+      totalQuantity += tx.toQuantity;
+    }
   });
   
   const avgCost = totalQuantity > 0 ? totalCost / totalQuantity : 0;

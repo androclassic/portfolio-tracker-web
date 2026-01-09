@@ -25,9 +25,9 @@ export function usePortfolioData() {
     if (!txs) return [];
     const assets = new Set<string>();
     txs.forEach(tx => {
-      if (tx.type === 'Buy' || tx.type === 'Sell') {
-        assets.add(tx.asset);
-      }
+      // Collect all involved assets
+      if (tx.fromAsset) assets.add(tx.fromAsset);
+      if (tx.toAsset) assets.add(tx.toAsset);
     });
     return Array.from(assets);
   }, [txs]);

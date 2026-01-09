@@ -8,9 +8,10 @@ interface AssetInputProps {
   onChange: (asset: SupportedAsset | null, symbol: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  filter?: (asset: SupportedAsset) => boolean;
 }
 
-export default function AssetInput({ value, onChange, placeholder = "Search crypto...", disabled = false }: AssetInputProps) {
+export default function AssetInput({ value, onChange, placeholder = "Search crypto...", disabled = false, filter }: AssetInputProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<SupportedAsset[]>([]);
   const [inputValue, setInputValue] = useState(value);
@@ -28,10 +29,14 @@ export default function AssetInput({ value, onChange, placeholder = "Search cryp
   }, [value]);
 
   useEffect(() => {
-    const results = searchAssets(inputValue);
+    let results = searchAssets(inputValue);
+    // Apply filter if provided
+    if (filter) {
+      results = results.filter(filter);
+    }
     setSearchResults(results);
     setHighlightedIndex(-1);
-  }, [inputValue]);
+  }, [inputValue, filter]);
 
   const selectAsset = (asset: SupportedAsset) => {
     isTypingRef.current = false;

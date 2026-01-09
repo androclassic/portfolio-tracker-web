@@ -23,7 +23,7 @@ const fetcher = jsonFetcher;
 /**
  * Convert taxable event source trace to Sankey diagram format
  */
-function createSankeyData(event: TaxableEvent): { data: Data[]; layout: Partial<Layout> } {
+function createSankeyData(event: TaxableEvent, transactions?: Tx[]): { data: Data[]; layout: Partial<Layout> } {
   const sourceTrace = event.sourceTrace;
   
   if (sourceTrace.length === 0) {
@@ -35,6 +35,53 @@ function createSankeyData(event: TaxableEvent): { data: Data[]; layout: Partial<
 
   // Prefer rich trace: Deposits -> Buys -> Sells -> Withdrawal (use deep trace if available)
   const saleTrace = (event.saleTraceDeep && event.saleTraceDeep.length ? event.saleTraceDeep : event.saleTrace) || [];
+  
+  // Build a map of swap information from sourceTrace (in case it's missing from saleTrace buy lots)
+  const swapInfoByBuyTxId = new Map<number, { swappedFromAsset?: string; swappedFromQuantity?: number; swappedFromTransactionId?: number }>();
+  // Also build a map of original buy lots from sourceTrace (for swaps that came from other crypto)
+  const originalBuyLotsBySwapTxId = new Map<number, Array<{ buyTransactionId: number; buyDatetime: string; asset: string; quantity: number; costBasisUsd: number }>>();
+  
+  for (const trace of sourceTrace) {
+    if (trace.swappedFromAsset && trace.transactionId) {
+      swapInfoByBuyTxId.set(trace.transactionId, {
+        swappedFromAsset: trace.swappedFromAsset,
+        swappedFromQuantity: trace.swappedFromQuantity,
+        swappedFromTransactionId: trace.swappedFromTransactionId,
+      });
+    }
+  }
+  
+  // Look through sourceTrace to find original buy lots that were swapped
+  // For each swap transaction, find the original buy lots that came before it
+  for (let i = 0; i < sourceTrace.length; i++) {
+    const trace = sourceTrace[i];
+    if (trace.swappedFromAsset && (trace.type === 'CryptoSwap' || trace.type === 'Swap')) {
+      // This is a swap (e.g., SOL → ADA, transaction 4)
+      // Look for the original buy lots that came before it (e.g., Buy SOL, transaction 3)
+      const originalLots: Array<{ buyTransactionId: number; buyDatetime: string; asset: string; quantity: number; costBasisUsd: number }> = [];
+      for (let j = 0; j < i; j++) {
+        const prevTrace = sourceTrace[j];
+        // Match if the previous trace is the asset we swapped from
+        // Only match if it's not itself a swap (to get the original buy, not intermediate swaps)
+        if (prevTrace.asset === trace.swappedFromAsset && 
+            prevTrace.transactionId && 
+            !prevTrace.swappedFromAsset) {
+          // This is the original buy (e.g., Buy SOL from USDC, not a swap)
+          originalLots.push({
+            buyTransactionId: prevTrace.transactionId,
+            buyDatetime: prevTrace.datetime,
+            asset: prevTrace.asset,
+            quantity: prevTrace.quantity,
+            costBasisUsd: prevTrace.costBasisUsd,
+          });
+        }
+      }
+      if (originalLots.length > 0) {
+        originalBuyLotsBySwapTxId.set(trace.transactionId, originalLots);
+      }
+    }
+  }
+  
   if (saleTrace.length > 0) {
     // Transaction-level flow (no loops): Deposits -> Buys -> Sells -> Withdrawal, plus Sell -> Buy funding hops.
     // This avoids cycles that appear when you aggregate by asset (e.g., sell BTC then later buy BTC again).
@@ -111,14 +158,39 @@ function createSankeyData(event: TaxableEvent): { data: Data[]; layout: Partial<
       sale.buyLots.forEach((lot) => {
         const buyKey = `buy:${lot.buyTransactionId}`;
         const buyDate = new Date(lot.buyDatetime).toISOString().slice(0, 10);
+        
+        // Check if this buy came from a swap (crypto-to-crypto or stablecoin-to-crypto)
+        // A swap is detected if swappedFromAsset exists and is different from the current asset
+        // If swap info is missing from the lot, try to get it from sourceTrace
+        let swappedFromAsset = lot.swappedFromAsset;
+        let swappedFromQuantity = lot.swappedFromQuantity;
+        let swappedFromTransactionId = lot.swappedFromTransactionId;
+        
+        if (!swappedFromAsset) {
+          const swapInfo = swapInfoByBuyTxId.get(lot.buyTransactionId);
+          if (swapInfo) {
+            swappedFromAsset = swapInfo.swappedFromAsset;
+            swappedFromQuantity = swapInfo.swappedFromQuantity;
+            swappedFromTransactionId = swapInfo.swappedFromTransactionId;
+          }
+        }
+        
+        const isSwap = swappedFromAsset && swappedFromAsset !== lot.asset;
+        
         const buyIdx = ensure(
           buyKey,
-          `Buy ${lot.asset} #${lot.buyTransactionId}`,
+          isSwap ? `Swap ${swappedFromAsset}→${lot.asset} #${lot.buyTransactionId}` : `Buy ${lot.asset} #${lot.buyTransactionId}`,
           [
-            `<b>Buy ${lot.asset}</b>`,
+            isSwap ? `<b>Swap ${swappedFromAsset} → ${lot.asset}</b>` : `<b>Buy ${lot.asset}</b>`,
             `Tx: ${lot.buyTransactionId}`,
             `Date: ${buyDate}`,
-            `Qty (sold from lot): ${lot.quantity.toFixed(8)}`,
+            isSwap ? (() => {
+              // Look up original transaction to get actual quantities (not scaled from sale)
+              const originalTx = transactions?.find((t: Tx) => t.id === lot.buyTransactionId);
+              const fromQty = originalTx?.fromQuantity || swappedFromQuantity || 0;
+              const toQty = originalTx?.toQuantity || lot.quantity;
+              return `Swapped ${fromQty.toFixed(8)} ${swappedFromAsset} → ${toQty.toFixed(8)} ${lot.asset}`;
+            })() : `Qty (sold from lot): ${lot.quantity.toFixed(8)}`,
             `Allocated basis: $${lot.costBasisUsd.toFixed(2)}`,
           ].join('<br>')
         );
@@ -132,51 +204,181 @@ function createSankeyData(event: TaxableEvent): { data: Data[]; layout: Partial<
           buyIdx,
           sellIdx,
           lotProceedsShare,
-          `<b>Buy lot → Sell</b><br>Attributed proceeds: $${lotProceedsShare.toFixed(2)}`,
+          `<b>${isSwap ? 'Swap' : 'Buy lot'} → Sell</b><br>Attributed proceeds: $${lotProceedsShare.toFixed(2)}`,
           getAssetColor(lot.asset)
         );
 
-        // Funding hops: Sell -> Buy and Deposits -> Buy (residual)
-        const fundingSells = (lot as BuyLotTraceWithFundingSells).fundingSells ?? [];
-        const fundingFromSellsUsd = fundingSells.reduce((sum, x) => sum + (x.amountUsd || 0), 0);
-        const cashSpentUsd = (lot as BuyLotTraceWithFundingSells).cashSpentUsd ?? lot.costBasisUsd;
-        const depositPortionUsd = Math.max(0, cashSpentUsd - fundingFromSellsUsd);
-        // IMPORTANT (visualization): cashSpentUsd (inputs at buy time) will usually differ from lotProceedsShare (outputs at sell time)
-        // because price changes create profit/loss. To avoid "empty space" in Sankey nodes, we normalize buy inputs so that
-        // (funding sells + deposits) equals the attributed proceeds flowing out of this buy-lot to the sell.
-        const inputTotalUsd = fundingFromSellsUsd + depositPortionUsd;
-        const scale = inputTotalUsd > 0 ? (lotProceedsShare / inputTotalUsd) : 0;
+        // If this is a swap, show the swap chain: original buy lots -> swap -> this buy
+        if (isSwap) {
+          // Prefer originalBuyLotsBySwapTxId (from sourceTrace with original values) over swappedFromBuyLots (scaled)
+          // This ensures we show the correct original transaction quantities (e.g., 10 SOL @ $1000, not 5 SOL @ $500)
+          let swappedFromBuyLots = originalBuyLotsBySwapTxId.get(lot.buyTransactionId);
+          
+          // Fall back to swappedFromBuyLots if not found in sourceTrace
+          if (!swappedFromBuyLots || swappedFromBuyLots.length === 0) {
+            swappedFromBuyLots = lot.swappedFromBuyLots;
+          }
+          
+          if (swappedFromBuyLots && swappedFromBuyLots.length > 0) {
+            // Show full chain: original buy lots → swap → this buy
+            // Calculate scale based on the actual cost basis used (from the lot), not the original buy lot
+            const swapInputTotal = swappedFromBuyLots.reduce((sum, bl) => sum + bl.costBasisUsd, 0);
+            const swapScale = swapInputTotal > 0 ? (lotProceedsShare / swapInputTotal) : 0;
+            
+            // Show each original buy lot that was swapped (e.g., SOL buy lots that were swapped to ADA)
+            swappedFromBuyLots.forEach((originalLot) => {
+              const originalBuyKey = `buy:${originalLot.buyTransactionId}`;
+              const originalBuyDate = new Date(originalLot.buyDatetime).toISOString().split('T')[0];
+              const originalBuyIdx = ensure(
+                originalBuyKey,
+                `Buy ${originalLot.asset} #${originalLot.buyTransactionId}`,
+                [
+                  `<b>Buy ${originalLot.asset}</b>`,
+                  `Tx: ${originalLot.buyTransactionId}`,
+                  `Date: ${originalBuyDate}`,
+                  `Qty: ${originalLot.quantity.toFixed(8)}`,
+                  `Cost basis: $${originalLot.costBasisUsd.toFixed(2)}`,
+                ].join('<br>')
+              );
+              
+              addEdge(
+                originalBuyIdx,
+                buyIdx,
+                originalLot.costBasisUsd * swapScale,
+                `<b>Buy ${originalLot.asset} → Swap</b><br>${originalLot.asset} buy funded ${swappedFromAsset}→${lot.asset} swap` +
+                  `<br>Original basis: $${originalLot.costBasisUsd.toFixed(2)} • Used in this sale: $${(originalLot.costBasisUsd * swapScale).toFixed(2)}`,
+                getAssetColor(originalLot.asset)
+              );
+            });
+          } else {
+            // Swap without buy lots (e.g., stablecoin → crypto where source came from cash queue)
+            // Show connection from deposits to the swap, since the source asset came from cash
+            const fundingSells = (lot as BuyLotTraceWithFundingSells).fundingSells ?? [];
+            const fundingFromSellsUsd = fundingSells.reduce((sum, x) => sum + (x.amountUsd || 0), 0);
+            const cashSpentUsd = (lot as BuyLotTraceWithFundingSells).cashSpentUsd ?? lot.costBasisUsd;
+            const depositPortionUsd = Math.max(0, cashSpentUsd - fundingFromSellsUsd);
+            const inputTotalUsd = fundingFromSellsUsd + depositPortionUsd;
+            const scale = inputTotalUsd > 0 ? (lotProceedsShare / inputTotalUsd) : 0;
 
-        fundingSells.forEach((fs) => {
-          const fsKey = `sell:${fs.saleTransactionId}`;
-          const fsDate = new Date(fs.saleDatetime).toISOString().slice(0, 10);
-          const fsIdx = ensure(
-            fsKey,
-            `Sell ${fs.asset} #${fs.saleTransactionId}`,
+            fundingSells.forEach((fs) => {
+              const fsKey = `sell:${fs.saleTransactionId}`;
+              const fsDate = new Date(fs.saleDatetime).toISOString().split('T')[0];
+              const fsIdx = ensure(
+                fsKey,
+                `Sell ${fs.asset} #${fs.saleTransactionId}`,
+                [
+                  `<b>Sell ${fs.asset}</b>`,
+                  `Tx: ${fs.saleTransactionId}`,
+                  `Date: ${fsDate}`,
+                ].join('<br>')
+              );
+              addEdge(
+                fsIdx,
+                buyIdx,
+                fs.amountUsd * scale,
+                `<b>Sell → Swap</b><br>${fs.asset} sale #${fs.saleTransactionId} funded ${lot.swappedFromAsset}→${lot.asset} swap` +
+                  `<br>Original: $${fs.amountUsd.toFixed(2)} • Used in this sale: $${(fs.amountUsd * scale).toFixed(2)}`,
+                getAssetColor(fs.asset)
+              );
+            });
+
+            if (depositPortionUsd > 0) {
+              addEdge(
+                depositsIdx,
+                buyIdx,
+                depositPortionUsd * scale,
+                `<b>Deposits → Swap</b><br>${swappedFromAsset}→${lot.asset} swap funded by deposits` +
+                  `<br>Original: $${depositPortionUsd.toFixed(2)} • Used in this sale: $${(depositPortionUsd * scale).toFixed(2)}`,
+                '#64748b'
+              );
+            }
+          }
+          
+          // For swaps with buy lots, also show funding sells and deposits if any
+          if (lot.swappedFromBuyLots && lot.swappedFromBuyLots.length > 0) {
+            const fundingSells = (lot as BuyLotTraceWithFundingSells).fundingSells ?? [];
+            const fundingFromSellsUsd = fundingSells.reduce((sum, x) => sum + (x.amountUsd || 0), 0);
+            const cashSpentUsd = (lot as BuyLotTraceWithFundingSells).cashSpentUsd ?? lot.costBasisUsd;
+            const depositPortionUsd = Math.max(0, cashSpentUsd - fundingFromSellsUsd);
+            const inputTotalUsd = fundingFromSellsUsd + depositPortionUsd;
+            const swapInputTotal = lot.swappedFromBuyLots.reduce((sum, bl) => sum + bl.costBasisUsd, 0);
+            const scale = inputTotalUsd > 0 ? ((swapInputTotal > 0 ? swapInputTotal : lotProceedsShare) / inputTotalUsd) : 0;
+
+            fundingSells.forEach((fs) => {
+              const fsKey = `sell:${fs.saleTransactionId}`;
+              const fsDate = new Date(fs.saleDatetime).toISOString().split('T')[0];
+              const fsIdx = ensure(
+                fsKey,
+                `Sell ${fs.asset} #${fs.saleTransactionId}`,
+                [
+                  `<b>Sell ${fs.asset}</b>`,
+                  `Tx: ${fs.saleTransactionId}`,
+                  `Date: ${fsDate}`,
+                ].join('<br>')
+              );
+              addEdge(
+                fsIdx,
+                buyIdx,
+                fs.amountUsd * scale,
+                `<b>Sell → Swap</b><br>${fs.asset} sale #${fs.saleTransactionId} funded ${swappedFromAsset}→${lot.asset} swap` +
+                  `<br>Original: $${fs.amountUsd.toFixed(2)} • Used in this sale: $${(fs.amountUsd * scale).toFixed(2)}`,
+                getAssetColor(fs.asset)
+              );
+            });
+
+            if (depositPortionUsd > 0) {
+              addEdge(
+                depositsIdx,
+                buyIdx,
+                depositPortionUsd * scale,
+                `<b>Deposits → Swap</b><br>Original: $${depositPortionUsd.toFixed(2)} • Used in this sale: $${(depositPortionUsd * scale).toFixed(2)}`,
+                '#64748b'
+              );
+            }
+          }
+        } else {
+          // Regular buy (not from swap): show funding from sells and deposits
+          const fundingSells = (lot as BuyLotTraceWithFundingSells).fundingSells ?? [];
+          const fundingFromSellsUsd = fundingSells.reduce((sum, x) => sum + (x.amountUsd || 0), 0);
+          const cashSpentUsd = (lot as BuyLotTraceWithFundingSells).cashSpentUsd ?? lot.costBasisUsd;
+          const depositPortionUsd = Math.max(0, cashSpentUsd - fundingFromSellsUsd);
+          // IMPORTANT (visualization): cashSpentUsd (inputs at buy time) will usually differ from lotProceedsShare (outputs at sell time)
+          // because price changes create profit/loss. To avoid "empty space" in Sankey nodes, we normalize buy inputs so that
+          // (funding sells + deposits) equals the attributed proceeds flowing out of this buy-lot to the sell.
+          const inputTotalUsd = fundingFromSellsUsd + depositPortionUsd;
+          const scale = inputTotalUsd > 0 ? (lotProceedsShare / inputTotalUsd) : 0;
+
+          fundingSells.forEach((fs) => {
+            const fsKey = `sell:${fs.saleTransactionId}`;
+            const fsDate = new Date(fs.saleDatetime).toISOString().split("T")[0];
+            const fsIdx = ensure(
+              fsKey,
+              `Sell ${fs.asset} #${fs.saleTransactionId}`,
             [
               `<b>Sell ${fs.asset}</b>`,
               `Tx: ${fs.saleTransactionId}`,
               `Date: ${fsDate}`,
             ].join('<br>')
-          );
-          addEdge(
-            fsIdx,
-            buyIdx,
-            fs.amountUsd * scale,
-            `<b>Sell → Buy</b><br>${fs.asset} sale #${fs.saleTransactionId} funded this buy` +
-              `<br>Raw: $${fs.amountUsd.toFixed(2)} • Scaled: $${(fs.amountUsd * scale).toFixed(2)}`,
-            getAssetColor(fs.asset)
-          );
-        });
+            );
+            addEdge(
+              fsIdx,
+              buyIdx,
+              fs.amountUsd * scale,
+                `<b>Sell → Buy</b><br>${fs.asset} sale #${fs.saleTransactionId} funded this buy` +
+                  `<br>Original: $${fs.amountUsd.toFixed(2)} • Used in this sale: $${(fs.amountUsd * scale).toFixed(2)}`,
+              getAssetColor(fs.asset)
+            );
+          });
 
-        if (depositPortionUsd > 0) {
-          addEdge(
-            depositsIdx,
-            buyIdx,
-            depositPortionUsd * scale,
-            `<b>Deposits → Buy</b><br>Raw: $${depositPortionUsd.toFixed(2)} • Scaled: $${(depositPortionUsd * scale).toFixed(2)}`,
-            '#64748b'
-          );
+          if (depositPortionUsd > 0) {
+            addEdge(
+              depositsIdx,
+              buyIdx,
+              depositPortionUsd * scale,
+                `<b>Deposits → Buy</b><br>Original: $${depositPortionUsd.toFixed(2)} • Used in this sale: $${(depositPortionUsd * scale).toFixed(2)}`,
+              '#64748b'
+            );
+          }
         }
       });
     });
@@ -206,6 +408,7 @@ function createSankeyData(event: TaxableEvent): { data: Data[]; layout: Partial<
         color: nodes.map((n) => {
           if (n === 'Withdrawal') return event.gainLossUsd >= 0 ? '#10b981' : '#ef4444';
           if (n === 'Deposits') return '#64748b';
+          if (n.startsWith('Swap')) return '#f59e0b'; // Orange for swaps
           if (n.startsWith('Buy')) return '#a855f7';
           if (n.startsWith('Sell')) return '#3b82f6';
           return '#94a3b8';
@@ -367,9 +570,56 @@ function createSankeyExplorerData(event: TaxableEvent, opts: {
   showLabels: boolean;
   nodeThickness: number;
   nodePad: number;
-}): SankeyExplorerData {
+}, transactions?: Tx[]): SankeyExplorerData {
+  const sourceTrace = event.sourceTrace;
   const directSales = event.saleTrace || [];
   const deepSales = (event.saleTraceDeep && event.saleTraceDeep.length ? event.saleTraceDeep : directSales) || [];
+  
+  // Build a map of swap information from sourceTrace (in case it's missing from saleTrace buy lots)
+  const swapInfoByBuyTxId = new Map<number, { swappedFromAsset?: string; swappedFromQuantity?: number; swappedFromTransactionId?: number }>();
+  // Also build a map of original buy lots from sourceTrace (for swaps that came from other crypto)
+  const originalBuyLotsBySwapTxId = new Map<number, Array<{ buyTransactionId: number; buyDatetime: string; asset: string; quantity: number; costBasisUsd: number }>>();
+  
+  for (const trace of sourceTrace) {
+    if (trace.swappedFromAsset && trace.transactionId) {
+      swapInfoByBuyTxId.set(trace.transactionId, {
+        swappedFromAsset: trace.swappedFromAsset,
+        swappedFromQuantity: trace.swappedFromQuantity,
+        swappedFromTransactionId: trace.swappedFromTransactionId,
+      });
+    }
+  }
+  
+  // Look through sourceTrace to find original buy lots that were swapped
+  // For each swap transaction, find the original buy lots that came before it
+  for (let i = 0; i < sourceTrace.length; i++) {
+    const trace = sourceTrace[i];
+    if (trace.swappedFromAsset && (trace.type === 'CryptoSwap' || trace.type === 'Swap')) {
+      // This is a swap (e.g., SOL → ADA, transaction 4)
+      // Look for the original buy lots that came before it (e.g., Buy SOL, transaction 3)
+      const originalLots: Array<{ buyTransactionId: number; buyDatetime: string; asset: string; quantity: number; costBasisUsd: number }> = [];
+      for (let j = 0; j < i; j++) {
+        const prevTrace = sourceTrace[j];
+        // Match if the previous trace is the asset we swapped from
+        // Only match if it's not itself a swap (to get the original buy, not intermediate swaps)
+        if (prevTrace.asset === trace.swappedFromAsset && 
+            prevTrace.transactionId && 
+            !prevTrace.swappedFromAsset) {
+          // This is the original buy (e.g., Buy SOL from USDC, not a swap)
+          originalLots.push({
+            buyTransactionId: prevTrace.transactionId,
+            buyDatetime: prevTrace.datetime,
+            asset: prevTrace.asset,
+            quantity: prevTrace.quantity,
+            costBasisUsd: prevTrace.costBasisUsd,
+          });
+        }
+      }
+      if (originalLots.length > 0) {
+        originalBuyLotsBySwapTxId.set(trace.transactionId, originalLots);
+      }
+    }
+  }
 
   const directSaleById = new Map<number, (typeof directSales)[number]>();
   for (const s of directSales) directSaleById.set(s.saleTransactionId, s);
@@ -518,15 +768,46 @@ function createSankeyExplorerData(event: TaxableEvent, opts: {
     const saleBasis = sale.costBasisUsd;
     for (const lot of sale.buyLots) {
       if (!opts.visibleBuyIds.has(lot.buyTransactionId)) continue;
+      
+      // Check if this buy came from a swap (crypto-to-crypto or stablecoin-to-crypto)
+      // A swap is detected if swappedFromAsset exists and is different from the current asset
+      // If swap info is missing from the lot, try to get it from sourceTrace
+      let swappedFromAsset = lot.swappedFromAsset;
+      let swappedFromQuantity = lot.swappedFromQuantity;
+      let swappedFromTransactionId = lot.swappedFromTransactionId;
+      
+      if (!swappedFromAsset) {
+        const swapInfo = swapInfoByBuyTxId.get(lot.buyTransactionId);
+        if (swapInfo) {
+          swappedFromAsset = swapInfo.swappedFromAsset;
+          swappedFromQuantity = swapInfo.swappedFromQuantity;
+          swappedFromTransactionId = swapInfo.swappedFromTransactionId;
+        }
+      }
+      
+      const isSwap = swappedFromAsset && swappedFromAsset !== lot.asset;
+      
       const buyKey = `buy:${lot.buyTransactionId}`;
       const buyIdx = ensure(
         buyKey,
-        `Buy ${lot.asset} #${lot.buyTransactionId}`,
+        isSwap ? `Swap ${swappedFromAsset}→${lot.asset} #${lot.buyTransactionId}` : `Buy ${lot.asset} #${lot.buyTransactionId}`,
         [
-          `<b>Buy ${lot.asset}</b>`,
+          isSwap ? `<b>Swap ${swappedFromAsset} → ${lot.asset}</b>` : `<b>Buy ${lot.asset}</b>`,
           `Tx: ${lot.buyTransactionId}`,
           `Date: ${new Date(lot.buyDatetime).toISOString().slice(0, 10)}`,
-          `Qty (portion): ${lot.quantity.toFixed(8)}`,
+          isSwap ? (() => {
+            // Look up original transaction to get actual quantities (not scaled from sale)
+            // IMPORTANT: lot.quantity is the scaled quantity from the sale (e.g., 473.984 ADA)
+            // We want to show the original transaction quantity (e.g., 500 ADA)
+            const originalTx = transactions?.find((t: Tx) => t.id === lot.buyTransactionId);
+            if (originalTx) {
+              // Use original transaction quantities
+              return `Swapped ${(originalTx.fromQuantity || swappedFromQuantity || 0).toFixed(8)} ${swappedFromAsset} → ${(originalTx.toQuantity || 0).toFixed(8)} ${lot.asset}`;
+            } else {
+              // Fallback: use swappedFromQuantity and lot.quantity (but this will be scaled)
+              return `Swapped ${(swappedFromQuantity || 0).toFixed(8)} ${swappedFromAsset} → ${lot.quantity.toFixed(8)} ${lot.asset}`;
+            }
+          })() : `Qty (portion): ${lot.quantity.toFixed(8)}`,
           `Basis (portion): $${lot.costBasisUsd.toFixed(2)}`,
         ].join('<br>')
       );
@@ -535,10 +816,56 @@ function createSankeyExplorerData(event: TaxableEvent, opts: {
         buyIdx,
         sellIdx,
         lot.costBasisUsd,
-        `<b>Buy lot → Sell</b><br>Cost basis: $${lot.costBasisUsd.toFixed(2)}`,
+        `<b>${isSwap ? 'Swap' : 'Buy lot'} → Sell</b><br>Cost basis: $${lot.costBasisUsd.toFixed(2)}`,
         getAssetColor(lot.asset)
       );
       shownIncomingBasis += lot.costBasisUsd;
+
+      // If this is a swap, show the swap chain: original buy lots -> swap -> this buy
+      if (isSwap) {
+        // Try to get swappedFromBuyLots from the lot, or from sourceTrace if missing
+        // Prefer originalBuyLotsBySwapTxId (from sourceTrace with original values) over swappedFromBuyLots (scaled)
+        // This ensures we show the correct original transaction quantities (e.g., 10 SOL @ $1000, not 5 SOL @ $500)
+        let swappedFromBuyLots = originalBuyLotsBySwapTxId.get(lot.buyTransactionId);
+        
+        // Fall back to swappedFromBuyLots if not found in sourceTrace
+        if (!swappedFromBuyLots || swappedFromBuyLots.length === 0) {
+          swappedFromBuyLots = lot.swappedFromBuyLots;
+        }
+        
+        if (swappedFromBuyLots && swappedFromBuyLots.length > 0) {
+          // Show full chain: original buy lots → swap → this buy
+          // Calculate scale based on the actual cost basis used (from the lot), not the original buy lot
+          const swapInputTotal = swappedFromBuyLots.reduce((sum, bl) => sum + bl.costBasisUsd, 0);
+          const swapScale = swapInputTotal > 0 ? (lot.costBasisUsd / swapInputTotal) : 0;
+          
+          // Show each original buy lot that was swapped (e.g., SOL buy lots that were swapped to ADA)
+          swappedFromBuyLots.forEach((originalLot) => {
+            const originalBuyKey = `buy:${originalLot.buyTransactionId}`;
+            const originalBuyDate = new Date(originalLot.buyDatetime).toISOString().split('T')[0];
+            const originalBuyIdx = ensure(
+              originalBuyKey,
+              `Buy ${originalLot.asset} #${originalLot.buyTransactionId}`,
+              [
+                `<b>Buy ${originalLot.asset}</b>`,
+                `Tx: ${originalLot.buyTransactionId}`,
+                `Date: ${originalBuyDate}`,
+                `Qty: ${originalLot.quantity.toFixed(8)}`,
+                `Cost basis: $${originalLot.costBasisUsd.toFixed(2)}`,
+              ].join('<br>')
+            );
+            
+            addEdge(
+              originalBuyIdx,
+              buyIdx,
+              originalLot.costBasisUsd * swapScale,
+              `<b>Buy ${originalLot.asset} → Swap</b><br>${originalLot.asset} buy funded ${swappedFromAsset}→${lot.asset} swap` +
+                `<br>Original basis: $${originalLot.costBasisUsd.toFixed(2)} • Used in this sale: $${(originalLot.costBasisUsd * swapScale).toFixed(2)}`,
+              getAssetColor(originalLot.asset)
+            );
+          });
+        }
+      }
 
       const agg = ensureBuyAgg(lot);
       agg.outflowBasisUsd += lot.costBasisUsd;
@@ -763,7 +1090,7 @@ function createSankeyExplorerData(event: TaxableEvent, opts: {
   return { data: [data], layout, nodeKeys };
 }
 
-function SankeyExplorer({ event }: { event: TaxableEvent }) {
+function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transactions?: Tx[] }) {
   const directSales = event.saleTrace || [];
   const rootSaleIds = useMemo(() => directSales.map((s) => s.saleTransactionId), [directSales]);
   // Start compact: show only Withdrawal + direct funding sells. Buy lots appear when you click a sell.
@@ -804,8 +1131,8 @@ function SankeyExplorer({ event }: { event: TaxableEvent }) {
       showLabels,
       nodeThickness,
       nodePad,
-    });
-  }, [event, visibleSaleIds, visibleBuyIds, showDepositTxs, showLabels, nodeThickness, nodePad]);
+    }, transactions);
+  }, [event, visibleSaleIds, visibleBuyIds, showDepositTxs, showLabels, nodeThickness, nodePad, transactions]);
 
   const onNodeClick = useCallback((ev: unknown) => {
     const e = ev as { points?: Array<{ pointNumber?: number; pointIndex?: number }> } | null;
@@ -955,10 +1282,16 @@ export default function CashDashboardPage(){
   const fiatTxs = useMemo(() => {
     const fiatCurrencies = getFiatCurrencies();
     return (txs || []).filter(tx => {
-      const isFiat = fiatCurrencies.includes(tx.asset.toUpperCase());
       const isCashTransaction = (tx.type === 'Deposit' || tx.type === 'Withdrawal');
+      if (!isCashTransaction) return false;
       
-      if (!isFiat || !isCashTransaction) return false;
+      // For deposits: fiat is in fromAsset; for withdrawals: fiat is in toAsset
+      const fiatAsset = tx.type === 'Deposit' && tx.fromAsset
+        ? tx.fromAsset.toUpperCase()
+        : tx.toAsset.toUpperCase();
+      const isFiat = fiatCurrencies.includes(fiatAsset);
+      
+      if (!isFiat) return false;
       
       // Apply tax year filter
       if (selectedTaxYear !== 'all') {
@@ -975,10 +1308,16 @@ export default function CashDashboardPage(){
   // Get available tax years from all fiat transactions
   const availableTaxYears = useMemo(() => {
     const fiatCurrencies = getFiatCurrencies();
-    const allFiatTxs = (txs || []).filter(tx => 
-      fiatCurrencies.includes(tx.asset.toUpperCase()) && 
-      (tx.type === 'Deposit' || tx.type === 'Withdrawal')
-    );
+    const allFiatTxs = (txs || []).filter(tx => {
+      const isCashTransaction = (tx.type === 'Deposit' || tx.type === 'Withdrawal');
+      if (!isCashTransaction) return false;
+      
+      // For deposits: fiat is in fromAsset; for withdrawals: fiat is in toAsset
+      const fiatAsset = tx.type === 'Deposit' && tx.fromAsset
+        ? tx.fromAsset.toUpperCase()
+        : tx.toAsset.toUpperCase();
+      return fiatCurrencies.includes(fiatAsset);
+    });
     
     const years = new Set<string>();
     allFiatTxs.forEach(tx => {
@@ -1006,9 +1345,24 @@ export default function CashDashboardPage(){
     const sortedTxs = [...fiatTxs].sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
     
     sortedTxs.forEach(tx => {
-      const currency = tx.asset.toUpperCase();
-      const amount = tx.quantity;
+      // For deposits: fiat currency and amount are in fromAsset/fromQuantity
+      // For withdrawals: fiat currency and amount are in toAsset/toQuantity
+      const currency = tx.type === 'Deposit' && tx.fromAsset
+        ? tx.fromAsset.toUpperCase()
+        : tx.toAsset.toUpperCase();
+      const amount = tx.type === 'Deposit'
+        ? (tx.fromQuantity || 0)
+        : (tx.toQuantity || 0);
       const date = new Date(tx.datetime).toISOString().split('T')[0];
+      
+      if (!data[currency]) {
+        data[currency] = {
+          deposits: 0,
+          withdrawals: 0,
+          balance: 0,
+          dates: []
+        };
+      }
       
       if (tx.type === 'Deposit') {
         data[currency].deposits += amount;
@@ -1041,13 +1395,19 @@ export default function CashDashboardPage(){
     
     sortedTxs.forEach(tx => {
       const date = new Date(tx.datetime).toISOString().split('T')[0];
-      const currency = tx.asset.toUpperCase();
-      const amount = tx.quantity;
+      // For deposits: fiat currency and amount are in fromAsset/fromQuantity
+      // For withdrawals: fiat currency and amount are in toAsset/toQuantity
+      const currency = tx.type === 'Deposit' && tx.fromAsset
+        ? tx.fromAsset.toUpperCase()
+        : tx.toAsset.toUpperCase();
+      const amount = tx.type === 'Deposit'
+        ? (tx.fromQuantity || 0)
+        : (tx.toQuantity || 0);
       
       if (tx.type === 'Deposit') {
-        balancesByCurrency[currency] += amount;
+        balancesByCurrency[currency] = (balancesByCurrency[currency] || 0) + amount;
       } else if (tx.type === 'Withdrawal') {
-        balancesByCurrency[currency] -= amount;
+        balancesByCurrency[currency] = (balancesByCurrency[currency] || 0) - amount;
       }
       
       // Calculate total balance in USD
@@ -1068,7 +1428,13 @@ export default function CashDashboardPage(){
   // Calculate monthly cash flow
   const monthlyCashFlow = useMemo(() => {
     const currency = selectedCurrency;
-    const currencyTxs = fiatTxs.filter(tx => tx.asset.toUpperCase() === currency);
+    const currencyTxs = fiatTxs.filter(tx => {
+      // For deposits: fiat currency is in fromAsset; for withdrawals: fiat currency is in toAsset
+      const fiatAsset = tx.type === 'Deposit' && tx.fromAsset
+        ? tx.fromAsset.toUpperCase()
+        : tx.toAsset.toUpperCase();
+      return fiatAsset === currency;
+    });
     
     const monthlyData: { [key: string]: { deposits: number; withdrawals: number } } = {};
     
@@ -1080,10 +1446,15 @@ export default function CashDashboardPage(){
         monthlyData[monthKey] = { deposits: 0, withdrawals: 0 };
       }
       
+      // For deposits: amount is in fromQuantity; for withdrawals: amount is in toQuantity
+      const amount = tx.type === 'Deposit'
+        ? (tx.fromQuantity || 0)
+        : (tx.toQuantity || 0);
+      
       if (tx.type === 'Deposit') {
-        monthlyData[monthKey].deposits += tx.quantity;
+        monthlyData[monthKey].deposits += amount;
       } else if (tx.type === 'Withdrawal') {
-        monthlyData[monthKey].withdrawals += tx.quantity;
+        monthlyData[monthKey].withdrawals += amount;
       }
     });
     
@@ -1099,14 +1470,25 @@ export default function CashDashboardPage(){
     const totals: { [key: string]: number } = {};
     
     fiatCurrencies.forEach(currency => {
-      const currencyTxs = fiatTxs.filter(tx => tx.asset.toUpperCase() === currency);
+      const currencyTxs = fiatTxs.filter(tx => {
+        // For deposits: fiat currency is in fromAsset; for withdrawals: fiat currency is in toAsset
+        const fiatAsset = tx.type === 'Deposit' && tx.fromAsset
+          ? tx.fromAsset.toUpperCase()
+          : tx.toAsset.toUpperCase();
+        return fiatAsset === currency;
+      });
       let balance = 0;
       
       currencyTxs.forEach(tx => {
+        // For deposits: amount is in fromQuantity; for withdrawals: amount is in toQuantity
+        const amount = tx.type === 'Deposit'
+          ? (tx.fromQuantity || 0)
+          : (tx.toQuantity || 0);
+        
         if (tx.type === 'Deposit') {
-          balance += tx.quantity;
+          balance += amount;
         } else if (tx.type === 'Withdrawal') {
-          balance -= tx.quantity;
+          balance -= amount;
         }
       });
       
@@ -1393,10 +1775,17 @@ export default function CashDashboardPage(){
             const cashFlowDataLocal: { [key: string]: { deposits: number; withdrawals: number } } = {};
             fiatCurrencies.forEach((c) => (cashFlowDataLocal[c] = { deposits: 0, withdrawals: 0 }));
             for (const tx of filtered) {
-              const cur = tx.asset.toUpperCase();
+              // For deposits: fiat currency and amount are in fromAsset/fromQuantity
+              // For withdrawals: fiat currency and amount are in toAsset/toQuantity
+              const cur = tx.type === 'Deposit' && tx.fromAsset
+                ? tx.fromAsset.toUpperCase()
+                : tx.toAsset.toUpperCase();
               if (!cashFlowDataLocal[cur]) continue;
-              if (tx.type === 'Deposit') cashFlowDataLocal[cur].deposits += tx.quantity;
-              else if (tx.type === 'Withdrawal') cashFlowDataLocal[cur].withdrawals += tx.quantity;
+              const amount = tx.type === 'Deposit'
+                ? (tx.fromQuantity || 0)
+                : (tx.toQuantity || 0);
+              if (tx.type === 'Deposit') cashFlowDataLocal[cur].deposits += amount;
+              else if (tx.type === 'Withdrawal') cashFlowDataLocal[cur].withdrawals += amount;
             }
 
             const chart: Data[] = [
@@ -1427,7 +1816,13 @@ export default function CashDashboardPage(){
           {({ timeframe, expanded }) => {
             const startIso = startIsoForTimeframe(timeframe);
             const currencyTxs = fiatTxs
-              .filter((tx) => tx.asset.toUpperCase() === selectedCurrency)
+              .filter((tx) => {
+                // For deposits: fiat currency is in fromAsset; for withdrawals: fiat currency is in toAsset
+                const fiatAsset = tx.type === 'Deposit' && tx.fromAsset
+                  ? tx.fromAsset.toUpperCase()
+                  : tx.toAsset.toUpperCase();
+                return fiatAsset === selectedCurrency;
+              })
               .filter((tx) => (startIso ? new Date(tx.datetime).toISOString().slice(0, 10) >= startIso : true));
 
             const monthlyData: { [key: string]: { deposits: number; withdrawals: number } } = {};
@@ -1435,8 +1830,12 @@ export default function CashDashboardPage(){
               const date = new Date(tx.datetime);
               const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
               if (!monthlyData[monthKey]) monthlyData[monthKey] = { deposits: 0, withdrawals: 0 };
-              if (tx.type === 'Deposit') monthlyData[monthKey].deposits += tx.quantity;
-              else if (tx.type === 'Withdrawal') monthlyData[monthKey].withdrawals += tx.quantity;
+              // For deposits: amount is in fromQuantity; for withdrawals: amount is in toQuantity
+              const amount = tx.type === 'Deposit'
+                ? (tx.fromQuantity || 0)
+                : (tx.toQuantity || 0);
+              if (tx.type === 'Deposit') monthlyData[monthKey].deposits += amount;
+              else if (tx.type === 'Withdrawal') monthlyData[monthKey].withdrawals += amount;
             }
             const months = Object.keys(monthlyData).sort();
             const deposits = months.map((m) => monthlyData[m].deposits);
@@ -1459,10 +1858,10 @@ export default function CashDashboardPage(){
             const totals: { [key: string]: number } = {};
             for (const c of fiatCurrencies) totals[c] = 0;
             for (const tx of filtered) {
-              const c = tx.asset.toUpperCase();
+              const c = tx.toAsset.toUpperCase();
               if (!(c in totals)) continue;
-              if (tx.type === 'Deposit') totals[c] += tx.quantity;
-              else if (tx.type === 'Withdrawal') totals[c] -= tx.quantity;
+              if (tx.type === 'Deposit') totals[c] += tx.toQuantity;
+              else if (tx.type === 'Withdrawal') totals[c] -= tx.toQuantity;
             }
             const currenciesWithBalances = fiatCurrencies.filter((c) => Math.abs(convertFiat(totals[c], c, 'USD')) > 0.01);
             if (!currenciesWithBalances.length) {
@@ -1775,7 +2174,7 @@ export default function CashDashboardPage(){
                                         borderRadius: '8px',
                                         padding: '1rem'
                                       }}>
-                                        <SankeyExplorer event={event} />
+                                        <SankeyExplorer event={event} transactions={txs} />
                                       </div>
                                       
                                       {/* Detailed Source Trace */}
@@ -1891,11 +2290,13 @@ export default function CashDashboardPage(){
                         {tx.type}
                       </span>
                     </td>
-                    <td style={{ padding: '0.75rem', color: colorFor(tx.asset.toUpperCase()) }}>
-                      {tx.asset.toUpperCase()}
+                    <td style={{ padding: '0.75rem', color: colorFor(
+                      (tx.type === 'Deposit' && tx.fromAsset ? tx.fromAsset : tx.toAsset).toUpperCase()
+                    ) }}>
+                      {(tx.type === 'Deposit' && tx.fromAsset ? tx.fromAsset : tx.toAsset).toUpperCase()}
                     </td>
                     <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: 'bold' }}>
-                      {tx.quantity.toFixed(2)}
+                      {(tx.type === 'Deposit' ? (tx.fromQuantity || 0) : (tx.toQuantity || 0)).toFixed(2)}
                     </td>
                     <td style={{ padding: '0.75rem', color: 'var(--text-secondary)' }}>
                       {tx.notes || '-'}

@@ -14,8 +14,9 @@ function parseFloatSafe(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function normalizeType(v: unknown): 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal' {
+function normalizeType(v: unknown): 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal' | 'Swap' {
   const s = String(v || '').toLowerCase();
+  if (s === 'swap') return 'Swap';
   if (s === 'sell') return 'Sell';
   if (s === 'deposit') return 'Deposit';
   if (s === 'withdrawal' || s === 'withdraw') return 'Withdrawal';
@@ -104,7 +105,7 @@ export async function POST(req: NextRequest) {
 
   type TxInput = {
     asset: string;
-    type: 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal';
+    type: 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal' | 'Swap';
     priceUsd?: number | null;
     quantity: number;
     datetime: Date;
@@ -123,7 +124,7 @@ export async function POST(req: NextRequest) {
     const r = rows[i];
     const obj = r as Record<string, unknown>;
     let asset = '';
-    let type: 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal' = 'Buy';
+    let type: 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal' | 'Swap' = 'Swap';
     let priceUsd: number | null = null;
     let quantity = 0;
     let dt: Date | null = null;
@@ -210,10 +211,77 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // Convert old format (Buy/Sell) to new format (Swap)
+  const convertedTransactions = supportedTransactions.map(tx => {
+    if (tx.type === 'Buy') {
+      // Buy: USDC -> Crypto
+      const costUsd = tx.costUsd ?? (tx.quantity * (tx.priceUsd ?? 0));
+      return {
+        type: 'Swap',
+        datetime: tx.datetime,
+        feesUsd: tx.feesUsd,
+        notes: tx.notes,
+        fromAsset: 'USDC',
+        fromQuantity: costUsd,
+        fromPriceUsd: 1.0,
+        toAsset: tx.asset,
+        toQuantity: tx.quantity,
+        toPriceUsd: tx.priceUsd ?? (costUsd / tx.quantity),
+        portfolioId: tx.portfolioId,
+      };
+    } else if (tx.type === 'Sell') {
+      // Sell: Crypto -> USDC
+      const proceedsUsd = tx.proceedsUsd ?? (tx.quantity * (tx.priceUsd ?? 0));
+      return {
+        type: 'Swap',
+        datetime: tx.datetime,
+        feesUsd: tx.feesUsd,
+        notes: tx.notes,
+        fromAsset: tx.asset,
+        fromQuantity: tx.quantity,
+        fromPriceUsd: tx.priceUsd ?? (proceedsUsd / tx.quantity),
+        toAsset: 'USDC',
+        toQuantity: proceedsUsd,
+        toPriceUsd: 1.0,
+        portfolioId: tx.portfolioId,
+      };
+    } else if (tx.type === 'Deposit') {
+      // Deposit: Fiat -> USDC
+      return {
+        type: 'Deposit',
+        datetime: tx.datetime,
+        feesUsd: tx.feesUsd,
+        notes: tx.notes,
+        fromAsset: null,
+        fromQuantity: null,
+        fromPriceUsd: null,
+        toAsset: tx.asset.toUpperCase() === 'USD' ? 'USDC' : tx.asset,
+        toQuantity: tx.quantity,
+        toPriceUsd: tx.priceUsd ?? 1.0,
+        portfolioId: tx.portfolioId,
+      };
+    } else {
+      // Withdrawal: USDC -> Fiat
+      return {
+        type: 'Withdrawal',
+        datetime: tx.datetime,
+        feesUsd: tx.feesUsd,
+        notes: tx.notes,
+        fromAsset: null,
+        fromQuantity: null,
+        fromPriceUsd: null,
+        toAsset: tx.asset.toUpperCase() === 'USD' ? 'USDC' : tx.asset,
+        toQuantity: tx.quantity,
+        toPriceUsd: tx.priceUsd ?? 1.0,
+        portfolioId: tx.portfolioId,
+      };
+    }
+  });
+
   const chunkSize = 500;
   let imported = 0;
-  for (let i = 0; i < supportedTransactions.length; i += chunkSize) {
-    const chunk = supportedTransactions.slice(i, i + chunkSize);
+  for (let i = 0; i < convertedTransactions.length; i += chunkSize) {
+    const chunk = convertedTransactions.slice(i, i + chunkSize);
     const res = await prisma.transaction.createMany({ data: chunk as Prisma.TransactionCreateManyInput[] });
     imported += res.count;
   }
