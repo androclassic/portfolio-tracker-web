@@ -169,13 +169,15 @@ export default function DashboardPage(){
   });
   
   // Add stablecoins to latestPrices with $1.00 price
+  // Create a stable reference by using JSON.stringify to detect actual changes
+  const latestPricesStr = useMemo(() => JSON.stringify(latestPrices), [latestPrices]);
   const latestPricesWithStables = useMemo(() => {
     const result = { ...latestPrices };
     for (const stable of stableAssets) {
       result[stable] = 1.0;
     }
     return result;
-  }, [latestPrices, stableAssets]);
+  }, [latestPricesStr, stableAssets]);
 
   // Stablecoin balance (Dashboard treats stables as the "cash-like" component, not fiat).
   const stablecoinBalanceUsd = useMemo(() => {
@@ -399,7 +401,7 @@ export default function DashboardPage(){
       perAssetUsd.set(a, y);
     }
     return { dates, totals, perAssetUsd };
-  }, [hist, dailyPos, assets, latestPrices]);
+  }, [hist, dailyPos, assets, latestPricesWithStables]);
 
   const stackedTraces = useMemo(() => {
     const dates = stacked.dates;
