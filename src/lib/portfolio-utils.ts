@@ -44,8 +44,10 @@ export const calculateHoldings = (txs: Tx[]): Record<string, number> => {
       // Deposit adds to holdings
       holdings[tx.toAsset] = (holdings[tx.toAsset] || 0) + tx.toQuantity;
     } else if (tx.type === 'Withdrawal') {
-      // Withdrawal removes from holdings
-      holdings[tx.toAsset] = (holdings[tx.toAsset] || 0) - tx.toQuantity;
+      // Withdrawal: remove stablecoin from holdings (fromAsset is the stablecoin)
+      if (tx.fromAsset) {
+        holdings[tx.fromAsset] = (holdings[tx.fromAsset] || 0) - (tx.fromQuantity || 0);
+      }
     }
   });
   

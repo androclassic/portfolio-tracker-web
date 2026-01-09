@@ -133,10 +133,10 @@ export default function DashboardPage(){
           pos[a] = (pos[a]||0) + Math.abs(t.toQuantity);
         }
       } else if (t.type === 'Withdrawal') {
-        // Withdrawal decreases toAsset
-        const a = t.toAsset.toUpperCase();
-        if (a !== 'USD') {
-          pos[a] = (pos[a]||0) - Math.abs(t.toQuantity);
+        // Withdrawal: remove stablecoin from holdings (fromAsset is the stablecoin)
+        const a = t.fromAsset?.toUpperCase();
+        if (a && a !== 'USD') {
+          pos[a] = (pos[a]||0) - Math.abs(t.fromQuantity || 0);
         }
       }
     }
@@ -153,16 +153,29 @@ export default function DashboardPage(){
     return { start: txMinSec, end: nowSec };
   }, [txs]);
 
-  // Use shared price data hook - exclude stablecoins as they're always $1
+  // Use shared price data hook - include stablecoins but they'll be priced at $1
   const nonStableAssets = useMemo(() => 
     assets.filter(a => !isStablecoin(a)),
     [assets]
   );
+  const stableAssets = useMemo(() =>
+    assets.filter(a => isStablecoin(a)),
+    [assets]
+  );
   const { latestPrices, historicalPrices, isLoading: loadingCurr } = usePriceData({
-    symbols: [...nonStableAssets, 'BTC'], // Always include BTC for conversion, exclude stablecoins
+    symbols: [...nonStableAssets, 'BTC'], // Always include BTC for conversion, exclude stablecoins from API
     dateRange: dateRange || undefined,
     includeCurrentPrices: true
   });
+  
+  // Add stablecoins to latestPrices with $1.00 price
+  const latestPricesWithStables = useMemo(() => {
+    const result = { ...latestPrices };
+    for (const stable of stableAssets) {
+      result[stable] = 1.0;
+    }
+    return result;
+  }, [latestPrices, stableAssets]);
 
   // Stablecoin balance (Dashboard treats stables as the "cash-like" component, not fiat).
   const stablecoinBalanceUsd = useMemo(() => {
@@ -206,9 +219,10 @@ export default function DashboardPage(){
           rows.push({ asset: a, day, signed: Math.abs(t.toQuantity) });
         }
       } else if (t.type === 'Withdrawal') {
-        const a = t.toAsset.toUpperCase();
-        if (a !== 'USD') {
-          rows.push({ asset: a, day, signed: -Math.abs(t.toQuantity) });
+        // Withdrawal: remove stablecoin from holdings (fromAsset is the stablecoin)
+        const a = t.fromAsset?.toUpperCase();
+        if (a && a !== 'USD') {
+          rows.push({ asset: a, day, signed: -Math.abs(t.fromQuantity || 0) });
         }
       }
     }
@@ -277,11 +291,24 @@ export default function DashboardPage(){
     const assetIndex: Record<string, number> = {};
     for (let i = 0; i < assets.length; i++) assetIndex[assets[i]] = i;
     const prices: number[][] = new Array(assets.length);
-    for (let ai = 0; ai < assets.length; ai++) prices[ai] = new Array(dates.length).fill(0);
-    for (const p of hist.prices) {
-      const ai = assetIndex[p.asset.toUpperCase()];
-      const di = dateIndex[p.date];
-      if (ai !== undefined && di !== undefined) prices[ai][di] = p.price_usd;
+    for (let ai = 0; ai < assets.length; ai++) {
+      const asset = assets[ai]!;
+      prices[ai] = new Array(dates.length).fill(0);
+      // For stablecoins, set price to $1.00 for all dates
+      if (isStablecoin(asset)) {
+        for (let di = 0; di < dates.length; di++) {
+          prices[ai][di] = 1.0;
+        }
+      } else {
+        // For other assets, use historical prices
+        for (const p of hist.prices) {
+          const pAi = assetIndex[p.asset.toUpperCase()];
+          const di = dateIndex[p.date];
+          if (pAi === ai && di !== undefined) {
+            prices[ai][di] = p.price_usd;
+          }
+        }
+      }
     }
     return { dates, dateIndex, assetIndex, prices };
   }, [hist, assets]);
@@ -357,9 +384,12 @@ export default function DashboardPage(){
         if (price !== undefined && price > 0) lastPx = price;
         // If historical price is missing for an asset (common for illiquid tokens),
         // fall back to last known historical price, then latest price.
-        const px = (price !== undefined && price > 0)
-          ? price
-          : (lastPx ?? (latestPrices[a] ?? 0));
+        // For stablecoins, always use $1.00
+        const px = isStablecoin(a) 
+          ? 1.0
+          : ((price !== undefined && price > 0)
+            ? price
+            : (lastPx ?? (latestPricesWithStables[a] ?? 0)));
         const pos = Math.max(lastPos, 0);
         const val = px > 0 ? px * pos : 0;
         const v = val > EPS ? val : 0;
@@ -683,7 +713,10 @@ export default function DashboardPage(){
         } else if (tx.type === 'Deposit') {
           historicalHoldings[tx.toAsset] = (historicalHoldings[tx.toAsset] || 0) + tx.toQuantity;
         } else if (tx.type === 'Withdrawal') {
-          historicalHoldings[tx.toAsset] = (historicalHoldings[tx.toAsset] || 0) - tx.toQuantity;
+          // Withdrawal: remove stablecoin from holdings (fromAsset is the stablecoin)
+          if (tx.fromAsset) {
+            historicalHoldings[tx.fromAsset] = (historicalHoldings[tx.fromAsset] || 0) - (tx.fromQuantity || 0);
+          }
         }
       });
 
@@ -760,8 +793,9 @@ export default function DashboardPage(){
             }
           } else if (tx.type === 'Deposit' && tx.toAsset.toUpperCase() === asset) {
             position += tx.toQuantity;
-          } else if (tx.type === 'Withdrawal' && tx.toAsset.toUpperCase() === asset) {
-            position -= tx.toQuantity;
+          } else if (tx.type === 'Withdrawal' && tx.fromAsset?.toUpperCase() === asset) {
+            // Withdrawal: remove stablecoin from holdings (fromAsset is the stablecoin)
+            position -= (tx.fromQuantity || 0);
           }
         }
 
@@ -1002,10 +1036,10 @@ export default function DashboardPage(){
           arr.push({ asset: toA, type: 'Buy' as const, qty: Math.abs(t.toQuantity) });
         }
       } else if (t.type === 'Withdrawal') {
-        // Withdrawal: remove from holdings
-        const toA = t.toAsset.toUpperCase();
-        if (toA !== 'USD') {
-          arr.push({ asset: toA, type: 'Sell' as const, qty: Math.abs(t.toQuantity) });
+        // Withdrawal: remove stablecoin from holdings (fromAsset is the stablecoin)
+        const fromA = t.fromAsset?.toUpperCase();
+        if (fromA && fromA !== 'USD') {
+          arr.push({ asset: fromA, type: 'Sell' as const, qty: Math.abs(t.fromQuantity || 0) });
         }
       }
       txsByDate.set(day, arr);
@@ -1093,8 +1127,9 @@ export default function DashboardPage(){
             }
           } else if (tx.type === 'Deposit' && tx.toAsset.toUpperCase() === asset) {
             return pos + tx.toQuantity;
-          } else if (tx.type === 'Withdrawal' && tx.toAsset.toUpperCase() === asset) {
-            return pos - tx.toQuantity;
+          } else if (tx.type === 'Withdrawal' && tx.fromAsset?.toUpperCase() === asset) {
+            // Withdrawal: remove stablecoin from holdings (fromAsset is the stablecoin)
+            return pos - (tx.fromQuantity || 0);
           }
           return pos;
         }, 0);
@@ -1185,9 +1220,9 @@ export default function DashboardPage(){
             const quantity = Math.abs(tx.toQuantity);
             totalQuantity += quantity;
             totalCostUsd += quantity * (tx.toPriceUsd || 1);
-          } else if (tx.type === 'Withdrawal' && tx.toAsset.toUpperCase() === asset) {
-            // Withdrawal: remove from holdings using average cost method
-            const quantity = Math.abs(tx.toQuantity);
+          } else if (tx.type === 'Withdrawal' && tx.fromAsset?.toUpperCase() === asset) {
+            // Withdrawal: remove stablecoin from holdings using average cost method (fromAsset is the stablecoin)
+            const quantity = Math.abs(tx.fromQuantity || 0);
             if (totalQuantity > 0) {
               const currentAvgCost = totalCostUsd / totalQuantity;
               const unitsToWithdraw = Math.min(quantity, totalQuantity);
@@ -1239,12 +1274,12 @@ export default function DashboardPage(){
               const btcQuantity = costUsd / btcPriceAtTx;
               totalBtcQuantity += btcQuantity;
               totalBtcCostUsd += costUsd;
-            } else if (tx.type === 'Withdrawal' && tx.toAsset.toUpperCase() === asset) {
-              // Withdrawal: reduce BTC position using average cost method
-              const quantity = Math.abs(tx.toQuantity);
+            } else if (tx.type === 'Withdrawal' && tx.fromAsset?.toUpperCase() === asset) {
+              // Withdrawal: reduce BTC position using average cost method (fromAsset is the stablecoin)
+              const quantity = Math.abs(tx.fromQuantity || 0);
               if (totalBtcQuantity > 0) {
                 const currentAvgBtcCost = totalBtcCostUsd / totalBtcQuantity;
-                const costUsd = quantity * (tx.toPriceUsd || 1);
+                const costUsd = quantity * (tx.fromPriceUsd || 1);
                 const btcQuantityToSell = costUsd / btcPriceAtTx;
                 const unitsToSell = Math.min(btcQuantityToSell, totalBtcQuantity);
                 totalBtcCostUsd -= unitsToSell * currentAvgBtcCost;
@@ -1314,11 +1349,14 @@ export default function DashboardPage(){
           txsByDate[di].push({ ai, dq });
         }
       } else if (t.type === 'Withdrawal') {
-        const a = t.toAsset.toUpperCase();
-        const ai = priceIndex.assetIndex[a];
-        if (ai !== undefined) {
-          const dq = -Math.abs(t.toQuantity);
-          txsByDate[di].push({ ai, dq });
+        // Withdrawal: remove stablecoin from holdings (fromAsset is the stablecoin)
+        const a = t.fromAsset?.toUpperCase();
+        if (a) {
+          const ai = priceIndex.assetIndex[a];
+          if (ai !== undefined) {
+            const dq = -Math.abs(t.fromQuantity || 0);
+            txsByDate[di].push({ ai, dq });
+          }
         }
       }
     }
@@ -1334,7 +1372,7 @@ export default function DashboardPage(){
         for (let k = 0; k < changes.length; k++) {
           const { ai, dq } = changes[k];
           const prev = held.get(ai) || 0;
-          const next = prev + dq;
+          const next = Math.max(0, prev + dq); // Ensure holdings never go negative
           if (next === 0) held.delete(ai); else held.set(ai, next);
         }
       }
@@ -1347,17 +1385,25 @@ export default function DashboardPage(){
       if (btcPrice > 0) {
         for (const [ai, qty] of held) {
           if (ai === btcIdx) continue;
-          const px = priceIndex.prices[ai][di] || 0;
-          if (qty !== 0 && px > 0) {
+          // Only calculate for positive holdings (negative holdings shouldn't exist, but guard against it)
+          if (qty <= 0) continue;
+          // Get asset symbol from index
+          const asset = assets.find((_, idx) => priceIndex.assetIndex[assets[idx]!] === ai);
+          // For stablecoins, use $1.00; otherwise use price from priceIndex
+          const px = asset && isStablecoin(asset) 
+            ? 1.0 
+            : (priceIndex.prices[ai]?.[di] || 0);
+          if (px > 0) {
             altBtc += (qty * px) / btcPrice;
           }
         }
       }
-      altcoinBtcValue[di] = altBtc;
+      // Ensure altcoin BTC value is never negative (can't have negative holdings)
+      altcoinBtcValue[di] = Math.max(0, altBtc);
     }
 
     return { dates, btcHeld, altcoinBtcValue };
-  }, [txs, priceIndex]);
+  }, [txs, priceIndex, assets]);
 
 
   // Portfolio Gains/Losses Heatmap
