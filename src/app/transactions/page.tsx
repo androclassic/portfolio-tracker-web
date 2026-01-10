@@ -1173,12 +1173,9 @@ export default function TransactionsPage(){
             </button>
           {selectedId && (
             <>
-              <form 
-                onSubmit={async (e) => {
-                  e.preventDefault();
-                  const formData = new FormData(e.currentTarget);
-                  const format = formData.get('format') as string;
-                  const url = `/api/transactions/export?portfolioId=${selectedId}&format=${format}`;
+              <button 
+                onClick={async () => {
+                  const url = `/api/transactions/export?portfolioId=${selectedId}&format=default`;
                   
                   try {
                     const response = await fetch(url, { method: 'POST' });
@@ -1187,7 +1184,7 @@ export default function TransactionsPage(){
                       const downloadUrl = window.URL.createObjectURL(blob);
                       const a = document.createElement('a');
                       a.href = downloadUrl;
-                      a.download = `transactions_portfolio_${selectedId}${format === 'tradingview' ? '_tradingview' : ''}.csv`;
+                      a.download = `transactions_portfolio_${selectedId}.csv`;
                       document.body.appendChild(a);
                       a.click();
                       document.body.removeChild(a);
@@ -1197,25 +1194,38 @@ export default function TransactionsPage(){
                     console.error('Export failed:', error);
                   }
                 }}
-                className="transaction-export-form"
+                className="btn btn-success"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
               >
-                <select 
-                  name="format" 
-                  defaultValue="default"
-                  style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--border)' }}
-                >
-                  <option value="default">Default Format</option>
-                  <option value="tradingview">TradingView Format</option>
-                </select>
-                <button 
-                  type="submit" 
-                  className="btn btn-success"
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
-                >
-                  <span>📊</span>
-                  Export CSV
-                </button>
-              </form>
+                <span>📊</span>
+                Export CSV
+              </button>
+              <button 
+                onClick={() => {
+                  // Create sample CSV with example transactions showing complete flow
+                  const sampleCsv = `type,datetime,from_asset,from_quantity,from_price_usd,to_asset,to_quantity,to_price_usd,fees_usd,notes
+Deposit,2024-01-15T10:30:00Z,USD,5000,1,BTC,0.1,50000,25,Initial deposit - buying BTC with USD
+Swap,2024-01-20T14:20:00Z,BTC,0.05,52000,ETH,8.5,3058.82,15,Swapped half BTC for ETH
+Deposit,2024-02-01T09:15:00Z,USD,3000,1,ETH,1.0,3000,20,Added more ETH with USD
+Swap,2024-02-15T16:45:00Z,ETH,5.0,3200,BTC,0.08,200000,18,Swapped ETH back to BTC
+Withdrawal,2024-02-28T11:00:00Z,BTC,0.05,55000,USD,2750,1,12,Withdrew some BTC to USD`;
+                  
+                  const blob = new Blob([sampleCsv], { type: 'text/csv' });
+                  const downloadUrl = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = downloadUrl;
+                  a.download = 'sample_transactions.csv';
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  window.URL.revokeObjectURL(downloadUrl);
+                }}
+                className="btn btn-secondary"
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+              >
+                <span>📄</span>
+                Download Sample CSV
+              </button>
               <div className="transaction-import-wrapper">
                 <label 
                   className="btn btn-secondary" 

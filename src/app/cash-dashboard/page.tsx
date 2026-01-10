@@ -1209,56 +1209,299 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
     setShowDepositTxs(false);
   }, [deepSales, visibleSaleIds, visibleBuyIds]);
 
+  // Build hierarchical transaction tree for better exploration
+  const transactionTree = useMemo(() => {
+    const tree: Array<{
+      id: string;
+      type: 'withdrawal' | 'sell' | 'buy' | 'deposit';
+      transactionId?: number;
+      asset: string;
+      amount: number;
+      costBasis?: number;
+      datetime: string;
+      children: Array<typeof tree[number]>;
+      expanded: boolean;
+      hasChildren?: boolean;
+    }> = [];
+
+    // Add withdrawal as root
+    const withdrawalTx = transactions?.find(t => t.id === event.transactionId);
+    if (withdrawalTx) {
+      const withdrawalAmount = event.fiatAmountUsd || (withdrawalTx.toQuantity || 0);
+      tree.push({
+        id: `withdrawal-${withdrawalTx.id}`,
+        type: 'withdrawal',
+        transactionId: withdrawalTx.id,
+        asset: withdrawalTx.toAsset.toUpperCase(),
+        amount: withdrawalAmount,
+        datetime: withdrawalTx.datetime,
+        children: [],
+        expanded: true,
+      });
+    }
+
+    // Add direct sales
+    for (const sale of directSales) {
+      const saleTx = transactions?.find(t => t.id === sale.saleTransactionId);
+      if (saleTx) {
+        // Always check if there are buy lots (to show expand button even when collapsed)
+        const hasBuyLots = sale.buyLots && sale.buyLots.length > 0;
+        
+        const saleNode: typeof tree[number] = {
+          id: `sell-${sale.saleTransactionId}`,
+          type: 'sell' as const,
+          transactionId: sale.saleTransactionId,
+          asset: saleTx.toAsset.toUpperCase(),
+          amount: sale.proceedsUsd || 0,
+          costBasis: sale.costBasisUsd || 0,
+          datetime: saleTx.datetime,
+          children: [],
+          expanded: visibleSaleIds.includes(sale.saleTransactionId),
+          hasChildren: hasBuyLots, // Track if there are children available
+        };
+        
+        // Add buy lots for this sale
+        if (visibleSaleIds.includes(sale.saleTransactionId) && hasBuyLots) {
+          for (const buyLot of sale.buyLots) {
+            const buyTx = transactions?.find(t => t.id === buyLot.buyTransactionId);
+            if (buyTx) {
+              const fundingSells = (buyLot as BuyLotTraceWithFundingSells).fundingSells || [];
+              const hasFundingSells = fundingSells.length > 0;
+              
+              const buyNode = {
+                id: `buy-${buyLot.buyTransactionId}`,
+                type: 'buy' as const,
+                transactionId: buyLot.buyTransactionId,
+                asset: buyLot.asset.toUpperCase(),
+                amount: (buyLot.cashSpentUsd || buyLot.costBasisUsd || 0),
+                costBasis: buyLot.costBasisUsd || 0,
+                datetime: buyLot.buyDatetime,
+                children: [] as typeof tree[number][],
+                expanded: visibleBuyIds.includes(buyLot.buyTransactionId),
+                hasChildren: hasFundingSells, // Track if there are children available
+              };
+
+              // Add funding sells for this buy
+              if (visibleBuyIds.includes(buyLot.buyTransactionId) && hasFundingSells) {
+                for (const fundingSell of fundingSells) {
+                  const fundingTx = transactions?.find(t => t.id === fundingSell.saleTransactionId);
+                  if (fundingTx) {
+                    buyNode.children.push({
+                      id: `funding-sell-${fundingSell.saleTransactionId}`,
+                      type: 'sell',
+                      transactionId: fundingSell.saleTransactionId,
+                      asset: fundingSell.asset.toUpperCase(),
+                      amount: fundingSell.amountUsd || 0,
+                      costBasis: fundingSell.costBasisUsd || 0,
+                      datetime: fundingSell.saleDatetime,
+                      children: [],
+                      expanded: false,
+                      hasChildren: false,
+                    });
+                  }
+                }
+              }
+
+              saleNode.children.push(buyNode);
+            }
+          }
+        }
+        // hasChildren is already set above when creating saleNode
+
+        if (tree[0]) {
+          tree[0].children.push(saleNode);
+        }
+      }
+    }
+
+    return tree;
+  }, [event, transactions, directSales, visibleSaleIds, visibleBuyIds]);
+
+  const toggleNode = useCallback((nodeId: string) => {
+    if (nodeId.startsWith('sell-')) {
+      const saleId = Number(nodeId.slice('sell-'.length));
+      if (visibleSaleIds.includes(saleId)) {
+        setVisibleSaleIds(visibleSaleIds.filter(id => id !== saleId));
+      } else {
+        setVisibleSaleIds([...visibleSaleIds, saleId]);
+      }
+    } else if (nodeId.startsWith('buy-')) {
+      const buyId = Number(nodeId.slice('buy-'.length));
+      if (visibleBuyIds.includes(buyId)) {
+        setVisibleBuyIds(visibleBuyIds.filter(id => id !== buyId));
+      } else {
+        setVisibleBuyIds([...visibleBuyIds, buyId]);
+      }
+    }
+  }, [visibleSaleIds, visibleBuyIds]);
+
+  const renderTreeNode = useCallback((node: typeof transactionTree[number] & { hasChildren?: boolean }, level: number = 0) => {
+    const indent = level * 24;
+    const isExpanded = node.expanded;
+    // Check both current children and the hasChildren flag (for nodes that have children but they're not loaded yet)
+    const hasChildren = node.children.length > 0 || node.hasChildren === true;
+    
+    const typeColors = {
+      withdrawal: '#ef4444',
+      sell: '#f59e0b',
+      buy: '#10b981',
+      deposit: '#3b82f6',
+    };
+
+    const typeIcons = {
+      withdrawal: '💸',
+      sell: '📤',
+      buy: '📥',
+      deposit: '💰',
+    };
+
+    return (
+      <div key={node.id}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 12px',
+            marginLeft: `${indent}px`,
+            backgroundColor: level % 2 === 0 ? 'var(--surface)' : 'var(--card)',
+            borderLeft: `3px solid ${typeColors[node.type]}`,
+            borderRadius: '6px',
+            marginBottom: '4px',
+            cursor: hasChildren ? 'pointer' : 'default',
+            transition: 'all 0.2s',
+          }}
+          onClick={() => hasChildren && toggleNode(node.id)}
+          onMouseEnter={(e) => {
+            if (hasChildren) {
+              e.currentTarget.style.backgroundColor = 'rgba(125, 125, 125, 0.1)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = level % 2 === 0 ? 'var(--surface)' : 'var(--card)';
+          }}
+        >
+          {hasChildren && (
+            <span style={{ fontSize: '0.8rem', minWidth: '16px' }}>
+              {isExpanded ? '▼' : '▶'}
+            </span>
+          )}
+          {!hasChildren && <span style={{ minWidth: '16px' }} />}
+          <span style={{ fontSize: '1.1rem' }}>{typeIcons[node.type]}</span>
+          <span style={{ fontWeight: 600, color: typeColors[node.type] }}>
+            {node.type.toUpperCase()}
+          </span>
+          <span style={{ color: getAssetColor(node.asset), fontWeight: 600 }}>
+            {node.asset}
+          </span>
+          <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontSize: '0.9rem' }}>
+            ${node.amount.toFixed(2)}
+          </span>
+          {node.costBasis !== undefined && (
+            <span style={{ color: 'var(--muted)', fontSize: '0.85rem', minWidth: '80px', textAlign: 'right' }}>
+              Cost: ${node.costBasis.toFixed(2)}
+            </span>
+          )}
+          <span style={{ color: 'var(--muted)', fontSize: '0.8rem', minWidth: '100px', textAlign: 'right' }}>
+            {new Date(node.datetime).toLocaleDateString()}
+          </span>
+        </div>
+        {isExpanded && hasChildren && (
+          <div style={{ marginLeft: `${indent + 24}px` }}>
+            {node.children.map(child => renderTreeNode(child, level + 1))}
+          </div>
+        )}
+      </div>
+    );
+  }, [toggleNode]);
+
   return (
     <div>
-      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.75rem' }}>
-        <button onClick={onReset} style={{ padding: '0.35rem 0.6rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--background)', color: 'var(--text)', cursor: 'pointer' }}>
-          Reset
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '1rem', padding: '12px', backgroundColor: 'var(--card)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+        <button 
+          onClick={onReset} 
+          className="btn btn-secondary btn-sm"
+        >
+          🔄 Reset
         </button>
-        <button onClick={onExpandAll} style={{ padding: '0.35rem 0.6rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--background)', color: 'var(--text)', cursor: 'pointer' }}>
-          Expand all
+        <button 
+          onClick={onExpandAll} 
+          className="btn btn-secondary btn-sm"
+        >
+          ⬇️ Expand All
         </button>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-          <input type="checkbox" checked={showDepositTxs} onChange={(e) => setShowDepositTxs(e.target.checked)} />
-          Show deposit transactions
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-          <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />
-          Show labels
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-          Node thickness
-          <input
-            type="range"
-            min={6}
-            max={22}
-            value={nodeThickness}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodeThickness(Number(e.target.value))}
-          />
-          <span style={{ minWidth: 24, textAlign: 'right' }}>{nodeThickness}</span>
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-          Node padding
-          <input
-            type="range"
-            min={4}
-            max={22}
-            value={nodePad}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodePad(Number(e.target.value))}
-          />
-          <span style={{ minWidth: 24, textAlign: 'right' }}>{nodePad}</span>
-        </label>
-        <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-          Click <strong>Sell</strong> to reveal its buy lots; click <strong>Buy</strong> to reveal upstream funding sells.
-        </span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--muted)', fontSize: '0.85rem' }}>
+            <input type="checkbox" checked={showDepositTxs} onChange={(e) => setShowDepositTxs(e.target.checked)} />
+            Show deposits
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--muted)', fontSize: '0.85rem' }}>
+            <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />
+            Show labels
+          </label>
+        </div>
       </div>
 
-      <Plot
-        data={data.data}
-        layout={data.layout}
-        style={{ width: '100%' }}
-        onClick={onNodeClick}
-      />
+      {/* Hierarchical Tree View */}
+      <div style={{ 
+        marginBottom: '1.5rem',
+        padding: '16px',
+        backgroundColor: 'var(--card)',
+        borderRadius: '8px',
+        border: '1px solid var(--border)',
+        maxHeight: '600px',
+        overflowY: 'auto'
+      }}>
+        <h4 style={{ margin: '0 0 12px 0', fontSize: '0.95rem', fontWeight: 600, color: 'var(--text)' }}>
+          Transaction Hierarchy
+        </h4>
+        <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '12px' }}>
+          Click on transactions with children (▶) to expand and explore the flow. Colors: 💸 Withdrawal (red), 📤 Sell (orange), 📥 Buy (green), 💰 Deposit (blue)
+        </div>
+        {transactionTree.map(node => renderTreeNode(node))}
+      </div>
+
+      {/* Sankey Diagram */}
+      <div style={{ marginTop: '1rem' }}>
+        <h4 style={{ margin: '0 0 12px 0', fontSize: '0.95rem', fontWeight: 600, color: 'var(--text)' }}>
+          Flow Diagram
+        </h4>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.75rem', fontSize: '0.85rem', color: 'var(--muted)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            Node thickness
+            <input
+              type="range"
+              min={6}
+              max={22}
+              value={nodeThickness}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodeThickness(Number(e.target.value))}
+              style={{ width: '100px' }}
+            />
+            <span style={{ minWidth: 24, textAlign: 'right' }}>{nodeThickness}</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            Node padding
+            <input
+              type="range"
+              min={4}
+              max={22}
+              value={nodePad}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNodePad(Number(e.target.value))}
+              style={{ width: '100px' }}
+            />
+            <span style={{ minWidth: 24, textAlign: 'right' }}>{nodePad}</span>
+          </label>
+          <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+            Click nodes in the diagram to explore transactions hierarchically.
+          </span>
+        </div>
+        <Plot
+          data={data.data}
+          layout={data.layout}
+          style={{ width: '100%', minHeight: '400px' }}
+          onClick={onNodeClick}
+        />
+      </div>
     </div>
   );
 }
@@ -1677,113 +1920,77 @@ export default function CashDashboardPage(){
 
   return (
     <AuthGuard redirectTo="/cash-dashboard">
-      <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '2rem' }}>
-        <h1 style={{ marginBottom: '1rem' }}>💰 Cash Dashboard</h1>
-        <p style={{ color: 'var(--text-secondary)', marginBottom: '2rem' }}>
-          Track your fiat currency deposits, withdrawals, and cash flow over time.
+      <main className="dashboard-container">
+      <div style={{ marginBottom: '2rem', paddingBottom: '1.5rem', borderBottom: '1px solid var(--border)' }}>
+        <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem', fontSize: '2rem', fontWeight: 800 }}>
+          💰 Cash Dashboard
+        </h1>
+        <p className="subtitle" style={{ fontSize: '1rem', color: 'var(--muted)', marginTop: '0.5rem' }}>
+          Track your fiat currency deposits, withdrawals, and cash flow over time (EUR & USD only)
         </p>
+      </div>
         
         {/* Filters */}
-        <div style={{ marginBottom: '2rem', display: 'flex', gap: '2.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <label style={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>Currency:</label>
-            <select 
-              value={selectedCurrency} 
-              onChange={(e) => setSelectedCurrency(e.target.value)}
-              style={{ 
-                padding: '0.625rem 0.875rem', 
-                borderRadius: '6px', 
-                border: '1px solid var(--border)',
-                backgroundColor: 'var(--surface)',
-                color: 'var(--text)',
-                fontSize: '0.95rem',
-                minWidth: '120px'
-              }}
-            >
-              {fiatCurrencies.map(currency => (
-                <option key={currency} value={currency}>{currency}</option>
-              ))}
-            </select>
-          </div>
-          
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <label style={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>Tax Year:</label>
-            <select 
-              value={selectedTaxYear} 
-              onChange={(e) => setSelectedTaxYear(e.target.value)}
-              style={{ 
-                padding: '0.625rem 0.875rem', 
-                borderRadius: '6px', 
-                border: '1px solid var(--border)',
-                backgroundColor: 'var(--surface)',
-                color: 'var(--text)',
-                fontSize: '0.95rem',
-                minWidth: '140px'
-              }}
-            >
-              {availableTaxYears.map(year => (
-                <option key={year} value={year}>
-                  {year === 'all' ? 'All Years' : year}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="toolbar" style={{ marginBottom: '2rem' }}>
+          <div className="filters">
+            <label>
+              Currency
+              <select 
+                value={selectedCurrency} 
+                onChange={(e) => setSelectedCurrency(e.target.value)}
+              >
+                {fiatCurrencies.map(currency => (
+                  <option key={currency} value={currency}>{currency}</option>
+                ))}
+              </select>
+            </label>
+            
+            <label>
+              Tax Year
+              <select 
+                value={selectedTaxYear} 
+                onChange={(e) => setSelectedTaxYear(e.target.value)}
+              >
+                {availableTaxYears.map(year => (
+                  <option key={year} value={year}>
+                    {year === 'all' ? 'All Years' : year}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <label style={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>Asset Lot Strategy:</label>
-            <select 
-              value={selectedAssetLotStrategy} 
-              onChange={(e) => setSelectedAssetLotStrategy(e.target.value as 'FIFO' | 'LIFO' | 'HIFO' | 'LOFO')}
-              style={{ 
-                padding: '0.625rem 0.875rem', 
-                borderRadius: '6px', 
-                border: '1px solid var(--border)',
-                backgroundColor: 'var(--surface)',
-                color: 'var(--text)',
-                fontSize: '0.95rem',
-                minWidth: '160px'
-              }}
-              title="Applied when selling crypto assets (affects realized gains on sells). Romania may require FIFO; use alternatives for scenario analysis."
-            >
-              <option value="FIFO">FIFO</option>
-              <option value="LIFO">LIFO</option>
-              <option value="HIFO">HIFO (min gains)</option>
-              <option value="LOFO">LOFO (max gains)</option>
-            </select>
-          </div>
+            <label>
+              Asset Lot Strategy
+              <select 
+                value={selectedAssetLotStrategy} 
+                onChange={(e) => setSelectedAssetLotStrategy(e.target.value as 'FIFO' | 'LIFO' | 'HIFO' | 'LOFO')}
+                title="Applied when selling crypto assets (affects realized gains on sells). Romania may require FIFO; use alternatives for scenario analysis."
+              >
+                <option value="FIFO">FIFO</option>
+                <option value="LIFO">LIFO</option>
+                <option value="HIFO">HIFO (min gains)</option>
+                <option value="LOFO">LOFO (max gains)</option>
+              </select>
+            </label>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <label style={{ fontWeight: 'bold', whiteSpace: 'nowrap' }}>Cash Lot Strategy:</label>
-            <select 
-              value={selectedCashLotStrategy} 
-              onChange={(e) => setSelectedCashLotStrategy(e.target.value as 'FIFO' | 'LIFO' | 'HIFO' | 'LOFO')}
-              style={{ 
-                padding: '0.625rem 0.875rem', 
-                borderRadius: '6px', 
-                border: '1px solid var(--border)',
-                backgroundColor: 'var(--surface)',
-                color: 'var(--text)',
-                fontSize: '0.95rem',
-                minWidth: '180px'
-              }}
-              title="Applied when consuming cash lots (buys + withdrawals). Use FIFO for clean chronological withdrawal traceability; try LIFO/HIFO/LOFO for scenario analysis."
-            >
-              <option value="FIFO">FIFO (clean trace)</option>
-              <option value="LIFO">LIFO</option>
-              <option value="HIFO">HIFO</option>
-              <option value="LOFO">LOFO</option>
-            </select>
+            <label>
+              Cash Lot Strategy
+              <select 
+                value={selectedCashLotStrategy} 
+                onChange={(e) => setSelectedCashLotStrategy(e.target.value as 'FIFO' | 'LIFO' | 'HIFO' | 'LOFO')}
+                title="Applied when consuming cash lots (buys + withdrawals). Use FIFO for clean chronological withdrawal traceability; try LIFO/HIFO/LOFO for scenario analysis."
+              >
+                <option value="FIFO">FIFO (clean trace)</option>
+                <option value="LIFO">LIFO</option>
+                <option value="HIFO">HIFO</option>
+                <option value="LOFO">LOFO</option>
+              </select>
+            </label>
           </div>
         </div>
 
         {/* Summary Cards */}
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-          gap: '1rem', 
-          marginBottom: '2rem' 
-        }}>
+        <div className="dashboard-summary">
           {fiatCurrencies.map(currency => {
             const data = cashFlowData[currency];
             const totalDeposits = data.deposits;
@@ -1793,38 +2000,24 @@ export default function CashDashboardPage(){
             return (
               <div 
                 key={currency}
-                style={{ 
-                  padding: '1rem', 
-                  backgroundColor: 'var(--surface)', 
-                  borderRadius: '8px', 
-                  border: '1px solid var(--border)',
-                  textAlign: 'center'
-                }}
+                className="summary-card"
               >
-                <h3 style={{ margin: '0 0 0.5rem 0', color: colorFor(currency) }}>{currency}</h3>
-                <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                  <div>Deposits: {totalDeposits.toFixed(2)}</div>
-                  <div>Withdrawals: {totalWithdrawals.toFixed(2)}</div>
-                  <div style={{ 
-                    fontWeight: 'bold', 
-                    color: netFlow >= 0 ? '#10b981' : '#ef4444',
-                    marginTop: '0.5rem'
-                  }}>
-                    Net: {netFlow.toFixed(2)}
-                  </div>
+                <div className="summary-label" style={{ color: colorFor(currency), fontWeight: 600 }}>
+                  {currency}
+                </div>
+                <div className="summary-value">
+                  {netFlow >= 0 ? '+' : ''}{netFlow.toFixed(2)} {currency}
+                </div>
+                <div className="summary-subtext">
+                  Deposits: {totalDeposits.toFixed(2)} | Withdrawals: {totalWithdrawals.toFixed(2)}
                 </div>
               </div>
             );
           })}
         </div>
-      </div>
 
       {/* Charts Grid */}
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))', 
-        gap: '2rem' 
-      }}>
+      <div className="dashboard-grid">
         <ChartCard title="Cash Flow by Currency" infoText="Fiat deposits vs withdrawals grouped by currency.">
           {({ timeframe, expanded }) => {
             const startIso = startIsoForTimeframe(timeframe);
@@ -1871,28 +2064,46 @@ export default function CashDashboardPage(){
           }}
         </ChartCard>
 
-        <ChartCard title={`Monthly Cash Flow - ${selectedCurrency}`} infoText="Monthly deposits vs withdrawals for the selected currency.">
+        <ChartCard title={`Monthly Cash Flow - ${selectedCurrency}`} infoText={selectedCurrency === 'USD' 
+          ? "Monthly deposits vs withdrawals converted to USD (includes all currencies)."
+          : `Monthly deposits vs withdrawals for ${selectedCurrency}.`}>
           {({ timeframe, expanded }) => {
             const startIso = startIsoForTimeframe(timeframe);
-            const currencyTxs = fiatTxs
-              .filter((tx) => {
-                // For deposits: fiat currency is in fromAsset; for withdrawals: fiat currency is in toAsset
-                const fiatAsset = tx.type === 'Deposit' && tx.fromAsset
-                  ? tx.fromAsset.toUpperCase()
-                  : tx.toAsset.toUpperCase();
-                return fiatAsset === selectedCurrency;
-              })
-              .filter((tx) => (startIso ? new Date(tx.datetime).toISOString().slice(0, 10) >= startIso : true));
-
+            const filteredTxs = fiatTxs.filter((tx) => (startIso ? new Date(tx.datetime).toISOString().slice(0, 10) >= startIso : true));
+            
             const monthlyData: { [key: string]: { deposits: number; withdrawals: number } } = {};
-            for (const tx of currencyTxs) {
+            for (const tx of filteredTxs) {
               const date = new Date(tx.datetime);
               const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
               if (!monthlyData[monthKey]) monthlyData[monthKey] = { deposits: 0, withdrawals: 0 };
-              // For deposits: amount is in fromQuantity; for withdrawals: amount is in toQuantity
-              const amount = tx.type === 'Deposit'
+              
+              // Get the transaction currency and amount
+              const txCurrency = tx.type === 'Deposit' && tx.fromAsset
+                ? tx.fromAsset.toUpperCase()
+                : tx.toAsset.toUpperCase();
+              const txAmount = tx.type === 'Deposit'
                 ? (tx.fromQuantity || 0)
                 : (tx.toQuantity || 0);
+              
+              // Convert to selected currency if needed
+              let amount = txAmount;
+              if (txCurrency !== selectedCurrency) {
+                // Convert using the transaction's price or convertFiat
+                if (tx.type === 'Deposit' && tx.fromPriceUsd) {
+                  // Use transaction price if available
+                  amount = selectedCurrency === 'USD' 
+                    ? txAmount * tx.fromPriceUsd
+                    : convertFiat(txAmount, txCurrency, selectedCurrency);
+                } else if (tx.type === 'Withdrawal' && tx.toPriceUsd) {
+                  amount = selectedCurrency === 'USD'
+                    ? txAmount * tx.toPriceUsd
+                    : convertFiat(txAmount, txCurrency, selectedCurrency);
+                } else {
+                  // Fallback to convertFiat
+                  amount = convertFiat(txAmount, txCurrency, selectedCurrency);
+                }
+              }
+              
               if (tx.type === 'Deposit') monthlyData[monthKey].deposits += amount;
               else if (tx.type === 'Withdrawal') monthlyData[monthKey].withdrawals += amount;
             }
@@ -1963,7 +2174,7 @@ export default function CashDashboardPage(){
           )}
           <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
             Taxable events are withdrawals from crypto to fiat. All calculations use FIFO (First In First Out) method.
-            Calculations done in USD (USDC), with RON values converted using historical FX per withdrawal date (EUR→RON, USD→RON).
+            Calculations done in USD (USDC), with EUR values converted using historical FX per withdrawal date.
             <br />
             <strong>Note:</strong> Cost basis represents your original purchase price, not the sale price. 
             If cost basis &gt; withdrawals, it means you sold assets at a loss (which is correct for tax reporting).
@@ -2000,65 +2211,33 @@ export default function CashDashboardPage(){
                 gap: '1rem', 
                 marginBottom: '2rem' 
               }}>
-                <div style={{ 
-                  padding: '1rem', 
-                  backgroundColor: 'var(--surface)', 
-                  borderRadius: '8px', 
-                  border: '1px solid var(--border)',
-                  textAlign: 'center'
-                }}>
-                  <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                    Total Withdrawals
-                  </h3>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
+                <div className="summary-card">
+                  <div className="summary-label">Total Withdrawals</div>
+                  <div className="summary-value">
                     ${taxReport.totalWithdrawalsUsd.toFixed(2)}
                   </div>
-                  <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                    {taxReport.totalWithdrawalsRon.toFixed(2)} RON
+                  <div className="summary-subtext">
+                    USD
                   </div>
                 </div>
 
-                <div style={{ 
-                  padding: '1rem', 
-                  backgroundColor: 'var(--surface)', 
-                  borderRadius: '8px', 
-                  border: '1px solid var(--border)',
-                  textAlign: 'center'
-                }}>
-                  <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                    Total Cost Basis
-                  </h3>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
+                <div className="summary-card">
+                  <div className="summary-label">Total Cost Basis</div>
+                  <div className="summary-value">
                     ${taxReport.totalCostBasisUsd.toFixed(2)}
                   </div>
-                  <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
-                    {taxReport.totalCostBasisRon.toFixed(2)} RON
+                  <div className="summary-subtext">
+                    USD
                   </div>
                 </div>
 
-                <div style={{ 
-                  padding: '1rem', 
-                  backgroundColor: 'var(--surface)', 
-                  borderRadius: '8px', 
-                  border: '1px solid var(--border)',
-                  textAlign: 'center'
-                }}>
-                  <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                    Total Gain/Loss
-                  </h3>
-                  <div style={{ 
-                    fontSize: '1.5rem', 
-                    fontWeight: 'bold',
-                    color: taxReport.totalGainLossUsd >= 0 ? '#10b981' : '#ef4444'
-                  }}>
+                <div className="summary-card">
+                  <div className="summary-label">Total Gain/Loss</div>
+                  <div className={`summary-value ${taxReport.totalGainLossUsd >= 0 ? 'positive' : 'negative'}`}>
                     ${taxReport.totalGainLossUsd >= 0 ? '+' : ''}{taxReport.totalGainLossUsd.toFixed(2)}
                   </div>
-                  <div style={{ 
-                    fontSize: '0.9rem', 
-                    color: taxReport.totalGainLossUsd >= 0 ? '#10b981' : '#ef4444',
-                    marginTop: '0.25rem'
-                  }}>
-                    {taxReport.totalGainLossRon >= 0 ? '+' : ''}{taxReport.totalGainLossRon.toFixed(2)} RON
+                  <div className={`summary-subtext ${taxReport.totalGainLossUsd >= 0 ? 'positive' : 'negative'}`}>
+                    USD
                   </div>
                 </div>
               </div>
@@ -2081,67 +2260,51 @@ export default function CashDashboardPage(){
               )}
 
               {/* Taxable Events Table */}
-              <div style={{ 
-                backgroundColor: 'var(--surface)', 
-                borderRadius: '8px', 
-                border: '1px solid var(--border)',
-                overflow: 'hidden',
-                marginBottom: '2rem'
-              }}>
-                <div style={{ 
-                  padding: '1rem', 
-                  borderBottom: '1px solid var(--border)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
-                }}>
-                  <h3 style={{ margin: 0 }}>
-                    Taxable Events (Withdrawals to Fiat)
-                  </h3>
-                  <button
-                    onClick={async () => {
-                      try {
-                        const url = `/api/tax/romania/export?year=${selectedTaxYear}&assetStrategy=${selectedAssetLotStrategy}&cashStrategy=${selectedCashLotStrategy}${selectedId && selectedId !== 'all' ? `&portfolioId=${selectedId}` : ''}`;
-                        const response = await fetch(url);
-                        if (response.ok) {
-                          const blob = await response.blob();
-                          const downloadUrl = window.URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = downloadUrl;
-                          a.download = `romania_tax_report_${selectedTaxYear}.csv`;
-                          document.body.appendChild(a);
-                          a.click();
-                          document.body.removeChild(a);
-                          window.URL.revokeObjectURL(downloadUrl);
+              <section className="card" style={{ marginBottom: '2rem' }}>
+                <div className="card-header">
+                  <div className="card-title">
+                    <h3 style={{ margin: 0 }}>
+                      Taxable Events (Withdrawals to Fiat)
+                    </h3>
+                  </div>
+                  <div className="card-actions">
+                    <button
+                      onClick={async () => {
+                        try {
+                          const url = `/api/tax/romania/export?year=${selectedTaxYear}&assetStrategy=${selectedAssetLotStrategy}&cashStrategy=${selectedCashLotStrategy}${selectedId && selectedId !== 'all' ? `&portfolioId=${selectedId}` : ''}`;
+                          const response = await fetch(url);
+                          if (response.ok) {
+                            const blob = await response.blob();
+                            const downloadUrl = window.URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = downloadUrl;
+                            a.download = `romania_tax_report_${selectedTaxYear}.csv`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            window.URL.revokeObjectURL(downloadUrl);
+                          }
+                        } catch (error) {
+                          console.error('Export failed:', error);
                         }
-                      } catch (error) {
-                        console.error('Export failed:', error);
-                      }
-                    }}
-                    style={{
-                      padding: '0.5rem 1rem',
-                      backgroundColor: '#3b82f6',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '0.9rem',
-                      fontWeight: 'bold'
-                    }}
-                  >
-                    📥 Export Full Report
-                  </button>
+                      }}
+                      className="btn btn-primary btn-sm"
+                    >
+                      📥 Export Full Report
+                    </button>
+                  </div>
                 </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <div className="table-wrapper">
+                  <table className="table">
                     <thead>
-                      <tr style={{ backgroundColor: 'var(--background)' }}>
-                        <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Date</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'right', borderBottom: '1px solid var(--border)' }}>Amount (USD)</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'right', borderBottom: '1px solid var(--border)' }}>Amount (RON)</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'right', borderBottom: '1px solid var(--border)' }}>Cost Basis (USD)</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'right', borderBottom: '1px solid var(--border)' }}>Gain/Loss (USD)</th>
-                        <th style={{ padding: '0.75rem', textAlign: 'right', borderBottom: '1px solid var(--border)' }}>Gain/Loss (RON)</th>
+                      <tr>
+                        <th>Date</th>
+                        <th style={{ textAlign: 'right' }}>Amount (USD)</th>
+                        <th style={{ textAlign: 'right' }}>Amount (Original)</th>
+                        <th style={{ textAlign: 'right' }}>Cost Basis (USD)</th>
+                        <th style={{ textAlign: 'right' }}>Gain/Loss (USD)</th>
+                        <th style={{ textAlign: 'right' }}>Gain/Loss (Original)</th>
+                        <th style={{ textAlign: 'center' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2149,21 +2312,20 @@ export default function CashDashboardPage(){
                         .sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime())
                         .map((event) => (
                           <React.Fragment key={event.transactionId}>
-                            <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                              <td style={{ padding: '0.75rem' }}>
+                            <tr>
+                              <td>
                                 {new Date(event.datetime).toLocaleDateString()}
                               </td>
-                              <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: 'bold' }}>
+                              <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
                                 ${event.fiatAmountUsd.toFixed(2)}
                               </td>
-                              <td style={{ padding: '0.75rem', textAlign: 'right' }}>
-                                {event.fiatAmountRon.toFixed(2)} RON
+                              <td style={{ textAlign: 'right', color: 'var(--muted)' }}>
+                                {event.fiatCurrency !== 'USD' ? event.fiatAmountOriginal.toFixed(2) + ' ' + event.fiatCurrency : '—'}
                               </td>
-                              <td style={{ padding: '0.75rem', textAlign: 'right' }}>
+                              <td style={{ textAlign: 'right' }}>
                                 ${event.costBasisUsd.toFixed(2)}
                               </td>
                               <td style={{ 
-                                padding: '0.75rem', 
                                 textAlign: 'right',
                                 color: event.gainLossUsd >= 0 ? '#10b981' : '#ef4444',
                                 fontWeight: 'bold'
@@ -2171,13 +2333,15 @@ export default function CashDashboardPage(){
                                 {event.gainLossUsd >= 0 ? '+' : ''}${event.gainLossUsd.toFixed(2)}
                               </td>
                               <td style={{ 
-                                padding: '0.75rem', 
                                 textAlign: 'right',
-                                color: event.gainLossRon >= 0 ? '#10b981' : '#ef4444'
+                                color: event.fiatCurrency !== 'USD' ? (event.gainLossUsd >= 0 ? '#10b981' : '#ef4444') : 'var(--muted)'
                               }}>
-                                {event.gainLossRon >= 0 ? '+' : ''}{event.gainLossRon.toFixed(2)} RON
+                                {event.fiatCurrency !== 'USD' ? (() => {
+                                  const gainLossOriginal = event.gainLossUsd / event.fxFiatToUsd;
+                                  return (gainLossOriginal >= 0 ? '+' : '') + gainLossOriginal.toFixed(2) + ' ' + event.fiatCurrency;
+                                })() : '—'}
                               </td>
-                              <td style={{ padding: '0.75rem', textAlign: 'center' }}>
+                              <td style={{ textAlign: 'center' }}>
                                 <button
                                   onClick={async () => {
                                     try {
@@ -2198,30 +2362,23 @@ export default function CashDashboardPage(){
                                       console.error('Export failed:', error);
                                     }
                                   }}
-                                  style={{
-                                    padding: '0.25rem 0.5rem',
-                                    backgroundColor: '#10b981',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '0.8rem'
-                                  }}
+                                  className="btn btn-success btn-sm"
                                   title="Export this taxable event with source trace details"
                                 >
-                                  📄
+                                  📄 Export
                                 </button>
                               </td>
                             </tr>
                             {event.sourceTrace.length > 0 && (
                               <tr>
-                                <td colSpan={6} style={{ padding: '0', backgroundColor: 'var(--background)' }}>
+                                <td colSpan={7} style={{ padding: '0', backgroundColor: 'var(--background)' }}>
                                   <details style={{ cursor: 'pointer' }}>
                                     <summary style={{ 
                                       padding: '0.75rem', 
-                                      color: 'var(--text-secondary)',
-                                      fontWeight: 'bold',
-                                      borderTop: '1px solid var(--border)'
+                                      color: 'var(--muted)',
+                                      fontWeight: 600,
+                                      borderTop: '1px solid var(--border)',
+                                      fontSize: '0.9rem'
                                     }}>
                                       📊 Source Trace & Flow Diagram ({event.sourceTrace.length} source{event.sourceTrace.length !== 1 ? 's' : ''})
                                     </summary>
@@ -2229,9 +2386,10 @@ export default function CashDashboardPage(){
                                       {/* Sankey Diagram */}
                                       <div style={{ 
                                         marginBottom: '1.5rem',
-                                        backgroundColor: 'var(--surface)',
+                                        backgroundColor: 'var(--card)',
                                         borderRadius: '8px',
-                                        padding: '1rem'
+                                        padding: '1rem',
+                                        border: '1px solid var(--border)'
                                       }}>
                                         <SankeyExplorer event={event} transactions={txs} />
                                       </div>
@@ -2293,7 +2451,7 @@ export default function CashDashboardPage(){
                     </tbody>
                   </table>
                 </div>
-              </div>
+              </section>
             </>
           ) : taxReport ? (
             <div style={{ 
@@ -2311,22 +2469,23 @@ export default function CashDashboardPage(){
       )}
 
       {/* Transaction Summary */}
-      <div style={{ marginTop: '2rem' }}>
-        <h2>Recent Cash Transactions{selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}</h2>
-        <div style={{ 
-          backgroundColor: 'var(--surface)', 
-          borderRadius: '8px', 
-          border: '1px solid var(--border)',
-          overflow: 'hidden'
-        }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <section className="card" style={{ marginTop: '2rem' }}>
+        <div className="card-header">
+          <div className="card-title">
+            <h2 style={{ margin: 0 }}>
+              Recent Cash Transactions{selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}
+            </h2>
+          </div>
+        </div>
+        <div className="table-wrapper">
+          <table className="table">
             <thead>
-              <tr style={{ backgroundColor: 'var(--background)' }}>
-                <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Date</th>
-                <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Type</th>
-                <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Currency</th>
-                <th style={{ padding: '0.75rem', textAlign: 'right', borderBottom: '1px solid var(--border)' }}>Amount</th>
-                <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Notes</th>
+              <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Currency</th>
+                <th style={{ textAlign: 'right' }}>Amount</th>
+                <th>Notes</th>
               </tr>
             </thead>
             <tbody>
@@ -2334,39 +2493,44 @@ export default function CashDashboardPage(){
                 .sort((a, b) => new Date(b.datetime).getTime() - new Date(a.datetime).getTime())
                 .slice(0, 10)
                 .map(tx => (
-                  <tr key={tx.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '0.75rem' }}>
+                  <tr key={tx.id}>
+                    <td>
                       {new Date(tx.datetime).toLocaleDateString()}
                     </td>
-                    <td style={{ padding: '0.75rem' }}>
-                      <span style={{ 
-                        padding: '0.25rem 0.5rem', 
-                        borderRadius: '4px', 
-                        fontSize: '0.8rem',
-                        backgroundColor: tx.type === 'Deposit' ? '#10b98120' : '#ef444420',
-                        color: tx.type === 'Deposit' ? '#10b981' : '#ef4444'
-                      }}>
-                        {tx.type}
+                    <td>
+                      <span className={`transaction-type-badge ${tx.type.toLowerCase()}`}>
+                        {tx.type === 'Deposit' ? '💰' : '💸'} {tx.type}
                       </span>
                     </td>
-                    <td style={{ padding: '0.75rem', color: colorFor(
+                    <td style={{ color: colorFor(
                       (tx.type === 'Deposit' && tx.fromAsset ? tx.fromAsset : tx.toAsset).toUpperCase()
-                    ) }}>
+                    ), fontWeight: 600 }}>
                       {(tx.type === 'Deposit' && tx.fromAsset ? tx.fromAsset : tx.toAsset).toUpperCase()}
                     </td>
-                    <td style={{ padding: '0.75rem', textAlign: 'right', fontWeight: 'bold' }}>
+                    <td style={{ textAlign: 'right', fontWeight: 'bold' }}>
                       {(tx.type === 'Deposit' ? (tx.fromQuantity || 0) : (tx.toQuantity || 0)).toFixed(2)}
                     </td>
-                    <td style={{ padding: '0.75rem', color: 'var(--text-secondary)' }}>
-                      {tx.notes || '-'}
+                    <td style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>
+                      {tx.notes || <span style={{ fontStyle: 'italic', opacity: 0.5 }}>—</span>}
                     </td>
                   </tr>
                 ))}
+              {fiatTxs.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--muted)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                      <span style={{ fontSize: '2rem' }}>📭</span>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>No cash transactions found</div>
+                      <div style={{ fontSize: '0.9rem', opacity: 0.8 }}>Try adjusting your filters</div>
+                    </div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
-      </div>
-    </div>
+      </section>
+      </main>
     </AuthGuard>
   );
 }

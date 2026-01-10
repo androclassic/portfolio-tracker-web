@@ -197,7 +197,10 @@ export function convertFiat(amount: number, fromCurrency: string, toCurrency: st
 
 // Get all supported fiat currencies
 export function getFiatCurrencies(): string[] {
-  return SUPPORTED_ASSETS.filter(asset => asset.category === 'fiat').map(asset => asset.symbol);
+  // Only return EUR and USD, exclude RON
+  return SUPPORTED_ASSETS
+    .filter(asset => asset.category === 'fiat' && (asset.symbol === 'EUR' || asset.symbol === 'USD'))
+    .map(asset => asset.symbol);
 }
 
 // Check if an asset is fiat

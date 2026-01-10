@@ -16,7 +16,6 @@ import type { Transaction as Tx } from '@/lib/types';
 import { STABLECOINS } from '@/lib/types';
 
 function DashboardPageContent() {
-  const renderStart = performance.now();
   const {
     txs,
     loadingTxs,
@@ -36,16 +35,7 @@ function DashboardPageContent() {
   } = useDashboardData();
   
   // Measure render time and log all useMemo computations
-  React.useEffect(() => {
-    const renderEnd = performance.now();
-    const renderTime = renderEnd - renderStart;
-    if (renderTime > 16) { // Only log if render takes longer than one frame (16ms)
-      const renderTimeSec = (renderTime / 1000).toFixed(2);
-      console.log(`[Performance] 🎨 Dashboard render: ${renderTime.toFixed(2)}ms (${renderTimeSec}s)`);
-      console.log(`[Performance] 📊 Summary: ${assets.length} assets, ${txs?.length || 0} transactions, ${historicalPrices.length} prices, ${dailyPos?.length || 0} daily positions`);
-    }
-  }, [renderStart, assets.length, txs?.length, historicalPrices.length, dailyPos?.length]);
-
+  React.
   const [selectedAsset, setSelectedAsset] = useState<string>('');
   const [selectedPnLAsset, setSelectedPnLAsset] = useState<string>('');
   const [selectedBtcChart, setSelectedBtcChart] = useState<string>('accumulation');
@@ -182,7 +172,6 @@ function DashboardPageContent() {
 
   // Net worth over time - OPTIMIZED: Use dailyPos with efficient forward-fill
   const netWorthOverTime = useMemo(() => {
-    const start = performance.now();
     if (!hist || !hist.prices || assets.length === 0 || !dailyPos || dailyPos.length === 0) {
       return { dates: [] as string[], cryptoExStableValue: [] as number[], stableValue: [] as number[], totalValue: [] as number[] };
     }
@@ -258,27 +247,15 @@ function DashboardPageContent() {
       totalValues.push(totalValue);
     }
 
-    const result = { dates, cryptoExStableValue: cryptoExStableValues, stableValue: stableValues, totalValue: totalValues };
-    const duration = performance.now() - start;
-    if (duration > 10) {
-      console.log(`[Performance] netWorthOverTime: ${duration.toFixed(2)}ms`);
-    }
-    return result;
+    return { dates, cryptoExStableValue: cryptoExStableValues, stableValue: stableValues, totalValue: totalValues };
   }, [hist, assets, dailyPos, priceIndex]);
 
   const netWorthChartModel = useMemo(() => {
-    const start = performance.now();
-    const result = buildNetWorthLineChartModel(netWorthOverTime);
-    const duration = performance.now() - start;
-    if (duration > 5) {
-      console.log(`[Performance] netWorthChartModel: ${duration.toFixed(2)}ms`);
-    }
-    return result;
+    return buildNetWorthLineChartModel(netWorthOverTime);
   }, [netWorthOverTime]);
 
   // Cost vs Valuation - OPTIMIZED: Use dailyPos for portfolio value calculation
   const costVsValuation = useMemo(() => {
-    const start = performance.now();
     if (!txs || txs.length === 0 || assets.length === 0 || !dailyPos || dailyPos.length === 0) {
       return { dates: [] as string[], costBasis: [] as number[], portfolioValue: [] as number[] };
     }
@@ -412,16 +389,11 @@ function DashboardPageContent() {
     }
 
     const result = { dates, costBasis, portfolioValue };
-    const duration = performance.now() - start;
-    if (duration > 10) {
-      console.log(`[Performance] costVsValuation: ${duration.toFixed(2)}ms (${dates.length} dates)`);
-    }
     return result;
   }, [hist, txs, assets, priceIndex, fxRateMap, latestPrices]);
 
   // Stacked portfolio value
   const stackedTraces = useMemo(() => {
-    const start = performance.now();
     const dates = stacked.dates;
     if (!dates.length) return { usd: [] as Data[], percent: [] as Data[], dateIndex: new Map<string, number>() };
 
@@ -471,10 +443,6 @@ function DashboardPageContent() {
     }
 
     const result = { usd, percent, dateIndex };
-    const duration = performance.now() - start;
-    if (duration > 10) {
-      console.log(`[Performance] stackedTraces: ${duration.toFixed(2)}ms (${dates.length} dates, ${assets.length} assets)`);
-    }
     return result;
   }, [stacked, assets, colorFor, hiddenStackedAssets]);
 
@@ -552,7 +520,6 @@ function DashboardPageContent() {
 
   // PnL calculation
   const pnl = useMemo(() => {
-    const start = performance.now();
     if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0 || !selectedPnLAsset) {
       return { dates: [] as string[], realized: [] as number[], unrealized: [] as number[] };
     }
@@ -634,16 +601,11 @@ function DashboardPageContent() {
     }
 
     const result = { dates, realized: realizedSeries, unrealized: unrealizedSeries };
-    const duration = performance.now() - start;
-    if (duration > 10) {
-      console.log(`[Performance] pnl: ${duration.toFixed(2)}ms (${dates.length} dates)`);
-    }
     return result;
   }, [hist, txs, selectedPnLAsset, assets]);
 
   // Cost vs Price for selected asset
   const costVsPrice = useMemo(() => {
-    const start = performance.now();
     if (!hist || !hist.prices || !selectedCostAsset) return { dates: [] as string[], avgCost: [] as number[], price: [] as number[] };
     const asset = selectedCostAsset.toUpperCase();
     const dates = Array.from(new Set(hist.prices.filter(p => p.asset.toUpperCase() === asset).map(p => p.date))).sort();
@@ -681,16 +643,11 @@ function DashboardPageContent() {
       price.push(priceMap.get(d) || 0);
     }
     const result = { dates, avgCost, price };
-    const duration = performance.now() - start;
-    if (duration > 10) {
-      console.log(`[Performance] costVsPrice: ${duration.toFixed(2)}ms (${dates.length} dates)`);
-    }
     return result;
   }, [hist, txs, selectedCostAsset]);
 
   // Position charts
   const positionsFigure = useMemo(() => {
-    const start = performance.now();
     const groups = new Map<string, { x: string[]; y: number[] }>();
     for (const r of dailyPos) {
       const g = groups.get(r.asset) || { x: [], y: [] };
@@ -732,16 +689,11 @@ function DashboardPageContent() {
     })());
     const layout: Partial<Layout> = { autosize: true, height: 320, margin: { t: 30, r: 10, l: 40, b: 40 }, legend: { orientation: 'h' } };
     const result = { data, layout };
-    const duration = performance.now() - start;
-    if (duration > 10) {
-      console.log(`[Performance] positionsFigure: ${duration.toFixed(2)}ms (${data.length} traces)`);
-    }
     return result;
   }, [dailyPos, selectedAsset, colorFor, notesByDayAsset]);
 
   // BTC Ratio & Accumulation
   const btcRatio = useMemo(() => {
-    const start = performance.now();
     if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0) {
       return { dates: [] as string[], btcValue: [] as number[], btcPercentage: [] as number[] };
     }
@@ -816,16 +768,11 @@ function DashboardPageContent() {
     }
 
     const result = { dates, btcValue, btcPercentage };
-    const duration = performance.now() - start;
-    if (duration > 10) {
-      console.log(`[Performance] btcRatio: ${duration.toFixed(2)}ms (${dates.length} dates)`);
-    }
     return result;
   }, [hist, assets, txs]);
 
   // Altcoin Holdings BTC Value - OPTIMIZED: Use dailyPos instead of filtering transactions
   const altcoinVsBtc = useMemo(() => {
-    const start = performance.now();
     if (!hist || !hist.prices || assets.length === 0 || !dailyPos || dailyPos.length === 0) {
       return { dates: [] as string[], performance: {} as Record<string, number[]> };
     }
@@ -886,16 +833,11 @@ function DashboardPageContent() {
     }
     
     const result = { dates, performance: performanceData };
-    const duration = performance.now() - start;
-    if (duration > 10) {
-      console.log(`[Performance] altcoinVsBtc: ${duration.toFixed(2)}ms (${dates.length} dates, ${Object.keys(performanceData).length} assets)`);
-    }
     return result;
   }, [hist, assets, dailyPos, priceIndex]);
 
   // Profit-Taking Opportunities - OPTIMIZED: Process transactions once, grouped by date
   const profitOpportunities = useMemo(() => {
-    const start = performance.now();
     if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0 || !dailyPos || dailyPos.length === 0) {
       return { dates: [] as string[], opportunities: {} as Record<string, { altcoinPnL: number[]; btcPnL: number[] }> };
     }
@@ -1040,16 +982,11 @@ function DashboardPageContent() {
     }
     
     const result = { dates, opportunities };
-    const duration = performance.now() - start;
-    if (duration > 10) {
-      console.log(`[Performance] profitOpportunities: ${duration.toFixed(2)}ms (${dates.length} dates, ${Object.keys(opportunities).length} assets)`);
-    }
     return result;
   }, [hist, assets, txs, dailyPos, priceIndex]);
 
   // Portfolio Heatmap
   const portfolioHeatmap = useMemo(() => {
-    const start = performance.now();
     if (!txs || txs.length === 0 || !assets.length) {
       return { assets: [] as string[], pnlValues: [] as number[], colors: [] as string[] };
     }
@@ -1144,10 +1081,6 @@ function DashboardPageContent() {
       pnlValues: heatmapData.map(d => d.pnl),
       colors: heatmapData.map(d => d.color),
     };
-    const duration = performance.now() - start;
-    if (duration > 10) {
-      console.log(`[Performance] portfolioHeatmap: ${duration.toFixed(2)}ms (${result.assets.length} assets)`);
-    }
     return result;
   }, [txs, assets, hist, latestPrices, heatmapTimeframe]);
 
@@ -1214,25 +1147,52 @@ function DashboardPageContent() {
               if (!netWorthOverTime.dates.length) {
                 return <div className="chart-empty">No net worth data available</div>;
               }
+              
+              // Get the start index for slicing
+              // For 'all', this returns 0 (shows all data)
+              // For other timeframes, finds the first date >= start date
               const idx = sliceStartIndexForIsoDates(netWorthOverTime.dates, timeframe);
-              // Slice the dates array first, then use it to slice the series
-              const slicedDates = netWorthOverTime.dates.slice(idx);
+              
+              // Ensure idx is valid
+              // If idx === dates.length, it means no dates found in range (all dates are before start date)
+              // For 'all', idx should always be 0
+              const startIdx = timeframe === 'all' ? 0 : Math.max(0, Math.min(idx, netWorthOverTime.dates.length));
+              
+              // Slice dates and series arrays consistently from the same index
+              const slicedDates = netWorthOverTime.dates.slice(startIdx);
               const slicedSeries = netWorthChartModel.series.map(s => ({
                 ...s,
-                y: s.y.slice(idx),
+                y: s.y.slice(startIdx),
+              }));
+              
+              // Check if we have any data after slicing
+              if (slicedDates.length === 0 || !slicedSeries[0] || slicedSeries[0].y.length === 0) {
+                return <div className="chart-empty">No data available for the selected timeframe</div>;
+              }
+              
+              // Ensure dates and series have the same length (they should match, but be safe)
+              const minLength = Math.min(slicedDates.length, ...slicedSeries.map(s => s.y.length));
+              if (minLength === 0) {
+                return <div className="chart-empty">No data available for the selected timeframe</div>;
+              }
+              
+              const finalDates = slicedDates.slice(0, minLength);
+              const finalSeries = slicedSeries.map(s => ({
+                ...s,
+                y: s.y.slice(0, minLength),
               }));
               
               // Sample data points for performance (max 100 points)
               const maxPoints = expanded ? 200 : 100;
-              if (slicedDates.length > maxPoints) {
-                const dataArrays = slicedSeries.map(s => s.y);
-                const sampled = sampleDataPoints(slicedDates, dataArrays, maxPoints);
+              if (finalDates.length > maxPoints) {
+                const dataArrays = finalSeries.map(s => s.y);
+                const sampled = sampleDataPoints(finalDates, dataArrays, maxPoints);
                 const sampledModel = {
                   ...netWorthChartModel,
                   x: sampled.dates,
-                  series: slicedSeries.map((s, i) => ({
-                    ...s,
-                    y: sampled.dataArrays[i]!,
+                  series: sampled.dataArrays.map((yData, i) => ({
+                    ...finalSeries[i]!,
+                    y: yData,
                   })),
                 };
                 return <LineChart model={sampledModel} />;
@@ -1240,8 +1200,8 @@ function DashboardPageContent() {
               
               const slicedModel = {
                 ...netWorthChartModel,
-                x: slicedDates,
-                series: slicedSeries,
+                x: finalDates,
+                series: finalSeries,
               };
               return (
                 <LineChart
