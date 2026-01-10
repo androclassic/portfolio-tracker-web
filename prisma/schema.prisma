@@ -58,20 +58,21 @@ model VerificationToken {
 }
 
 model Transaction {
-  id           Int      @id @default(autoincrement())
-  asset        String
-  type         String   // Buy or Sell
-  priceUsd     Float?
-  quantity     Float
+  id           Int       @id @default(autoincrement())
+  type         String    // Deposit, Withdrawal, or Swap
   datetime     DateTime
   feesUsd      Float?
-  costUsd      Float?
-  proceedsUsd  Float?
   notes        String?
+  fromAsset    String?
+  fromQuantity Float?
+  fromPriceUsd Float?
+  toAsset      String
+  toQuantity   Float
+  toPriceUsd   Float?
   portfolioId  Int
   portfolio    Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
 model Portfolio {

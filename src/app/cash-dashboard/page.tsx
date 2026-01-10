@@ -1383,7 +1383,7 @@ export default function CashDashboardPage(){
   // Calculate running balance over time (all fiat currencies converted to USD)
   const balanceOverTime = useMemo(() => {
     // If filtering by year, calculate starting balance from all transactions before that year
-    let startingBalancesByCurrency: Record<string, number> = {};
+    const startingBalancesByCurrency: Record<string, number> = {};
     if (selectedTaxYear !== 'all') {
       const allFiatTxs = (txs || []).filter(tx => {
         const isCashTransaction = (tx.type === 'Deposit' || tx.type === 'Withdrawal');
