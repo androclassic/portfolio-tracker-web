@@ -1122,31 +1122,34 @@ export function calculateRomaniaTax(
       
       const sourceTrace = buyLotsToSourceTrace(allBuyLots, sortedTxs);
       
-      const costBasisRon = costBasisUsd * fxUsdToRon;
-      const gainLossUsd = amountUsd - costBasisUsd;
-      const gainLossRon = amountRon - costBasisRon;
-      
-      const taxableEvent: TaxableEvent = {
-        transactionId: tx.id,
-        datetime: tx.datetime,
-        fiatCurrency: toAsset,
-        fiatAmountOriginal: tx.toQuantity || 0,
-        fxFiatToUsd: fxRateToUsd,
-        fxFiatToRon: fxFiatToRon,
-        fxUsdToRon: fxUsdToRon,
-        fiatAmountUsd: amountUsd,
-        fiatAmountRon: amountRon,
-        costBasisUsd,
-        costBasisRon,
-        gainLossUsd,
-        gainLossRon,
-        sourceTrace,
-        saleTrace: saleTrace.length > 0 ? saleTrace : undefined,
-        saleTraceDeep: saleTraceDeep.length > 0 ? saleTraceDeep : undefined,
-        depositTrace: depositTrace.length > 0 ? depositTrace : undefined,
-      };
-      
-      taxableEvents.push(taxableEvent);
+      // Only add to taxable events if this withdrawal is from the selected tax year
+      if (txYear === year) {
+        const costBasisRon = costBasisUsd * fxUsdToRon;
+        const gainLossUsd = amountUsd - costBasisUsd;
+        const gainLossRon = amountRon - costBasisRon;
+        
+        const taxableEvent: TaxableEvent = {
+          transactionId: tx.id,
+          datetime: tx.datetime,
+          fiatCurrency: toAsset,
+          fiatAmountOriginal: tx.toQuantity || 0,
+          fxFiatToUsd: fxRateToUsd,
+          fxFiatToRon: fxFiatToRon,
+          fxUsdToRon: fxUsdToRon,
+          fiatAmountUsd: amountUsd,
+          fiatAmountRon: amountRon,
+          costBasisUsd,
+          costBasisRon,
+          gainLossUsd,
+          gainLossRon,
+          sourceTrace,
+          saleTrace: saleTrace.length > 0 ? saleTrace : undefined,
+          saleTraceDeep: saleTraceDeep.length > 0 ? saleTraceDeep : undefined,
+          depositTrace: depositTrace.length > 0 ? depositTrace : undefined,
+        };
+        
+        taxableEvents.push(taxableEvent);
+      }
       continue;
     }
   }
