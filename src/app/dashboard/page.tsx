@@ -1090,6 +1090,13 @@ function DashboardPageContent() {
   return (
     <AuthGuard>
       <main className="dashboard-container">
+        <div className="dashboard-header">
+          <div>
+            <h1 className="dashboard-title">Portfolio Dashboard</h1>
+            <p className="dashboard-subtitle">Track your crypto investments and performance</p>
+          </div>
+        </div>
+
         {/* Summary Cards */}
         <div className="dashboard-summary">
           <div className="summary-card primary">
@@ -1264,446 +1271,394 @@ function DashboardPageContent() {
           }}
         </ChartCard>
 
-      {/* Portfolio Gains/Losses Heatmap */}
-          <ChartCard
-            title="Portfolio Gains/Losses Heatmap"
-            timeframeEnabled={false}
-            infoText={`Portfolio Gains/Losses Heatmap
-
-This heatmap shows the profit and loss (PnL) for each asset in your portfolio.
-
-• Block size represents the magnitude of gains/losses
-• Green blocks = positive PnL (profits)
-• Red blocks = negative PnL (losses)
-• Larger blocks = bigger gains or losses
-
-Timeframe options:
-• 24h/7d/30d: PnL change over the specified period`}
-            headerActions={() => (
-              <div className="segmented" style={{ display: 'flex', gap: '4px' }}>
-                <button
-                  type="button"
-                  className={heatmapTimeframe === '24h' ? 'active' : ''}
-                  onClick={() => setHeatmapTimeframe('24h')}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    border: heatmapTimeframe === '24h' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                    background: heatmapTimeframe === '24h' ? 'var(--primary)' : 'var(--surface)',
-                    color: heatmapTimeframe === '24h' ? '#fff' : 'var(--text)',
-                    cursor: 'pointer',
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  24h
-                </button>
-                <button
-                  type="button"
-                  className={heatmapTimeframe === '7d' ? 'active' : ''}
-                  onClick={() => setHeatmapTimeframe('7d')}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    border: heatmapTimeframe === '7d' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                    background: heatmapTimeframe === '7d' ? 'var(--primary)' : 'var(--surface)',
-                    color: heatmapTimeframe === '7d' ? '#fff' : 'var(--text)',
-                    cursor: 'pointer',
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  7d
-                </button>
-                <button
-                  type="button"
-                  className={heatmapTimeframe === '30d' ? 'active' : ''}
-                  onClick={() => setHeatmapTimeframe('30d')}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '8px',
-                    border: heatmapTimeframe === '30d' ? '2px solid var(--primary)' : '1px solid var(--border)',
-                    background: heatmapTimeframe === '30d' ? 'var(--primary)' : 'var(--surface)',
-                    color: heatmapTimeframe === '30d' ? '#fff' : 'var(--text)',
-                    cursor: 'pointer',
-                    fontSize: '0.85rem',
-                    fontWeight: 600,
-                    transition: 'all 0.2s',
-                  }}
-                >
-                  30d
-            </button>
-          </div>
-            )}
-          >
-            {({ timeframe, expanded }) => {
-              if (loadingTxs || !txs) {
-                return <div className="chart-loading">Loading heatmap...</div>;
-              }
-              if (!portfolioHeatmap.assets.length) {
-                return <div className="chart-empty">No heatmap data</div>;
-              }
-
-              return (
-        <Plot
-          data={[
-            {
-              type: 'treemap',
+        {/* Portfolio Gains/Losses Heatmap */}
+        <ChartCard
+          title="Portfolio Gains/Losses Heatmap"
+          timeframeEnabled={false}
+        >
+          {({ timeframe, expanded }) => {
+            if (isLoading) {
+              return <div className="chart-loading">Loading heatmap data...</div>;
+            }
+            if (!portfolioHeatmap.pnlValues.length) {
+              return <div className="chart-empty">No heatmap data available</div>;
+            }
+            // Create treemap data structure for box area visualization
+            const treemapData = [{
+              type: 'treemap' as const,
               labels: portfolioHeatmap.assets,
-              parents: portfolioHeatmap.assets.map(() => ''),
-              values: portfolioHeatmap.pnlValues.map(Math.abs),
-              text: portfolioHeatmap.assets.map((asset, i) => 
-                        `${asset}<br>${portfolioHeatmap.pnlValues[i]! >= 0 ? '+' : ''}${portfolioHeatmap.pnlValues[i]!.toLocaleString('en-US', { 
-                  style: 'currency', 
-                  currency: 'USD',
-                  minimumFractionDigits: 0,
-                  maximumFractionDigits: 0
-                })}`
-              ),
-              textinfo: 'label+text',
-              hovertemplate: '<b>%{label}</b><br>PnL: %{text}<extra></extra>',
+              values: portfolioHeatmap.pnlValues.map(Math.abs), // Use absolute values for area
+              parents: portfolioHeatmap.assets.map(() => ''), // Root level
               marker: {
                 colors: portfolioHeatmap.colors,
-                line: { width: 1, color: '#ffffff' }
+                line: { width: 1, color: 'white' }
+              },
+              textinfo: 'label+value',
+              texttemplate: '%{label}<br>%{value:.2f}',
+              hovertemplate: '%{label}: %{customdata:.2f} USD<extra></extra>',
+              customdata: portfolioHeatmap.pnlValues, // Keep original signed values for hover
+            }];
+
+            return (
+              <Plot
+                data={treemapData as Data[]}
+                layout={{
+                  height: expanded ? undefined : 400,
+                  margin: { t: 30, r: 10, l: 10, b: 10 },
+                  paper_bgcolor: 'transparent',
+                  plot_bgcolor: 'transparent',
+                }}
+                style={{ width: '100%', height: expanded ? '100%' : undefined }}
+              />
+            );
+          }}
+        </ChartCard>
+
+        {/* Cost Basis vs Portfolio Valuation */}
+        <ChartCard title="Cost Basis vs Portfolio Valuation">
+          {({ timeframe, expanded }) => {
+            if (loadingTxs || !txs) {
+              return <div className="chart-loading">Loading cost vs valuation data...</div>;
+            }
+            if (!costVsValuation.dates.length) {
+              return <div className="chart-empty">No cost vs valuation data</div>;
+            }
+            const idx = sliceStartIndexForIsoDates(costVsValuation.dates, timeframe);
+            const dates = costVsValuation.dates.slice(idx);
+            const costBasis = costVsValuation.costBasis.slice(idx);
+            const portfolioValue = costVsValuation.portfolioValue.slice(idx);
+
+            // Sample data points for performance (max 100 points)
+            const maxPoints = expanded ? 200 : 100;
+            const sampled = sampleDataPoints(dates, [costBasis, portfolioValue], maxPoints);
+
+            return (
+              <Plot
+                data={[
+                  {
+                    x: sampled.dates,
+                    y: sampled.dataArrays[0]!,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Cost Basis',
+                    line: { color: '#5b8cff', width: 2 },
+                  },
+                  {
+                    x: sampled.dates,
+                    y: sampled.dataArrays[1]!,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Portfolio Value',
+                    line: { color: '#16a34a', width: 2 },
+                  },
+                ] as Data[]}
+                layout={{
+                  autosize: true,
+                  height: expanded ? undefined : 400,
+                  margin: { t: 30, r: 10, l: 10, b: 10 },
+                  legend: { orientation: 'h' },
+                  yaxis: { title: { text: 'USD Value' } },
+                  hovermode: 'x unified',
+                  paper_bgcolor: 'transparent',
+                  plot_bgcolor: 'transparent',
+                }}
+                style={{ width: '100%', height: expanded ? '100%' : undefined }}
+              />
+            );
+          }}
+        </ChartCard>
+
+        {/* Stacked Portfolio Value */}
+        <ChartCard
+          title="Portfolio Composition Over Time"
+          headerActions={() => (
+            <label className="chart-control">
+              Mode
+              <select value={stackedMode} onChange={e => setStackedMode(e.target.value as 'usd' | 'percent')}>
+                <option value="usd">USD</option>
+                <option value="percent">Percent</option>
+              </select>
+            </label>
+          )}
+        >
+          {({ timeframe, expanded }) => {
+            if (isLoading) {
+              return <div className="chart-loading">Loading portfolio composition...</div>;
+            }
+            if (!stacked.dates.length) {
+              return <div className="chart-empty">No portfolio composition data</div>;
+            }
+
+            const idx = sliceStartIndexForIsoDates(stacked.dates, timeframe);
+            const dates = stacked.dates.slice(idx);
+
+            // Sample data points for performance (max 100 points per trace)
+            const maxPoints = expanded ? 200 : 100;
+            const sampledDates = sampleDataWithDates(dates, dates, maxPoints).dates;
+
+            const traces = Array.from(stacked.perAssetUsd.keys()).map(asset => {
+              const usdValues = stacked.perAssetUsd.get(asset) || [];
+              const yData = stackedMode === 'usd'
+                ? usdValues.slice(idx)
+                : usdValues.slice(idx).map((value, i) => {
+                    const total = stacked.totals[i + idx] || 1;
+                    return total > 0 ? (value / total) * 100 : 0;
+                  });
+
+              const sampledY = sampleDataWithDates(dates, yData, maxPoints).data;
+
+              return {
+                x: sampledDates,
+                y: sampledY,
+                type: 'scatter' as const,
+                mode: 'lines' as const,
+                stackgroup: 'one',
+                name: asset,
+                line: { color: colorFor(asset) },
+                hovertemplate: `${asset}: %{y:.2f}${stackedMode === 'usd' ? ' USD' : '%'}<extra></extra>`,
+              };
+            });
+
+            return (
+              <Plot
+                data={traces as Data[]}
+                layout={{
+                  autosize: true,
+                  height: expanded ? undefined : 400,
+                  margin: { t: 30, r: 10, l: 10, b: 10 },
+                  hovermode: 'x unified',
+                  paper_bgcolor: 'transparent',
+                  plot_bgcolor: 'transparent',
+                  yaxis: {
+                    title: { text: stackedMode === 'usd' ? 'USD Value' : 'Percentage' },
+                  },
+                  legend: {
+                    orientation: 'h',
+                    y: -0.2,
+                  },
+                }}
+                style={{ width: '100%', height: expanded ? '100%' : undefined }}
+              />
+            );
+          }}
+        </ChartCard>
+
+        {/* P&L Chart */}
+        <ChartCard
+          title="Profit & Loss"
+          headerActions={() => (
+            <label className="chart-control">
+              Asset
+              <select value={selectedPnLAsset} onChange={e => setSelectedPnLAsset(e.target.value)}>
+                <option value="">All Assets</option>
+                {assets.map(a => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        >
+          {({ timeframe, expanded }) => {
+            if (loadingTxs || !txs) {
+              return <div className="chart-loading">Loading P&L data...</div>;
+            }
+            if (!pnl.dates.length) {
+              return <div className="chart-empty">No P&L data</div>;
+            }
+
+            const idx = sliceStartIndexForIsoDates(pnl.dates, timeframe);
+            const dates = pnl.dates.slice(idx);
+
+            // Sample data points for performance (max 100 points per trace)
+            const maxPoints = expanded ? 200 : 100;
+            const sampledDates = sampleDataWithDates(dates, dates, maxPoints).dates;
+
+            let traces: Data[] = [];
+            if (selectedPnLAsset === '') {
+              // Show all assets - use current P&L values
+              traces = assets.map(asset => {
+                const currentPnl = pnlData.assetPnL[asset]?.pnl || 0;
+                const pnlValues = new Array(dates.length).fill(currentPnl);
+                const sampledY = sampleDataWithDates(dates, pnlValues.slice(idx), maxPoints).data;
+
+                return {
+                  x: sampledDates,
+                  y: sampledY as number[],
+                  type: 'scatter' as const,
+                  mode: 'lines' as const,
+                  name: asset,
+                  line: { color: colorFor(asset) },
+                  hovertemplate: `${asset}: %{y:.2f} USD<extra></extra>`,
+                };
+              });
+            } else {
+              // Show selected asset - use time series P&L if available, otherwise current P&L
+              if (pnl.dates.length > 0 && selectedPnLAsset) {
+                // Use time series data
+                const sampledY = sampleDataWithDates(dates, pnl.realized.slice(idx), maxPoints).data;
+                traces = [{
+                  x: sampledDates,
+                  y: sampledY as number[],
+                  type: 'scatter' as const,
+                  mode: 'lines' as const,
+                  name: selectedPnLAsset,
+                  line: { color: colorFor(selectedPnLAsset), width: 3 },
+                  hovertemplate: `${selectedPnLAsset}: %{y:.2f} USD<extra></extra>`,
+                }];
+              } else {
+                // Use current P&L value
+                const currentPnl = pnlData.assetPnL[selectedPnLAsset]?.pnl || 0;
+                const pnlValues = new Array(dates.length).fill(currentPnl);
+                const sampledY = sampleDataWithDates(dates, pnlValues.slice(idx), maxPoints).data;
+
+                traces = [{
+                  x: sampledDates,
+                  y: sampledY as number[],
+                  type: 'scatter' as const,
+                  mode: 'lines' as const,
+                  name: selectedPnLAsset,
+                  line: { color: colorFor(selectedPnLAsset), width: 3 },
+                  hovertemplate: `${selectedPnLAsset}: %{y:.2f} USD<extra></extra>`,
+                }];
               }
             }
-          ] as Data[]}
-                      layout={{
-              autosize: true,
-                    height: expanded ? undefined : 400,
-                    margin: { t: 30, r: 10, l: 10, b: 10 },
+
+            return (
+              <Plot
+                data={traces as Data[]}
+                layout={{
+                  autosize: true,
+                  height: expanded ? undefined : 400,
+                  margin: { t: 30, r: 10, l: 10, b: 10 },
+                  hovermode: 'x unified',
+                  paper_bgcolor: 'transparent',
+                  plot_bgcolor: 'transparent',
+                  yaxis: { title: { text: 'P&L (USD)' } },
+                  legend: {
+                    orientation: 'h',
+                    y: -0.2,
+                  },
+                }}
+                style={{ width: '100%', height: expanded ? '100%' : undefined }}
+              />
+            );
+          }}
+        </ChartCard>
+
+        {/* BTC Ratio & Accumulation */}
+        <ChartCard
+          title="BTC Ratio & Accumulation"
+          headerActions={() => (
+            <label className="chart-control">
+              Chart Type
+              <select value={selectedBtcChart} onChange={e => setSelectedBtcChart(e.target.value)}>
+                <option value="accumulation">Accumulation</option>
+                <option value="ratio">BTC Ratio</option>
+              </select>
+            </label>
+          )}
+        >
+          {({ timeframe, expanded }) => {
+            if (isLoading) {
+              return <div className="chart-loading">Loading BTC data...</div>;
+            }
+            if (!btcRatio.dates.length) {
+              return <div className="chart-empty">No BTC data</div>;
+            }
+            const idx = sliceStartIndexForIsoDates(btcRatio.dates, timeframe);
+            const dates = btcRatio.dates.slice(idx);
+
+            // Sample data points for performance (max 100 points)
+            const maxPoints = expanded ? 200 : 100;
+
+            if (selectedBtcChart === 'ratio') {
+              const ratioData = btcRatio.btcPercentage.slice(idx);
+              const sampled = sampleDataWithDates(dates, ratioData, maxPoints);
+              return (
+                <Plot
+                  data={[
+                    {
+                      x: sampled.dates,
+                      y: sampled.data,
+                      type: 'scatter',
+                      mode: 'lines',
+                      name: 'BTC Ratio',
+                      line: { color: '#f7931a', width: 2 },
+                    },
+                  ] as Data[]}
+                  layout={{
+                    autosize: true,
+                    height: expanded ? undefined : 320,
+                    margin: { t: 30, r: 10, l: 40, b: 40 },
+                    yaxis: { title: { text: 'BTC Ratio (%)' } },
+                    hovermode: 'x unified',
                     paper_bgcolor: 'transparent',
                     plot_bgcolor: 'transparent',
                   }}
                   style={{ width: '100%', height: expanded ? '100%' : undefined }}
                 />
               );
-          }}
-        </ChartCard>
-
-          {/* Cost Basis vs Valuation */}
-          <ChartCard title="Cost Basis vs Portfolio Valuation">
-          {({ timeframe, expanded }) => {
-              if (loadingTxs || !txs) {
-                return <div className="chart-loading">Loading cost vs valuation data...</div>;
-              }
-              if (!costVsValuation.dates.length) {
-                return <div className="chart-empty">No cost vs valuation data</div>;
-              }
-            const idx = sliceStartIndexForIsoDates(costVsValuation.dates, timeframe);
-              const dates = costVsValuation.dates.slice(idx);
-              const costBasis = costVsValuation.costBasis.slice(idx);
-              const portfolioValue = costVsValuation.portfolioValue.slice(idx);
-              
-              // Sample data points for performance (max 100 points)
-              const maxPoints = expanded ? 200 : 100;
-              const sampled = sampleDataPoints(dates, [costBasis, portfolioValue], maxPoints);
-              
-            return (
-              <Plot
-                data={[
-                  {
-                      x: sampled.dates,
-                      y: sampled.dataArrays[0]!,
-                    type: 'scatter',
-                    mode: 'lines',
-                      name: 'Cost Basis',
-                      line: { color: '#5b8cff', width: 2 },
-                    },
-                    {
-                      x: sampled.dates,
-                      y: sampled.dataArrays[1]!,
-                    type: 'scatter',
-                    mode: 'lines',
-                      name: 'Portfolio Value',
-                      line: { color: '#16a34a', width: 2 },
-                  },
-                ] as Data[]}
-                layout={{
-                    autosize: true,
-                    height: expanded ? undefined : 320,
-                    margin: { t: 30, r: 10, l: 40, b: 40 },
-                    legend: { orientation: 'h' },
-                  hovermode: 'x unified',
-                    paper_bgcolor: 'transparent',
-                    plot_bgcolor: 'transparent',
-                }}
-                style={{ width: '100%', height: expanded ? '100%' : undefined }}
-              />
-            );
-          }}
-        </ChartCard>
-
-          {/* Stacked Portfolio Value */}
-        <ChartCard
-            title="Portfolio Composition Over Time"
-          headerActions={() => (
-              <label className="chart-control">
-                <select value={stackedMode} onChange={e => setStackedMode(e.target.value as 'usd' | 'percent')}>
-              <option value="usd">USD</option>
-                  <option value="percent">%</option>
-            </select>
-          </label>
-        )}
-      >
-        {({ timeframe, expanded }) => {
-              if (loadingTxs || !txs) {
-                return <div className="chart-loading">Loading portfolio composition...</div>;
-              }
-              if (!stacked.dates.length) {
-                return <div className="chart-empty">No composition data (prices: {historicalPrices?.length || 0}, positions: {dailyPos?.length || 0})</div>;
-              }
-          const idx = sliceStartIndexForIsoDates(stacked.dates, timeframe);
-              const slicedDates = stacked.dates.slice(idx);
-              const slicedSeries = (stackedMode === 'usd' ? stackedTraces.usd : stackedTraces.percent).map(tr => {
-                const trace = tr as { x?: string[]; y?: number[]; [key: string]: unknown };
-                return {
-                  ...tr,
-                  x: trace.x ? trace.x.slice(idx) : [],
-                  y: trace.y ? trace.y.slice(idx) : [],
-                } as unknown as Data;
-          });
-              
-              // Sample data points for performance (max 100 points for stacked charts)
-              const maxPoints = expanded ? 200 : 100;
-              if (slicedDates.length > maxPoints && slicedSeries.length > 0) {
-                const dataArrays = slicedSeries.map(tr => {
-                  const t = tr as { y?: number[] };
-                  return t.y || [];
-                });
-                const sampled = sampleDataPoints(slicedDates, dataArrays, maxPoints);
-                // Replace the series with sampled data
-                for (let i = 0; i < slicedSeries.length; i++) {
-                  const trace = slicedSeries[i] as { x?: string[]; y?: number[]; [key: string]: unknown };
-                  if (trace) {
-                    trace.x = sampled.dates;
-                    trace.y = sampled.dataArrays[i]!;
-                  }
-                }
-              }
-
-          return (
-            <div style={{ position: 'relative' }}>
-              <Plot
-                data={slicedSeries as unknown as Data[]}
-                layout={{
-                  autosize: true,
-                  height: expanded ? undefined : (isSmallMobile ? 280 : isMobile ? 300 : 340),
-                  margin: isMobile 
-                    ? { t: 20, r: isSmallMobile ? 60 : 80, l: isSmallMobile ? 35 : 40, b: isSmallMobile ? 50 : 60 }
-                    : { t: 30, r: 10, l: 40, b: 40 },
-                  legend: { 
-                    orientation: isMobile ? 'v' : 'h',
-                    x: isMobile ? (isSmallMobile ? 0.98 : 1.01) : 0.5,
-                    y: isMobile ? 1 : -0.15,
-                    xanchor: isMobile ? 'left' : 'center',
-                    yanchor: isMobile ? 'top' : 'top',
-                    font: { size: isSmallMobile ? 9 : isMobile ? 10 : 12 },
-                    bgcolor: 'transparent',
-                    borderwidth: 0,
-                    itemwidth: isMobile ? 20 : undefined,
-                  },
-                  hovermode: 'x', // Use x mode to get date on hover
-                  xaxis: { 
-                    showspikes: true, 
-                    spikemode: 'across', 
-                    spikesnap: 'cursor', 
-                    spikethickness: 1,
-                    title: { font: { size: isSmallMobile ? 11 : isMobile ? 12 : 14 } },
-                    tickfont: { size: isSmallMobile ? 9 : isMobile ? 10 : 12 },
-                  },
-                  yaxis: {
-                    ...(stackedMode === 'percent'
-                      ? { 
-                          title: { text: 'Share of total (%)', font: { size: isSmallMobile ? 11 : isMobile ? 12 : 14 } }, 
-                          ticksuffix: '%', 
-                          range: [0, 100] 
-                        }
-                      : { 
-                          title: { text: 'Value (USD)', font: { size: isSmallMobile ? 11 : isMobile ? 12 : 14 } } 
-                        }),
-                    tickfont: { size: isSmallMobile ? 9 : isMobile ? 10 : 12 },
-                  },
-                  paper_bgcolor: 'transparent',
-                  plot_bgcolor: 'transparent',
-                }}
-                style={{ width: '100%', height: expanded ? '100%' : undefined }}
-                onHover={(evt: unknown) => {
-                  const e = evt as { points?: Array<{ x?: unknown }> } | null;
-                  const x = e?.points?.[0]?.x;
-                  const day = normalizeHoverDate(x);
-                  if (day) setStackedHoverDate(day);
-                }}
-                onUnhover={() => setStackedHoverDate(null)}
-                onLegendClick={handleStackedLegendClick}
-                onLegendDoubleClick={handleStackedLegendDoubleClick}
-              />
-              {stackedHoverItems && (
-                <div className="stacked-hover-tooltip">
-                  <div className="tooltip-date">{stackedHoverItems.date}</div>
-                  <div className="tooltip-total">Total: ${stackedHoverItems.total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
-                  <div className="tooltip-items">
-                    {stackedHoverItems.items.map(item => (
-                      <div key={item.asset} className="tooltip-item">
-                        <span className="tooltip-asset" style={{ color: colorFor(item.asset) }}>
-                          {item.asset}
-                          </span>
-                        <span className="tooltip-value">
-                          {stackedMode === 'percent'
-                            ? `${item.value.toFixed(1)}%`
-                            : `$${item.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        }}
-      </ChartCard>
-
-          {/* P&L Chart */}
-        <ChartCard
-            title="Profit & Loss"
-          headerActions={() => (
-              <label className="chart-control">
-              Asset
-                <select value={selectedPnLAsset} onChange={e => setSelectedPnLAsset(e.target.value)}>
-                  {assets.map(a => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          )}
-        >
-          {({ timeframe, expanded }) => {
-              if (loadingTxs || !txs) {
-                return <div className="chart-loading">Loading PnL...</div>;
-              }
-              if (!pnl.dates.length) {
-                return <div className="chart-empty">No PnL data</div>;
-              }
-            const idx = sliceStartIndexForIsoDates(pnl.dates, timeframe);
-            const dates = pnl.dates.slice(idx);
-            const realized = pnl.realized.slice(idx);
-            const unrealized = pnl.unrealized.slice(idx);
-            
-            // Sample data points for performance (max 100 points)
-            const maxPoints = expanded ? 200 : 100;
-            const sampled = sampleDataPoints(dates, [realized, unrealized], maxPoints);
-            
-            return (
-              <Plot
-                data={[
-                    { x: sampled.dates, y: sampled.dataArrays[0]!, type: 'scatter', mode: 'lines', name: 'Realized', line: { color: '#16a34a' } },
-                    { x: sampled.dates, y: sampled.dataArrays[1]!, type: 'scatter', mode: 'lines', name: 'Unrealized', line: { color: '#5b8cff' } },
-                ] as Data[]}
-                  layout={{
-                    autosize: true,
-                    height: expanded ? undefined : 320,
-                    margin: { t: 30, r: 10, l: 40, b: 40 },
-                    legend: { orientation: 'h' },
-                    hovermode: 'x unified',
-                    paper_bgcolor: 'transparent',
-                    plot_bgcolor: 'transparent',
-                  }}
-                  style={{ width: '100%', height: expanded ? '100%' : undefined }}
-              />
-            );
-          }}
-        </ChartCard>
-
-          {/* BTC Ratio & Accumulation */}
-        <ChartCard
-            title="BTC Ratio & Accumulation"
-          headerActions={() => (
-              <label className="chart-control">
-                View
-                <select value={selectedBtcChart} onChange={e => setSelectedBtcChart(e.target.value)}>
-                  <option value="ratio">Ratio</option>
-                  <option value="accumulation">Accumulation</option>
-              </select>
-            </label>
-          )}
-        >
-          {({ timeframe, expanded }) => {
-              if (loadingTxs || !txs) {
-                return <div className="chart-loading">Loading BTC data...</div>;
-              }
-              if (!btcRatio.dates.length) {
-                return <div className="chart-empty">No BTC data</div>;
-              }
-              const idx = sliceStartIndexForIsoDates(btcRatio.dates, timeframe);
-              const dates = btcRatio.dates.slice(idx);
-              const yData = selectedBtcChart === 'ratio' ? btcRatio.btcPercentage.slice(idx) : btcRatio.btcValue.slice(idx);
-              
-              // Sample data points for performance (max 100 points)
-              const maxPoints = expanded ? 200 : 100;
-              const sampled = sampleDataWithDates(dates, yData, maxPoints);
-              
-            return (
-              <Plot
-                data={[
+            } else {
+              // Accumulation chart
+              const accumulationData = btcRatio.btcValue.slice(idx);
+              const sampled = sampleDataWithDates(dates, accumulationData, maxPoints);
+              return (
+                <Plot
+                  data={[
                     {
                       x: sampled.dates,
                       y: sampled.data,
                       type: 'scatter',
                       mode: 'lines',
-                      name: selectedBtcChart === 'ratio' ? 'BTC % of Portfolio' : 'Total Value (BTC)',
+                      name: 'BTC Accumulated',
                       line: { color: '#f7931a', width: 2 },
                     },
-                ] as Data[]}
+                  ] as Data[]}
                   layout={{
                     autosize: true,
                     height: expanded ? undefined : 320,
                     margin: { t: 30, r: 10, l: 40, b: 40 },
-                    legend: { orientation: 'h' },
+                    yaxis: { title: { text: 'BTC Units' } },
                     hovermode: 'x unified',
-                    yaxis: {
-                      title: { text: selectedBtcChart === 'ratio' ? 'BTC % of Portfolio' : 'Total Value (BTC)' },
-                      ...(selectedBtcChart === 'ratio' ? { ticksuffix: '%', range: [0, 100] } : {}),
-                    },
                     paper_bgcolor: 'transparent',
                     plot_bgcolor: 'transparent',
                   }}
                   style={{ width: '100%', height: expanded ? '100%' : undefined }}
-              />
-            );
+                />
+              );
+            }
           }}
         </ChartCard>
 
-          {/* Altcoin Holdings BTC Value */}
+        {/* Altcoin Holdings BTC Value */}
         <ChartCard
           title="Altcoin Holdings BTC Value"
           headerActions={() => (
-              <label className="chart-control">
+            <label className="chart-control">
               Asset
-                <select value={selectedAltcoin} onChange={e => setSelectedAltcoin(e.target.value)}>
+              <select value={selectedAltcoin} onChange={e => setSelectedAltcoin(e.target.value)}>
                 <option value="ALL">All Altcoins</option>
-                  {assets.filter(a => a !== 'BTC').map(a => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
+                {assets.filter(a => a !== 'BTC').map(a => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
               </select>
             </label>
           )}
         >
           {({ timeframe, expanded }) => {
-              if (loadingTxs || !txs) {
-                return <div className="chart-loading">Loading altcoin data...</div>;
-              }
-              if (!altcoinVsBtc.dates.length) {
-                return <div className="chart-empty">No altcoin data</div>;
-              }
+            if (loadingTxs || !txs) {
+              return <div className="chart-loading">Loading altcoin data...</div>;
+            }
+            if (!altcoinVsBtc.dates.length) {
+              return <div className="chart-empty">No altcoin data</div>;
+            }
             const idx = sliceStartIndexForIsoDates(altcoinVsBtc.dates, timeframe);
             const dates = altcoinVsBtc.dates.slice(idx);
-            
+
             // Sample data points for performance (max 100 points)
             const maxPoints = expanded ? 200 : 100;
             const buildTrace = (asset: string) => {
@@ -1712,10 +1667,10 @@ Timeframe options:
               return {
                 x: sampled.dates,
                 y: sampled.data,
-              type: 'scatter' as const,
-              mode: 'lines' as const,
-              name: asset,
-              line: { color: colorFor(asset) },
+                type: 'scatter' as const,
+                mode: 'lines' as const,
+                name: asset,
+                line: { color: colorFor(asset) },
               };
             };
             const traces =
@@ -1725,23 +1680,23 @@ Timeframe options:
             return (
               <Plot
                 data={traces as unknown as Data[]}
-                  layout={{
-                    autosize: true,
-                    height: expanded ? undefined : 320,
-                    margin: { t: 30, r: 10, l: 40, b: 40 },
-                    legend: { orientation: 'h' },
-                    yaxis: { title: { text: 'BTC Value of Holdings' } },
-                    hovermode: 'x unified',
-                    paper_bgcolor: 'transparent',
-                    plot_bgcolor: 'transparent',
-                  }}
-                  style={{ width: '100%', height: expanded ? '100%' : undefined }}
+                layout={{
+                  autosize: true,
+                  height: expanded ? undefined : 320,
+                  margin: { t: 30, r: 10, l: 40, b: 40 },
+                  legend: { orientation: 'h' },
+                  yaxis: { title: { text: 'BTC Value of Holdings' } },
+                  hovermode: 'x unified',
+                  paper_bgcolor: 'transparent',
+                  plot_bgcolor: 'transparent',
+                }}
+                style={{ width: '100%', height: expanded ? '100%' : undefined }}
               />
             );
           }}
         </ChartCard>
 
-          {/* Profit-Taking Opportunities */}
+        {/* Profit-Taking Opportunities */}
         <ChartCard
           title="Profit-Taking Opportunities (Altcoin vs BTC PnL)"
           infoText={`Profit-Taking Opportunities
@@ -1758,25 +1713,25 @@ This helps identify when to take profits on altcoins vs holding BTC longer.
 
 Use the asset selector to compare different altcoins.`}
           headerActions={() => (
-              <label className="chart-control">
+            <label className="chart-control">
               Asset
-                <select value={selectedProfitAsset} onChange={e => setSelectedProfitAsset(e.target.value)}>
-                  {assets.filter(a => a !== 'BTC').map(a => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
+              <select value={selectedProfitAsset} onChange={e => setSelectedProfitAsset(e.target.value)}>
+                {assets.filter(a => a !== 'BTC').map(a => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
               </select>
             </label>
           )}
         >
           {({ timeframe, expanded }) => {
-              if (loadingTxs || !txs) {
-                return <div className="chart-loading">Loading opportunities...</div>;
-              }
-              if (!profitOpportunities.dates.length) {
-                return <div className="chart-empty">No opportunities data</div>;
-              }
+            if (loadingTxs || !txs) {
+              return <div className="chart-loading">Loading opportunities...</div>;
+            }
+            if (!profitOpportunities.dates.length) {
+              return <div className="chart-empty">No opportunities data</div>;
+            }
             const idx = sliceStartIndexForIsoDates(profitOpportunities.dates, timeframe);
             const dates = profitOpportunities.dates.slice(idx);
 
@@ -1790,19 +1745,19 @@ Use the asset selector to compare different altcoins.`}
                 {
                   x: sampled.dates,
                   y: sampled.dataArrays[0]!,
-                type: 'scatter' as const,
-                mode: 'lines' as const,
-                name: `${asset} PnL`,
-                line: { color: colorFor(asset) },
-              },
-              {
+                  type: 'scatter' as const,
+                  mode: 'lines' as const,
+                  name: `${asset} PnL`,
+                  line: { color: colorFor(asset) },
+                },
+                {
                   x: sampled.dates,
                   y: sampled.dataArrays[1]!,
-                type: 'scatter' as const,
-                mode: 'lines' as const,
-                name: 'BTC PnL (if bought instead)',
-                line: { color: '#f7931a', dash: 'dash' },
-              },
+                  type: 'scatter' as const,
+                  mode: 'lines' as const,
+                  name: 'BTC PnL (if bought instead)',
+                  line: { color: '#f7931a', dash: 'dash' },
+                },
               ];
             };
 
@@ -1811,149 +1766,149 @@ Use the asset selector to compare different altcoins.`}
             return (
               <Plot
                 data={traces as unknown as Data[]}
-                  layout={{
-                    autosize: true,
-                    height: expanded ? undefined : 320,
-                    margin: { t: 30, r: 10, l: 40, b: 40 },
-                    legend: { orientation: 'h' },
-                    yaxis: { title: { text: 'PnL (USD)' } },
-                    hovermode: 'x unified',
-                    paper_bgcolor: 'transparent',
-                    plot_bgcolor: 'transparent',
-                  }}
-                  style={{ width: '100%', height: expanded ? '100%' : undefined }}
-                />
-              );
-            }}
-          </ChartCard>
+                layout={{
+                  autosize: true,
+                  height: expanded ? undefined : 320,
+                  margin: { t: 30, r: 10, l: 40, b: 40 },
+                  legend: { orientation: 'h' },
+                  yaxis: { title: { text: 'PnL (USD)' } },
+                  hovermode: 'x unified',
+                  paper_bgcolor: 'transparent',
+                  plot_bgcolor: 'transparent',
+                }}
+                style={{ width: '100%', height: expanded ? '100%' : undefined }}
+              />
+            );
+          }}
+        </ChartCard>
 
-          {/* Cost vs Price */}
-          <ChartCard
-            title="Cost Basis vs Market Price"
-            headerActions={() => (
-              <label className="chart-control">
-                Asset
-                <select value={selectedCostAsset} onChange={e => setSelectedCostAsset(e.target.value)}>
-                  {assets.map(a => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-          >
-            {({ timeframe, expanded }) => {
-              if (loadingTxs || !txs) {
-                return <div className="chart-loading">Loading cost vs price...</div>;
-              }
-              if (!costVsPrice.dates.length) {
-                return <div className="chart-empty">No cost vs price data</div>;
-              }
-              const idx = sliceStartIndexForIsoDates(costVsPrice.dates, timeframe);
-              const dates = costVsPrice.dates.slice(idx);
-              const avgCost = costVsPrice.avgCost.slice(idx);
-              const price = costVsPrice.price.slice(idx);
-              
-              // Sample data points for performance (max 100 points)
-              const maxPoints = expanded ? 200 : 100;
-              const sampled = sampleDataPoints(dates, [avgCost, price], maxPoints);
-              
-              return (
-                <Plot
-                  data={[
-                    {
-                      x: sampled.dates,
-                      y: sampled.dataArrays[0]!,
-                      type: 'scatter',
-                      mode: 'lines',
-                      name: 'Average Cost',
-                      line: { color: '#5b8cff', width: 2 },
-                    },
-                    {
-                      x: sampled.dates,
-                      y: sampled.dataArrays[1]!,
-                      type: 'scatter',
-                      mode: 'lines',
-                      name: 'Market Price',
-                      line: { color: '#16a34a', width: 2 },
-                    },
-                  ] as Data[]}
-                  layout={{
-                    autosize: true,
-                    height: expanded ? undefined : 320,
-                    margin: { t: 30, r: 10, l: 40, b: 40 },
-                    legend: { orientation: 'h' },
-                    yaxis: { title: { text: 'Price (USD)' } },
-                    hovermode: 'x unified',
-                    paper_bgcolor: 'transparent',
-                    plot_bgcolor: 'transparent',
-                  }}
-                  style={{ width: '100%', height: expanded ? '100%' : undefined }}
-                />
-              );
-            }}
-          </ChartCard>
+        {/* Cost vs Price */}
+        <ChartCard
+          title="Cost Basis vs Market Price"
+          headerActions={() => (
+            <label className="chart-control">
+              Asset
+              <select value={selectedCostAsset} onChange={e => setSelectedCostAsset(e.target.value)}>
+                {assets.map(a => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        >
+          {({ timeframe, expanded }) => {
+            if (loadingTxs || !txs) {
+              return <div className="chart-loading">Loading cost vs price...</div>;
+            }
+            if (!costVsPrice.dates.length) {
+              return <div className="chart-empty">No cost vs price data</div>;
+            }
+            const idx = sliceStartIndexForIsoDates(costVsPrice.dates, timeframe);
+            const dates = costVsPrice.dates.slice(idx);
+            const avgCost = costVsPrice.avgCost.slice(idx);
+            const price = costVsPrice.price.slice(idx);
 
-          {/* Position Chart */}
-          <ChartCard
-            title="Asset Positions Over Time"
-            headerActions={() => (
-              <label className="chart-control">
-                Asset
-                <select value={selectedAsset} onChange={e => setSelectedAsset(e.target.value)}>
-                  <option value="">All Assets</option>
-                  {assets.map(a => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-          >
-            {({ timeframe, expanded }) => {
-              if (loadingTxs || !txs) {
-                return <div className="chart-loading">Loading positions...</div>;
-              }
-              if (!positionsFigure.data.length) {
-                return <div className="chart-empty">No position data</div>;
-              }
-              const firstTrace = positionsFigure.data[0] as { x?: string[]; y?: number[] } | undefined;
-              const idx = firstTrace?.x
-                ? sliceStartIndexForIsoDates(firstTrace.x, timeframe)
-                : 0;
-              const slicedData = positionsFigure.data.map(trace => {
-                const t = trace as { x?: string[]; y?: number[]; [key: string]: unknown };
-                return {
-                  ...trace,
-                  x: t.x ? t.x.slice(idx) : [],
-                  y: t.y ? t.y.slice(idx) : [],
-                } as Data;
-              });
-              
-              // Sample data points for performance (max 100 points per trace)
-              const maxPoints = expanded ? 200 : 100;
-              const sampledData = slicedData.map(trace => {
-                const t = trace as { x?: string[]; y?: number[]; [key: string]: unknown };
-                if (!t.x || !t.y || t.x.length <= maxPoints) return trace;
-                const sampled = sampleDataWithDates(t.x, t.y, maxPoints);
-                return {
-                  ...trace,
-                  x: sampled.dates,
-                  y: sampled.data,
-                } as Data;
-              });
-              return (
-                <Plot
-                  data={sampledData}
-                  layout={{
-                    ...positionsFigure.layout,
-                    height: expanded ? undefined : 320,
-                    paper_bgcolor: 'transparent',
-                    plot_bgcolor: 'transparent',
-                  }}
-                  style={{ width: '100%', height: expanded ? '100%' : undefined }}
+            // Sample data points for performance (max 100 points)
+            const maxPoints = expanded ? 200 : 100;
+            const sampled = sampleDataPoints(dates, [avgCost, price], maxPoints);
+
+            return (
+              <Plot
+                data={[
+                  {
+                    x: sampled.dates,
+                    y: sampled.dataArrays[0]!,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Average Cost',
+                    line: { color: '#5b8cff', width: 2 },
+                  },
+                  {
+                    x: sampled.dates,
+                    y: sampled.dataArrays[1]!,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: 'Market Price',
+                    line: { color: '#16a34a', width: 2 },
+                  },
+                ] as Data[]}
+                layout={{
+                  autosize: true,
+                  height: expanded ? undefined : 320,
+                  margin: { t: 30, r: 10, l: 40, b: 40 },
+                  legend: { orientation: 'h' },
+                  yaxis: { title: { text: 'Price (USD)' } },
+                  hovermode: 'x unified',
+                  paper_bgcolor: 'transparent',
+                  plot_bgcolor: 'transparent',
+                }}
+                style={{ width: '100%', height: expanded ? '100%' : undefined }}
+              />
+            );
+          }}
+        </ChartCard>
+
+        {/* Position Chart */}
+        <ChartCard
+          title="Asset Positions Over Time"
+          headerActions={() => (
+            <label className="chart-control">
+              Asset
+              <select value={selectedAsset} onChange={e => setSelectedAsset(e.target.value)}>
+                <option value="">All Assets</option>
+                {assets.map(a => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        >
+          {({ timeframe, expanded }) => {
+            if (loadingTxs || !txs) {
+              return <div className="chart-loading">Loading positions...</div>;
+            }
+            if (!positionsFigure.data.length) {
+              return <div className="chart-empty">No position data</div>;
+            }
+            const firstTrace = positionsFigure.data[0] as { x?: string[]; y?: number[] } | undefined;
+            const idx = firstTrace?.x
+              ? sliceStartIndexForIsoDates(firstTrace.x, timeframe)
+              : 0;
+            const slicedData = positionsFigure.data.map(trace => {
+              const t = trace as { x?: string[]; y?: number[]; [key: string]: unknown };
+              return {
+                ...trace,
+                x: t.x ? t.x.slice(idx) : [],
+                y: t.y ? t.y.slice(idx) : [],
+              } as Data;
+            });
+
+            // Sample data points for performance (max 100 points per trace)
+            const maxPoints = expanded ? 200 : 100;
+            const sampledData = slicedData.map(trace => {
+              const t = trace as { x?: string[]; y?: number[]; [key: string]: unknown };
+              if (!t.x || !t.y || t.x.length <= maxPoints) return trace;
+              const sampled = sampleDataWithDates(t.x, t.y, maxPoints);
+              return {
+                ...trace,
+                x: sampled.dates,
+                y: sampled.data,
+              } as Data;
+            });
+            return (
+              <Plot
+                data={sampledData}
+                layout={{
+                  ...positionsFigure.layout,
+                  height: expanded ? undefined : 320,
+                  paper_bgcolor: 'transparent',
+                  plot_bgcolor: 'transparent',
+                }}
+                style={{ width: '100%', height: expanded ? '100%' : undefined }}
               />
             );
           }}
