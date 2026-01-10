@@ -1191,7 +1191,7 @@ function DashboardPageContent() {
               }));
               
               // Sample data points for performance (max 100 points when not expanded, 200 when expanded)
-              const maxPoints = expanded ? 200 : 100;
+              const maxPoints = expanded ? Infinity : 100;
               let chartModel;
               
               if (finalDates.length > maxPoints) {
