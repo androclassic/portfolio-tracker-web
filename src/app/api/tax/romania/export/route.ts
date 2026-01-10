@@ -3,7 +3,7 @@ import { getServerAuth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { calculateRomaniaTax } from '@/lib/tax/romania-v2';
 import { getHistoricalExchangeRate, getHistoricalExchangeRateSyncStrict, preloadExchangeRates } from '@/lib/exchange-rates';
-import type { TaxableEvent } from '@/lib/tax/romania';
+import type { TaxableEvent } from '@/lib/tax/romania-v2';
 import type { LotStrategy } from '@/lib/tax/lot-strategy';
 
 export async function GET(req: NextRequest) {

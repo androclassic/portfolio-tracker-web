@@ -21,22 +21,104 @@ import {
 } from '@/lib/fifo-queue';
 import type { LotStrategy } from '@/lib/tax/lot-strategy';
 import { removeFromLots } from '@/lib/tax/lot-strategy';
-import type {
-  TaxableEvent,
-  SourceTrace,
-  BuyLotTrace,
-  SaleTrace,
-  RomaniaTaxReport,
-} from './romania';
+// Type definitions
+export interface TaxableEvent {
+  transactionId: number;
+  datetime: string;
+  // Original withdrawal currency and amount (for audit)
+  fiatCurrency: string;
+  fiatAmountOriginal: number;
+  // FX used at withdrawal date
+  fxFiatToUsd: number;
+  fxFiatToRon: number;
+  fxUsdToRon: number;
+  fiatAmountUsd: number;
+  fiatAmountRon: number;
+  costBasisUsd: number;
+  costBasisRon: number;
+  gainLossUsd: number;
+  gainLossRon: number;
+  // Primary trace shown in UI: the crypto buy lots that ultimately generated this withdrawal (few rows)
+  sourceTrace: SourceTrace[];
+  // How the withdrawn cash was generated: sell transactions and their underlying buy lots
+  saleTrace?: SaleTrace[];
+  // Full chain: withdrawal -> funding sells -> their buy lots -> the sells that funded those buys -> ... (recursive)
+  saleTraceDeep?: SaleTrace[];
+  // Optional deep trace: fiat deposits that ultimately funded the buy lots (can be huge)
+  depositTrace?: SourceTrace[];
+}
 
-// Re-export types for compatibility
-export type {
-  TaxableEvent,
-  SourceTrace,
-  BuyLotTrace,
-  SaleTrace,
-  RomaniaTaxReport,
-} from './romania';
+export interface SourceTrace {
+  transactionId: number;
+  asset: string;
+  quantity: number;
+  costBasisUsd: number;
+  datetime: string;
+  type: 'Deposit' | 'Swap' | 'CryptoSwap';
+  pricePerUnitUsd?: number;
+  originalCurrency?: string;
+  exchangeRateAtPurchase?: number;
+  // For crypto-to-crypto swaps: what asset was swapped from
+  swappedFromAsset?: string;
+  swappedFromQuantity?: number;
+  swappedFromTransactionId?: number;
+}
+
+export interface BuyLotTrace {
+  buyTransactionId: number;
+  buyDatetime: string;
+  asset: string;
+  quantity: number;
+  cashSpentUsd?: number; // USD cash used to acquire this lot (quantity dimension, not basis)
+  costBasisUsd: number;
+  fundingDeposits: SourceTrace[]; // deposits that funded this buy lot
+  fundingSells?: Array<{
+    saleTransactionId: number;
+    saleDatetime: string;
+    asset: string; // asset that was sold to fund this buy
+    amountUsd: number; // USD amount from that sale used to fund this buy lot
+    costBasisUsd?: number; // embedded cost basis transferred from that sale into this buy (USD)
+  }>;
+  // For crypto-to-crypto swaps: track what was swapped from
+  swappedFromAsset?: string;
+  swappedFromQuantity?: number;
+  swappedFromTransactionId?: number;
+  swappedFromBuyLots?: Array<{
+    buyTransactionId: number;
+    buyDatetime: string;
+    asset: string;
+    quantity: number;
+    costBasisUsd: number;
+  }>;
+}
+
+export interface SaleTrace {
+  saleTransactionId: number;
+  saleDatetime: string;
+  asset: string;
+  proceedsUsd: number; // allocated to this withdrawal
+  costBasisUsd: number; // allocated to this withdrawal
+  gainLossUsd: number; // proceedsUsd - costBasisUsd
+  buyLots: BuyLotTrace[];
+}
+
+export interface RomaniaTaxReport {
+  year: string;
+  assetStrategy: LotStrategy;
+  cashStrategy: LotStrategy;
+  taxableEvents: TaxableEvent[];
+  totalWithdrawalsUsd: number;
+  totalWithdrawalsRon: number;
+  totalCostBasisUsd: number;
+  totalCostBasisRon: number;
+  totalGainLossUsd: number;
+  totalGainLossRon: number;
+  usdToRonRate: number;
+  // Diagnostic information
+  remainingCashUsd?: number;
+  remainingCashCostBasisUsd?: number;
+  warnings?: string[];
+}
 
 type Contribution = {
   depositTxId: number;
@@ -362,26 +444,6 @@ export function calculateRomaniaTax(
     return (a.id || 0) - (b.id || 0);
   });
   
-  // Enable detailed logging for debugging
-  const DEBUG = true;
-  const debugLog = (msg: string) => {
-    if (DEBUG) console.log(`[TAX DEBUG] ${msg}`);
-  };
-  
-  const logQueueState = (step: string) => {
-    if (!DEBUG) return;
-    debugLog(`\n=== QUEUE STATE: ${step} ===`);
-    const cashBal = cashQueue.entries.reduce((s, e) => s + e.quantity, 0);
-    debugLog(`Cash Queue: $${cashBal.toFixed(2)} (${cashQueue.entries.length} entries)`);
-    for (const [asset, queue] of assetQueues.entries()) {
-      const bal = queue.entries.reduce((s, e) => s + e.quantity, 0);
-      debugLog(`${asset} Queue: ${bal.toFixed(8)} (${queue.entries.length} entries)`);
-      queue.entries.forEach((e, i) => {
-        debugLog(`  Entry ${i}: ${e.quantity.toFixed(8)} @ $${e.costBasisUsd.toFixed(2)} (Tx ${e.transactionId})`);
-      });
-    }
-    debugLog('================================\n');
-  };
   
   const fiatCurrencies = getFiatCurrencies();
   const cashQueue: FIFOQueue = createFIFOQueue('CASH_USD');
@@ -397,11 +459,6 @@ export function calculateRomaniaTax(
     const txDate = new Date(Number(tx.datetime) || tx.datetime);
     const txYear = txDate.getFullYear().toString();
     
-    debugLog(`\n>>> Processing Transaction ${tx.id} (${tx.type})`);
-    debugLog(`  Date: ${txDate.toISOString().slice(0, 10)} (Year: ${txYear})`);
-    debugLog(`  From: ${tx.fromAsset} ${tx.fromQuantity} @ $${tx.fromPriceUsd}`);
-    debugLog(`  To: ${tx.toAsset} ${tx.toQuantity} @ $${tx.toPriceUsd}`);
-    logQueueState(`Before Tx ${tx.id}`);
     
     // 1. DEPOSIT: Fiat -> Stablecoin
     // Process all deposits to build cash queue
@@ -494,10 +551,6 @@ export function calculateRomaniaTax(
         const qtyRatio = spendUsd > 0 ? (spendActualUsd / spendUsd) : 1;
         const actualQty = toQty * qtyRatio;
         
-        debugLog(`    Quantity ratio: ${qtyRatio.toFixed(6)}`);
-        debugLog(`    Requested ${toAsset}: ${toQty.toFixed(8)}`);
-        debugLog(`    Actual ${toAsset} received: ${actualQty.toFixed(8)}`);
-        debugLog(`    Cost basis transferred: $${totalCostBasis.toFixed(2)}`);
         
         // Get contributions and funding sells from removed cash
         const contributions = removed.flatMap((e) => 
@@ -567,8 +620,6 @@ export function calculateRomaniaTax(
           meta
         );
         assetQueues.set(toAsset, updatedAssetQueue);
-        debugLog(`  → Added ${actualQty.toFixed(8)} ${toAsset} @ $${totalCostBasis.toFixed(2)} to ${toAsset} queue`);
-        logQueueState(`After Tx ${tx.id} (Stablecoin → Crypto)`);
         continue;
       }
       
@@ -601,10 +652,6 @@ export function calculateRomaniaTax(
         const actualToQty = toQty * qtyRatio;
         const proceedsUsd = actualToQty * (tx.toPriceUsd || 1);
         
-        debugLog(`    Quantity ratio: ${qtyRatio.toFixed(6)}`);
-        debugLog(`    Requested ${toAsset}: ${toQty.toFixed(8)}`);
-        debugLog(`    Actual ${toAsset} received: ${actualToQty.toFixed(8)}`);
-        debugLog(`    Proceeds: $${proceedsUsd.toFixed(2)}`);
         
         // Get buy lots from removed assets
         const removedBuyLots = removed.flatMap((e) => 
@@ -680,8 +727,6 @@ export function calculateRomaniaTax(
           meta
         );
         cashQueue.entries = updatedCashQueue.entries;
-        debugLog(`  → Added $${proceedsUsd.toFixed(2)} to cash queue (cost basis: $${totalCostBasis.toFixed(2)})`);
-        logQueueState(`After Tx ${tx.id} (Crypto → Stablecoin)`);
         continue;
       }
       
@@ -806,19 +851,9 @@ export function calculateRomaniaTax(
       const fxFiatToRon = fxRateToUsd * fxUsdToRon;
       const amountRon = (tx.toQuantity || 0) * fxFiatToRon;
       
-      debugLog(`    Withdrawal amount: ${tx.fromQuantity} ${fromAsset} → ${tx.toQuantity} ${toAsset}`);
-      debugLog(`    USD value: $${amountUsd.toFixed(2)} (${tx.fromQuantity} ${fromAsset} * $1.00)`);
-      
       // Remove from cash queue
       const cashBal = cashQueue.entries.reduce((s, e) => s + e.quantity, 0);
       const withdrawActualUsd = Math.min(amountUsd, cashBal);
-      
-      debugLog(`    Cash available: $${cashBal.toFixed(2)}`);
-      debugLog(`    Actual withdrawal: $${withdrawActualUsd.toFixed(2)}`);
-      
-      if (withdrawActualUsd < amountUsd) {
-        debugLog(`  ⚠️  SCALING: Only $${cashBal.toFixed(2)} available, scaling down`);
-      }
       
       let costBasisUsd = 0;
       let contributions: Contribution[] = [];
