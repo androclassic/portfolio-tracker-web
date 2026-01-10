@@ -28,10 +28,14 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.ts ./next.config.ts
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/prisma ./prisma
+# Copy source files needed for cache warming script (uses @/ path aliases)
+COPY --from=builder /app/src ./src
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
 EXPOSE 3033
 
-# Apply any pending migrations on start, then run the app
-CMD ["sh", "-c", "npx prisma db push && npm run start"]
+# Apply any pending migrations on start, warm caches in background, then run the app
+# Cache warming runs in background so server can start immediately
+CMD ["sh", "-c", "npx prisma db push && (npx tsx --tsconfig tsconfig.json prisma/warm-all-caches.ts > /tmp/cache-warm.log 2>&1 &) && npm run start"]
 
 

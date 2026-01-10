@@ -257,5 +257,17 @@ export async function POST(req: NextRequest) {
     };
   }
   
+  // Trigger cache warming in background when transactions are imported
+  // This ensures prices are pre-fetched for new assets
+  if (imported > 0) {
+    import('@/lib/prices/warm-cache').then(({ warmHistoricalPricesCache }) => {
+      warmHistoricalPricesCache().catch(err => {
+        console.warn('[Import API] Background cache warm failed:', err);
+      });
+    }).catch(() => {
+      // Ignore import errors in production builds
+    });
+  }
+  
   return NextResponse.json(response);
 }

@@ -104,6 +104,17 @@ export async function POST(req: NextRequest) {
   );
 
   try { txCache.clear(); } catch {}
+  
+  // Trigger cache warming in background when new transactions are added
+  // This ensures prices are pre-fetched for new assets
+  import('@/lib/prices/warm-cache').then(({ warmHistoricalPricesCache }) => {
+    warmHistoricalPricesCache().catch(err => {
+      console.warn('[Transactions API] Background cache warm failed:', err);
+    });
+  }).catch(() => {
+    // Ignore import errors in production builds
+  });
+  
   return NextResponse.json(batchParsed.success ? created : created[0], { status: 201 });
 }
 

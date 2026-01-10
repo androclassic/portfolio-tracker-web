@@ -13,36 +13,29 @@ interface AllocationData {
 
 interface AllocationPieChartProps {
   data: AllocationData[];
-  totalCashBalanceUsd?: number;
   isLoading?: boolean;
   height?: number;
 }
 
 export default function AllocationPieChart({ 
   data, 
-  totalCashBalanceUsd = 0, 
   isLoading = false, 
   height = 320 
 }: AllocationPieChartProps) {
   const model = React.useMemo((): PieChartModel => {
-    // Add cash if there's a positive balance
-    const points = [...data];
-    if (totalCashBalanceUsd > 0) {
-      points.push({ asset: 'Cash', units: totalCashBalanceUsd, value: totalCashBalanceUsd });
-    }
-    
+    // Don't add cash - it's already included in stablecoins
     return {
       height,
       hole: 0.45,
-      slices: points.map((p) => ({
+      slices: data.map((p) => ({
         id: p.asset,
         label: p.asset,
         value: p.value,
-        color: p.asset === 'Cash' ? '#16a34a' : getAssetColor(p.asset),
+        color: getAssetColor(p.asset),
         meta: { units: p.units },
       })),
     };
-  }, [data, totalCashBalanceUsd, height]);
+  }, [data, height]);
 
   if (isLoading) {
     return (

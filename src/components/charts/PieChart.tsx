@@ -42,6 +42,7 @@ export function PieChart({ model, getHoverText, textinfo = 'label+percent', styl
       autosize: true,
       height: model.height,
       margin: { t: model.title ? 40 : 30, r: 10, l: 10, b: 10 },
+      showlegend: false, // Hide legend - labels are shown on the chart itself
     };
 
     return { data: [trace], layout };

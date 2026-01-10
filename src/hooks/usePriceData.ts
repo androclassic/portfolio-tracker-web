@@ -24,8 +24,14 @@ export function usePriceData({ symbols, dateRange, includeCurrentPrices = true }
   const { data: hist, isLoading: loadingHist } = useSWR<HistResp>(
     histKey,
     async (key: string) => {
+      const perfStart = performance.now();
+      console.log(`[Performance] 📊 Starting historical prices fetch for ${symbols.length} symbols`);
       const parsed = JSON.parse(key.slice(5)) as { symbols: string[]; start: number; end: number };
-      return await fetchHistoricalWithLocalCache(parsed.symbols, parsed.start, parsed.end);
+      const result = await fetchHistoricalWithLocalCache(parsed.symbols, parsed.start, parsed.end);
+      const perfEnd = performance.now();
+      const duration = perfEnd - perfStart;
+      console.log(`[Performance] 📊 Historical prices fetched: ${result?.prices?.length || 0} prices in ${duration.toFixed(2)}ms (${(duration / 1000).toFixed(2)}s)`);
+      return result;
     }
   );
 
@@ -55,9 +61,13 @@ export function usePriceData({ symbols, dateRange, includeCurrentPrices = true }
   const isLoading = includeCurrentPrices ? loadingCurrentPrices : loadingHist;
   const hasData = Object.keys(latestPrices).length > 0;
 
+  // Memoize historicalPrices to prevent creating new array reference on every render
+  // This prevents cascading re-renders in components that depend on this array
+  const historicalPrices = useMemo(() => hist?.prices || [], [hist?.prices]);
+
   return {
     currentPrices: currentPrices?.prices || {},
-    historicalPrices: hist?.prices || [],
+    historicalPrices,
     latestPrices,
     isLoading,
     hasData,

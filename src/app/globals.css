@@ -209,11 +209,12 @@ p{margin:0 0 10px}
 
 .container{max-width:1200px;margin:0 auto;padding:24px}
 
-.card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.0)) , var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow-md);transition:box-shadow .2s ease, transform .2s ease}
+.card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.0)) , var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow-md);transition:box-shadow .2s ease, transform .2s ease;overflow:hidden;position:relative}
 .card:hover{box-shadow:var(--shadow-lg);transform:translateY(-1px)}
-.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.card-title{display:flex;align-items:center;gap:8px}
-.card-actions{display:flex;align-items:center;gap:8px}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;min-width:0}
+.card-title{display:flex;align-items:center;gap:8px;min-width:0;flex:1}
+.card-title h2{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap}
 
 .grid{display:grid;gap:16px}
 .grid-2{grid-template-columns:1fr}
@@ -229,16 +230,18 @@ p{margin:0 0 10px}
 .stat .label{color:var(--muted);font-size:.85rem}
 .stat .value{font-size:1.4rem;font-weight:700}
 
-.table{width:100%;border-collapse:separate;border-spacing:0 6px}
-.table thead th{font-size:.85rem;color:var(--muted);font-weight:600;padding:10px 12px}
-.table tbody tr{background:var(--surface);border:1px solid var(--border);transition:background .15s ease}
-.table tbody tr:hover{background:rgba(125,125,125,.06)}
-.table tbody tr td{padding:10px 12px;border-top:1px solid var(--border)}
-.table tbody tr:first-child td{border-top-left-radius:10px;border-top-right-radius:10px}
-.table tbody tr:last-child td{border-bottom-left-radius:10px;border-bottom-right-radius:10px}
+.table{width:100%;border-collapse:separate;border-spacing:0 8px}
+.table thead th{font-size:.85rem;color:var(--muted);font-weight:600;padding:12px 16px;text-align:left;text-transform:uppercase;letter-spacing:0.5px;font-size:0.75rem}
+.table tbody tr{background:var(--surface);border:1px solid var(--border);transition:all 0.2s ease;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
+.table tbody tr:hover{background:rgba(125,125,125,.08);box-shadow:0 2px 8px rgba(0,0,0,0.1);transform:translateY(-1px)}
+.table tbody tr td{padding:14px 16px;border-top:1px solid var(--border);vertical-align:middle}
+.table tbody tr:first-child td{border-top-left-radius:12px;border-top-right-radius:12px}
+.table tbody tr:last-child td{border-bottom-left-radius:12px;border-bottom-right-radius:12px}
+.table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:var(--radius)}
 
-.toolbar{display:flex;align-items:center;justify-content:space-between;margin:12px 0}
-.filters{display:flex;gap:12px}
+.toolbar{display:flex;align-items:center;justify-content:space-between;margin:20px 0;padding:16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);flex-wrap:wrap;gap:12px}
+.filters{display:flex;gap:12px;flex-wrap:wrap;flex:1}
+.transaction-toolbar-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 label{display:flex;align-items:center;gap:8px;color:var(--muted)}
 select,input{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:10px 12px;transition:border-color .15s ease, box-shadow .15s ease}
 select::placeholder,input::placeholder{color:var(--muted)}
@@ -274,8 +277,12 @@ select option{background:var(--surface);color:var(--text)}
 .btn:disabled{opacity:.6;cursor:not-allowed}
 
 /* Badges */
-.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.75rem;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--muted)}
+.badge{display:inline-block;padding:4px 10px;border-radius:12px;font-size:.75rem;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--muted)}
 .badge-info{background:color-mix(in oklab, var(--primary) 12%, transparent);color:var(--primary);border-color:color-mix(in oklab, var(--primary) 30%, transparent)}
+.transaction-type-badge{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:8px;font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:0.5px}
+.transaction-type-badge.deposit{background:color-mix(in oklab, var(--success) 15%, transparent);color:var(--success);border:1px solid color-mix(in oklab, var(--success) 30%, transparent)}
+.transaction-type-badge.withdrawal{background:color-mix(in oklab, var(--warning) 15%, transparent);color:var(--warning);border:1px solid color-mix(in oklab, var(--warning) 30%, transparent)}
+.transaction-type-badge.swap{background:color-mix(in oklab, var(--primary) 15%, transparent);color:var(--primary);border:1px solid color-mix(in oklab, var(--primary) 30%, transparent)}
 
 /* Loading spinner */
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -286,7 +293,12 @@ select option{background:var(--surface);color:var(--text)}
 .icon-btn:hover{color:var(--text);background:rgba(125,125,125,.08)}
 
 /* Chart cards + maximize modal */
-.chart-card-body{min-height:0}
+.chart-card{transition:all 0.2s ease;overflow:visible}
+.chart-card-collapsed{opacity:0.85}
+.chart-card-body{min-height:0;overflow:hidden;position:relative;width:100%}
+.chart-card-body > *{max-width:100%}
+.chart-card-body .js-plotly-plot{max-width:100%!important;overflow:hidden!important}
+.chart-card-body .plotly{max-width:100%!important;overflow:hidden!important}
 .chart-card-footer{margin-top:10px;color:var(--muted);font-size:0.9rem}
 
 .modal-backdrop.chart-modal-backdrop{align-items:center;justify-content:center}
@@ -487,11 +499,19 @@ select option{background:var(--surface);color:var(--text)}
 }
 
 /* Modal styles */
-.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:99999;padding:20px;overflow-y:auto}
-.modal{background:var(--surface);color:var(--text);padding:20px;border-radius:var(--radius);max-width:560px;width:100%;border:1px solid var(--border);box-shadow:0 10px 40px rgba(0,0,0,.35);margin:0 auto;max-height:none;overflow-y:visible;position:fixed;top:50vh;left:50%;transform:translate(-50%, -50%);z-index:100000}
-.modal header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-.modal form{display:grid;gap:10px}
-.modal .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:99999;padding:20px;overflow-y:auto}
+.modal{background:var(--surface);color:var(--text);padding:24px;border-radius:var(--radius-lg);max-width:600px;width:100%;border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,.4);margin:0 auto;max-height:90vh;overflow-y:auto;position:relative;z-index:100000}
+.modal.transaction-modal{max-width:700px;max-height:95vh}
+.modal header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.modal form{display:grid;gap:16px}
+.modal .actions{display:flex;justify-content:flex-end;gap:12px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
+.form-group{display:flex;flex-direction:column;gap:8px}
+.form-group label{font-weight:600;font-size:0.9rem;color:var(--text)}
+.form-group small{font-size:0.85rem;line-height:1.4}
+.form-select,.form-input{width:100%;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--card);color:var(--text);font-size:0.95rem;transition:all 0.2s ease}
+.form-select:focus,.form-input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px color-mix(in oklab, var(--primary) 20%, transparent)}
+.error-messages{background:color-mix(in oklab, var(--danger) 15%, transparent);border:1px solid color-mix(in oklab, var(--danger) 40%, transparent);border-radius:var(--radius-sm);padding:12px;margin-bottom:16px}
+.error-message{color:var(--danger);font-size:0.9rem;margin:4px 0}
 
 /* Chart mobile optimization */
 @media (max-width: 768px) {
@@ -517,4 +537,289 @@ select option{background:var(--surface);color:var(--text)}
   .js-plotly-plot .plotly{
     height:200px !important;
   }
+}
+
+/* Modern Dashboard Styles */
+.dashboard-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.dashboard-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.summary-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  transition: all 0.2s ease;
+}
+
+.summary-card:hover {
+  border-color: var(--primary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.summary-card.primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-600) 100%);
+  border-color: var(--primary);
+  color: white;
+}
+
+.summary-label {
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin-bottom: 8px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.summary-card.primary .summary-label {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.summary-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+  line-height: 1.2;
+}
+
+.summary-card.primary .summary-value {
+  color: white;
+}
+
+.summary-value.positive {
+  color: var(--success);
+}
+
+.summary-value.negative {
+  color: var(--danger);
+}
+
+.summary-change {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+.summary-change.positive {
+  color: var(--success);
+}
+
+.summary-change.negative {
+  color: var(--danger);
+}
+
+.summary-card.primary .summary-change {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.summary-subtext {
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.dashboard-grid .card {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 768px) {
+  .dashboard-container {
+    padding: 16px 12px;
+  }
+
+  .dashboard-summary {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+
+  .summary-card {
+    padding: 16px;
+  }
+
+  .summary-value {
+    font-size: 1.5rem;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .chart-card {
+    overflow: hidden;
+  }
+
+  .chart-card .card-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .chart-card .card-title {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .chart-card .card-actions {
+    flex-wrap: wrap;
+    gap: 4px;
+    flex: 0 0 auto;
+  }
+
+  .chart-card-collapsed .card-header {
+    margin-bottom: 0;
+  }
+
+  .chart-card-body {
+    width: 100%;
+    overflow-x: hidden;
+  }
+}
+
+@media (max-width: 480px) {
+  .dashboard-container {
+    padding: 12px 8px;
+  }
+
+  .summary-value {
+    font-size: 1.25rem;
+  }
+
+  .chart-card .card-title h2 {
+    font-size: 1rem;
+  }
+
+  .chart-card .card-actions {
+    font-size: 0.9rem;
+  }
+}
+
+/* Chart Loading and Empty States */
+.chart-loading,
+.chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--muted);
+  font-size: 0.875rem;
+  padding: 24px;
+}
+
+.skeleton-text {
+  background: linear-gradient(90deg, var(--border) 25%, var(--surface) 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+@keyframes loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Chart Controls */
+.chart-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.chart-control select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  color: var(--text);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chart-control select:hover {
+  border-color: var(--primary);
+}
+
+.chart-control select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-50);
+}
+
+/* Stacked Hover Tooltip */
+.stacked-hover-tooltip {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  min-width: 200px;
+  box-shadow: var(--shadow-md);
+  z-index: 10;
+  pointer-events: none;
+}
+
+.tooltip-date {
+  font-weight: 600;
+  font-size: 0.875rem;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.tooltip-total {
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tooltip-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tooltip-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.875rem;
+}
+
+.tooltip-asset {
+  font-weight: 500;
+}
+
+.tooltip-value {
+  color: var(--muted);
+  font-weight: 600;
 }

@@ -32,15 +32,19 @@ export function ChartCard(props: {
   const timeframeEnabled = props.timeframeEnabled ?? true;
   const [timeframe, setTimeframe] = useState<DashboardTimeframe>(props.defaultTimeframe ?? 'all');
   const [expanded, setExpanded] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   const header = useMemo(() => {
     return (
-      <div className="card-header">
+      <div className="card-header" onClick={() => setCollapsed(!collapsed)} style={{ cursor: 'pointer' }}>
         <div className="card-title">
           <h2>{props.title}</h2>
           {props.infoText ? (
             <button
-              onClick={() => alert(props.infoText)}
+              onClick={(e) => {
+                e.stopPropagation();
+                alert(props.infoText);
+              }}
               className="icon-btn"
               title="Chart Information"
               type="button"
@@ -49,28 +53,50 @@ export function ChartCard(props: {
             </button>
           ) : null}
         </div>
-        <div className="card-actions">
-          {timeframeEnabled ? <TimeframeSelector value={timeframe} onChange={setTimeframe} /> : null}
-          {props.headerActions ? props.headerActions({ timeframe, setTimeframe, expanded }) : null}
+        <div className="card-actions" onClick={(e) => e.stopPropagation()}>
+          {!collapsed && (
+            <>
+              {timeframeEnabled ? <TimeframeSelector value={timeframe} onChange={setTimeframe} /> : null}
+              {props.headerActions ? props.headerActions({ timeframe, setTimeframe, expanded: false }) : null}
+            </>
+          )}
+          <button
+            type="button"
+            className="icon-btn"
+            title={collapsed ? "Expand chart" : "Collapse chart"}
+            onClick={(e) => {
+              e.stopPropagation();
+              setCollapsed(!collapsed);
+            }}
+          >
+            {collapsed ? '▼' : '▲'}
+          </button>
           <button
             type="button"
             className="icon-btn"
             title="Maximize chart"
-            onClick={() => setExpanded(true)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded(true);
+            }}
           >
             ⛶
           </button>
         </div>
       </div>
     );
-  }, [props.title, props.infoText, props.headerActions, timeframeEnabled, timeframe, expanded]);
+  }, [props.title, props.infoText, props.headerActions, timeframeEnabled, timeframe, expanded, collapsed]);
 
   return (
     <>
-      <section className="card" style={props.style}>
+      <section className={`card chart-card ${collapsed ? 'chart-card-collapsed' : ''}`} style={props.style}>
         {header}
-        <div className="chart-card-body">{props.children({ timeframe, expanded: false })}</div>
-        {props.footer ? <div className="chart-card-footer">{props.footer}</div> : null}
+        {!collapsed && (
+          <>
+            <div className="chart-card-body">{props.children({ timeframe, expanded: false })}</div>
+            {props.footer ? <div className="chart-card-footer">{props.footer}</div> : null}
+          </>
+        )}
       </section>
 
       {expanded ? (
