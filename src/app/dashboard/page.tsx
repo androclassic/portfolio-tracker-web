@@ -318,6 +318,8 @@ export default function DashboardPage(){
   // Preload historical FX rates for the date range, then build a sync lookup map.
   // IMPORTANT: preloadExchangeRates is async; do NOT call sync FX getters before preload completes.
   const [fxRateMap, setFxRateMap] = useState<Map<string, Record<string, number>>>(new Map());
+  // Create a stable string key from dates array to prevent infinite loops
+  const priceIndexDatesKey = useMemo(() => priceIndex.dates.join(','), [priceIndex.dates]);
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
@@ -354,7 +356,7 @@ export default function DashboardPage(){
     return () => {
       cancelled = true;
     };
-  }, [priceIndex.dates]);
+  }, [priceIndexDatesKey]);
 
   // Calculate P&L using shared logic
   const pnlData = usePnLCalculation(txs, latestPrices, historicalPrices);
