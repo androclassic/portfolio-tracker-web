@@ -595,7 +595,7 @@ export default function TransactionsPage(){
     
     if (!asset) {
       setEditFormData(prev => prev ? {
-        ...prev,
+      ...prev,
         fromAsset: symbol.toUpperCase(),
       } : null);
       return;
@@ -699,7 +699,7 @@ export default function TransactionsPage(){
           setTxErrors([
             `Insufficient balance! You're trying to withdraw ${withdrawQuantity.toFixed(8)} ${toAssetUpper}, but you only have ${currentBalance.toFixed(8)} ${toAssetUpper} available.`
           ]);
-          return;
+        return;
         }
       }
     }
@@ -718,20 +718,20 @@ export default function TransactionsPage(){
       fromQuantity?: number | null;
       fromPriceUsd?: number | null;
     } = {
-      type: newTx.type,
+        type: newTx.type,
       toAsset: newTx.toAsset,
-      toQuantity: Number(newTx.toQuantity),
-      toPriceUsd: newTx.toPriceUsd ? Number(newTx.toPriceUsd) : null,
-      datetime: newTx.datetime,
-      notes: newTx.notes || null,
-      feesUsd: newTx.feesUsd ? Number(newTx.feesUsd) : null,
-      portfolioId,
-    };
-
-    if (newTx.type === 'Swap') {
+        toQuantity: Number(newTx.toQuantity),
+        toPriceUsd: newTx.toPriceUsd ? Number(newTx.toPriceUsd) : null,
+        datetime: newTx.datetime,
+        notes: newTx.notes || null,
+        feesUsd: newTx.feesUsd ? Number(newTx.feesUsd) : null,
+        portfolioId,
+      };
+      
+      if (newTx.type === 'Swap') {
       payload.fromAsset = newTx.fromAsset;
       payload.fromQuantity = newTx.fromQuantity ? Number(newTx.fromQuantity) : null;
-      payload.fromPriceUsd = newTx.fromPriceUsd ? Number(newTx.fromPriceUsd) : null;
+        payload.fromPriceUsd = newTx.fromPriceUsd ? Number(newTx.fromPriceUsd) : null;
     } else if (newTx.type === 'Deposit') {
       // For Deposit: fromAsset = fiat currency, fromQuantity = fiat amount
       payload.fromAsset = newTx.fiatCurrency.toUpperCase();
@@ -789,30 +789,35 @@ export default function TransactionsPage(){
       const res = await fetch('/api/transactions', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(payload) });
       if (res.ok) {
         await res.json();
-        await forceRefresh();
+      await forceRefresh();
         
-        setIsOpen(false);
+      setIsOpen(false);
         setSwapMode(null);
-        setNewTx({ 
-          type: 'Swap',
-          fromAsset: '',
-          fromQuantity: '',
-          fromPriceUsd: '',
-          fromSelectedAsset: null,
-          toAsset: '',
-          toQuantity: '',
-          toPriceUsd: '',
-          toSelectedAsset: null,
+      setNewTx({
+        type: 'Swap',
+        fromAsset: '',
+        fromQuantity: '',
+        fromPriceUsd: '',
+        fromSelectedAsset: null,
+        toAsset: '',
+        toQuantity: '',
+        toPriceUsd: '',
+        toSelectedAsset: null,
           fiatCurrency: 'USD',
           fiatAmount: '',
           swapUsdValue: '',
-          datetime: '',
-          notes: '',
-          feesUsd: '',
-        }); 
-        setTxErrors([]);
+        datetime: '',
+        notes: '',
+        feesUsd: '',
+      });
+      setTxErrors([]);
         
-        window.dispatchEvent(new CustomEvent('transactions-changed')); 
+        // Dispatch event with transaction details for granular cache invalidation
+        const newTxData = await fetch(`${swrKey}?limit=1&orderBy=id&order=desc`).then(r => r.ok ? r.json() : null);
+        const addedTx = newTxData && Array.isArray(newTxData) && newTxData.length > 0 ? newTxData[0] : null;
+        window.dispatchEvent(new CustomEvent('transactions-changed', { 
+          detail: addedTx ? { transaction: addedTx } : {} 
+        })); 
       } else {
         const errorData = await res.json();
         // Handle different error response formats
@@ -1127,12 +1132,14 @@ export default function TransactionsPage(){
 
   return (
     <AuthGuard redirectTo="/transactions">
-      <main>
-      <div style={{ marginBottom: '2rem' }}>
-        <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          Transaction Management
+    <main>
+      <div style={{ marginBottom: '2rem', paddingBottom: '1.5rem', borderBottom: '1px solid var(--border)' }}>
+        <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem', fontSize: '2rem', fontWeight: 800 }}>
+          💼 Transaction Management
         </h1>
-        <p className="subtitle">Track and manage all your cryptocurrency transactions with precision</p>
+        <p className="subtitle" style={{ fontSize: '1rem', color: 'var(--muted)', marginTop: '0.5rem' }}>
+          Track and manage all your cryptocurrency transactions with precision
+        </p>
       </div>
       <div className="toolbar">
         <div className="filters">
@@ -1145,8 +1152,8 @@ export default function TransactionsPage(){
               <option value="Deposit">Deposit</option>
               <option value="Withdrawal">Withdrawal</option>
               <option value="Swap">Swap</option>
-            </select>
-          </label>
+              </select>
+            </label>
           <label>Sort by date
             <select value={sortDir} onChange={e=>setSortDir((e.target.value as 'asc'|'desc'))}>
               <option value="desc">Newest first</option>
@@ -1163,7 +1170,7 @@ export default function TransactionsPage(){
           >
             <span>➕</span>
             Add Transaction
-          </button>
+            </button>
           {selectedId && (
             <>
               <form 
@@ -1244,12 +1251,12 @@ export default function TransactionsPage(){
                     }
                   }} />
                 </label>
-              </div>
+          </div>
             </>
           )}
         </div>
-      </div>
-
+        </div>
+        
       {isSaving && (
         <div style={{
           position: 'fixed',
@@ -1283,16 +1290,22 @@ export default function TransactionsPage(){
       <section className="card">
         <div className="table-wrapper">
           <table className="table">
-            <thead>
-              <tr>
+          <thead>
+            <tr>
                 <th>Date</th><th>Type</th><th>From</th><th>To</th><th>Notes</th><th></th>
-              </tr>
-            </thead>
+            </tr>
+          </thead>
           <tbody>
             {filtered.map(t=> (
               <tr key={t.id}>
-                <td>{df.format(new Date(t.datetime))}</td>
-                <td>{t.type}</td>
+                <td style={{ whiteSpace: 'nowrap', color: 'var(--muted)', fontSize: '0.9rem' }}>
+                  {df.format(new Date(t.datetime))}
+                </td>
+                <td>
+                  <span className={`transaction-type-badge ${t.type.toLowerCase()}`}>
+                    {t.type === 'Deposit' ? '💰' : t.type === 'Withdrawal' ? '💸' : '🔄'} {t.type}
+                  </span>
+                </td>
                 <td>
                   {t.fromAsset ? (
                     <span style={{ display:'inline-flex', gap:6, flexDirection:'column', alignItems:'flex-start' }}>
@@ -1314,35 +1327,51 @@ export default function TransactionsPage(){
                         {t.toAsset.toUpperCase()}
                       </span>
                     </span>
-                    <span style={{fontSize:'0.9em', color:'var(--muted)'}}>{nf.format(t.toQuantity)} @ ${t.toPriceUsd ? nf.format(t.toPriceUsd) : ''}</span>
+                    <span style={{fontSize:'0.85em', color:'var(--muted)', marginTop: '2px'}}>
+                      {nf.format(t.toQuantity)} {t.toPriceUsd ? `@ $${nf.format(t.toPriceUsd)}` : ''}
+                    </span>
                   </span>
                 </td>
-                <td>{t.notes||''}</td>
+                <td style={{ color: 'var(--muted)', fontSize: '0.9rem', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {t.notes || <span style={{ fontStyle: 'italic', opacity: 0.5 }}>—</span>}
+                </td>
                 <td style={{ whiteSpace:'nowrap' }}>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
                     <button 
                       className="btn btn-secondary btn-sm" 
                       onClick={()=>startEdit(t)}
                       disabled={isSaving}
-                      style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '6px 12px' }}
+                      title="Edit transaction"
                     >
-                      <span style={{ fontSize: '0.8rem' }}>✏️</span>
-                      Edit
+                      <span>✏️</span>
+                      <span>Edit</span>
                     </button>
                     <button 
                       className="btn btn-danger btn-sm" 
                       onClick={()=>removeTx(t.id)}
                       disabled={isSaving}
-                      style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '6px 12px' }}
+                      title="Delete transaction"
                     >
-                      <span style={{ fontSize: '0.8rem' }}>🗑️</span>
-                      Delete
+                      <span>🗑️</span>
+                      <span>Delete</span>
                     </button>
                   </div>
                 </td>
               </tr>
             ))}
-            {filtered.length===0 && (<tr><td colSpan={6}>No transactions</td></tr>)}
+            {filtered.length===0 && (
+              <tr>
+                <td colSpan={6} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--muted)' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                    <span style={{ fontSize: '2rem' }}>📭</span>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>No transactions found</div>
+                    <div style={{ fontSize: '0.9rem', opacity: 0.8 }}>Try adjusting your filters or add a new transaction</div>
+                  </div>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
         </div>
@@ -1356,10 +1385,24 @@ export default function TransactionsPage(){
             }
           }}>
           <div className="modal transaction-modal" role="dialog" aria-modal="true">
-            <div className="card-header">
+            <div className="card-header" style={{ marginBottom: '20px', paddingBottom: '16px', borderBottom: '1px solid var(--border)' }}>
               <div className="card-title">
-                <h3>Add Transaction</h3>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 700, margin: 0 }}>
+                  {editFormData ? '✏️ Edit Transaction' : '➕ Add Transaction'}
+                </h3>
               </div>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => {
+                  setIsOpen(false);
+                  setSwapMode(null);
+                }}
+                style={{ fontSize: '1.2rem', padding: '4px 8px' }}
+                title="Close"
+              >
+                ✕
+              </button>
             </div>
             
             {txErrors.length > 0 && (
@@ -1408,7 +1451,7 @@ export default function TransactionsPage(){
                 {newTx.type === 'Deposit' && (
                   <small style={{ color: 'var(--primary)', fontSize: '11px', marginTop: '4px', display: 'block' }}>
                     💡 You deposited fiat money (USD or EUR) and received stablecoin
-                  </small>
+                </small>
                 )}
                 {newTx.type === 'Withdrawal' && (
                   <small style={{ color: 'var(--primary)', fontSize: '11px', marginTop: '4px', display: 'block' }}>
@@ -1635,9 +1678,9 @@ export default function TransactionsPage(){
                       </div>
                       <div className="form-group" style={{ margin: 0 }}>
                         <label style={{ fontSize: '13px', marginBottom: '6px' }}>Asset *</label>
-                        <AssetInput
-                          value={newTx.fromAsset}
-                          onChange={handleFromAssetSelection}
+                    <AssetInput
+                      value={newTx.fromAsset}
+                      onChange={handleFromAssetSelection}
                           placeholder={
                             swapMode === 'sell'
                               ? "Select crypto (e.g., BTC)" 
@@ -1658,19 +1701,19 @@ export default function TransactionsPage(){
                           <small style={{ color: 'var(--muted)', fontSize: '11px', marginTop: '4px', display: 'block' }}>
                             Balance: {currentHoldings[newTx.fromAsset.toUpperCase()].toFixed(8)}
                           </small>
-                        )}
-                      </div>
+                    )}
+                  </div>
                       <div className="form-group" style={{ margin: 0 }}>
                         <label style={{ fontSize: '13px', marginBottom: '6px' }}>Quantity *</label>
-                        <input 
-                          type="number" 
-                          step="any" 
-                          placeholder="0.00" 
-                          value={newTx.fromQuantity} 
+                      <input 
+                        type="number" 
+                        step="any" 
+                        placeholder="0.00" 
+                        value={newTx.fromQuantity} 
                           onChange={e=>setNewTx(v=>({ ...v, fromQuantity: e.target.value }))} 
-                          required 
-                          className="form-input"
-                        />
+                        required 
+                        className="form-input"
+                      />
                         {newTx.fromAsset && newTx.fromQuantity && (() => {
                           const balance = currentHoldings[newTx.fromAsset.toUpperCase()] || 0;
                           const quantity = Number(newTx.fromQuantity);
@@ -1688,7 +1731,7 @@ export default function TransactionsPage(){
                             Price: ${(Number(newTx.swapUsdValue) / Number(newTx.fromQuantity)).toFixed(2)} per unit
                           </small>
                         )}
-                      </div>
+                    </div>
                     </div>
 
                     {/* ARROW */}
@@ -1742,15 +1785,15 @@ export default function TransactionsPage(){
                       </div>
                       <div className="form-group" style={{ margin: 0 }}>
                         <label style={{ fontSize: '13px', marginBottom: '6px' }}>Quantity *</label>
-                        <input 
-                          type="number" 
-                          step="any" 
-                          placeholder="0.00" 
+                      <input 
+                        type="number" 
+                        step="any" 
+                        placeholder="0.00" 
                           value={newTx.toQuantity} 
                           onChange={e=>setNewTx(v=>({ ...v, toQuantity:e.target.value }))} 
                           required 
-                          className="form-input"
-                        />
+                        className="form-input"
+                      />
                         {newTx.toQuantity && newTx.swapUsdValue && Number(newTx.toQuantity) > 0 && Number(newTx.swapUsdValue) > 0 && (
                           <small style={{ color: 'var(--primary)', fontSize: '11px', marginTop: '4px', display: 'block' }}>
                             Price: ${(Number(newTx.swapUsdValue) / Number(newTx.toQuantity)).toFixed(2)} per unit
@@ -1767,7 +1810,7 @@ export default function TransactionsPage(){
                 <div className="form-section">
                   <div className="form-section-title">
                     {newTx.type === 'Deposit' ? '💰 Deposited' : '💸 Withdrawn'}
-                  </div>
+              </div>
                   <div className="form-section-compact">
                       <>
                         <div className="form-group">
@@ -1812,13 +1855,13 @@ export default function TransactionsPage(){
                     {newTx.type === 'Deposit' ? '💵 Received' : '💵 Received'}
                   </div>
                   <div className="form-section-compact">
-                    <div className="form-group">
-                      <label>
+              <div className="form-group">
+                <label>
                         {newTx.type === 'Deposit' ? 'Stablecoin *' : 'Stablecoin *'}
-                      </label>
-                      <AssetInput
-                        value={newTx.toAsset}
-                        onChange={handleToAssetSelection}
+                </label>
+                <AssetInput
+                  value={newTx.toAsset}
+                  onChange={handleToAssetSelection}
                         placeholder={
                           newTx.type === 'Deposit' ? 'Select stablecoin (e.g., USDC)' :
                           'Select stablecoin (e.g., USDC)'
@@ -1830,21 +1873,21 @@ export default function TransactionsPage(){
                         <small style={{ color: 'var(--muted)', fontSize: '11px', marginTop: '2px' }}>
                           Balance: {currentHoldings[newTx.toAsset.toUpperCase()].toFixed(8)}
                         </small>
-                      )}
-                    </div>
-                    <div className="form-group">
-                      <label>
+                )}
+              </div>
+                <div className="form-group">
+                  <label>
                         {newTx.type === 'Deposit' ? 'Amount Received *' : 'Amount *'}
-                      </label>
-                      <input 
-                        type="number" 
-                        step="any" 
-                        placeholder="0.00" 
-                        value={newTx.toQuantity} 
-                        onChange={e=>setNewTx(v=>({ ...v, toQuantity:e.target.value }))} 
-                        required 
-                        className="form-input"
-                      />
+                  </label>
+                  <input 
+                    type="number" 
+                    step="any" 
+                    placeholder="0.00" 
+                    value={newTx.toQuantity} 
+                    onChange={e=>setNewTx(v=>({ ...v, toQuantity:e.target.value }))} 
+                    required 
+                    className="form-input"
+                  />
                       {newTx.type === 'Withdrawal' && newTx.toAsset && newTx.toQuantity && (() => {
                         const balance = currentHoldings[newTx.toAsset.toUpperCase()] || 0;
                         const quantity = Number(newTx.toQuantity);
@@ -1857,8 +1900,8 @@ export default function TransactionsPage(){
                         }
                         return null;
                       })()}
-                    </div>
-                    <div className="form-group">
+                </div>
+                <div className="form-group">
                       <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         {newTx.type === 'Deposit' 
                           ? `${newTx.fiatCurrency} Price (USD per ${newTx.fiatCurrency})`
@@ -1896,29 +1939,29 @@ export default function TransactionsPage(){
                             Auto
                           </button>
                         )}
-                      </label>
-                      <input 
-                        type="number" 
-                        step="any" 
+                  </label>
+                  <input 
+                    type="number" 
+                    step="any" 
                         placeholder={newTx.fiatCurrency === 'EUR' ? '1.08' : '1.0'}
-                        value={newTx.toPriceUsd} 
-                        onChange={e=>setNewTx(v=>({ ...v, toPriceUsd:e.target.value }))}
-                        className="form-input"
-                      />
+                    value={newTx.toPriceUsd} 
+                    onChange={e=>setNewTx(v=>({ ...v, toPriceUsd:e.target.value }))} 
+                    className="form-input"
+                  />
                       {(newTx.type === 'Deposit' || newTx.type === 'Withdrawal') && (
                         <small style={{ color: 'var(--muted)', fontSize: '11px', marginTop: '2px' }}>
                           {newTx.fiatCurrency === 'USD' 
                             ? 'USD price is always 1.0'
                             : `USD per 1 ${newTx.fiatCurrency} (e.g., 1.08 means 1 EUR = $1.08 USD)`}
-                        </small>
+                  </small>
                       )}
-                    </div>
+                </div>
                     {getCalculationHint() && (
                       <div className="form-group" style={{ gridColumn: '1 / -1' }}>
                         <small style={{ color: 'var(--primary)', fontSize: '11px', fontStyle: 'italic' }}>
                           {getCalculationHint()}
                         </small>
-                      </div>
+              </div>
                     )}
                   </div>
                 </div>
@@ -1928,35 +1971,35 @@ export default function TransactionsPage(){
               <div className="form-section">
                 <div className="form-section-title">📝 Additional Details</div>
                 <div className="form-section-compact">
-                  <div className="form-group">
-                    <label>Date & Time *</label>
-                    <input 
-                      type="datetime-local" 
-                      value={newTx.datetime} 
-                      onChange={e=>setNewTx(v=>({ ...v, datetime:e.target.value }))} 
-                      required 
-                      className="form-input"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Fees (USD)</label>
-                    <input 
-                      type="number" 
-                      step="any" 
-                      placeholder="0.00" 
-                      value={newTx.feesUsd} 
-                      onChange={e=>setNewTx(v=>({ ...v, feesUsd:e.target.value }))} 
-                      className="form-input"
-                    />
-                  </div>
+                <div className="form-group">
+                  <label>Date & Time *</label>
+                  <input 
+                    type="datetime-local" 
+                    value={newTx.datetime} 
+                    onChange={e=>setNewTx(v=>({ ...v, datetime:e.target.value }))} 
+                    required 
+                    className="form-input"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Fees (USD)</label>
+                  <input 
+                    type="number" 
+                    step="any" 
+                    placeholder="0.00" 
+                    value={newTx.feesUsd} 
+                    onChange={e=>setNewTx(v=>({ ...v, feesUsd:e.target.value }))} 
+                    className="form-input"
+                  />
+                </div>
                   <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                    <label>Notes</label>
-                    <input 
-                      placeholder="Optional notes about this transaction" 
+                <label>Notes</label>
+                <input 
+                  placeholder="Optional notes about this transaction" 
                       value={newTx.notes || ''} 
-                      onChange={e=>setNewTx(v=>({ ...v, notes:e.target.value }))}
-                      className="form-input"
-                    />
+                  onChange={e=>setNewTx(v=>({ ...v, notes:e.target.value }))}
+                  className="form-input"
+                />
                   </div>
                 </div>
               </div>
@@ -2222,16 +2265,16 @@ export default function TransactionsPage(){
                       </div>
                       <div className="form-group" style={{ margin: 0 }}>
                         <label style={{ fontSize: '13px', marginBottom: '6px' }}>Quantity *</label>
-                        <input 
-                          type="number" 
-                          step="any" 
+                      <input 
+                        type="number" 
+                        step="any" 
                           placeholder="0.00" 
                           value={editFormData.fromQuantity} 
                           onChange={e=>setEditFormData(v=> v ? { ...v, fromQuantity: e.target.value } : null)} 
                           required 
-                          className="form-input"
-                        />
-                      </div>
+                        className="form-input"
+                      />
+                    </div>
                     </div>
 
                     {/* ARROW */}
@@ -2275,15 +2318,15 @@ export default function TransactionsPage(){
                       </div>
                       <div className="form-group" style={{ margin: 0 }}>
                         <label style={{ fontSize: '13px', marginBottom: '6px' }}>Quantity *</label>
-                        <input 
-                          type="number" 
-                          step="any" 
+                      <input 
+                        type="number" 
+                        step="any" 
                           placeholder="0.00" 
                           value={editFormData.toQuantity} 
                           onChange={e=>setEditFormData(v=> v ? { ...v, toQuantity:e.target.value } : null)} 
                           required 
-                          className="form-input"
-                        />
+                        className="form-input"
+                      />
                       </div>
                     </div>
                   </div>
@@ -2298,7 +2341,7 @@ export default function TransactionsPage(){
                       {editFormData.type === 'Deposit' ? '💰 Deposited' : '💸 Withdrawn'}
                     </div>
                     <div className="form-section-compact">
-                      <div className="form-group">
+              <div className="form-group">
                         <label>Currency *</label>
                         <select 
                           value={editFormData.fiatCurrency} 
@@ -2313,16 +2356,16 @@ export default function TransactionsPage(){
                         <label>
                           {editFormData.type === 'Deposit' ? 'Amount Deposited *' : 'Amount Received *'}
                         </label>
-                        <input 
+                <input 
                           type="number" 
                           step="any" 
                           placeholder="0.00" 
                           value={editFormData.fiatAmount} 
                           onChange={e=>setEditFormData(v=> v ? { ...v, fiatAmount: e.target.value } : null)} 
-                          required 
-                          className="form-input"
-                        />
-                      </div>
+                  required 
+                  className="form-input"
+                />
+              </div>
                     </div>
                   </div>
 
@@ -2331,7 +2374,7 @@ export default function TransactionsPage(){
                       {editFormData.type === 'Deposit' ? '💵 Received' : '💵 Received'}
                     </div>
                     <div className="form-section-compact">
-                      <div className="form-group">
+                <div className="form-group">
                         <label>Stablecoin *</label>
                         <AssetInput
                           value={editFormData.toAsset}
@@ -2345,17 +2388,17 @@ export default function TransactionsPage(){
                         <label>
                           {editFormData.type === 'Deposit' ? 'Amount Received *' : 'Amount *'}
                         </label>
-                        <input 
-                          type="number" 
-                          step="any" 
+                  <input 
+                    type="number" 
+                    step="any" 
                           placeholder="0.00" 
                           value={editFormData.toQuantity} 
                           onChange={e=>setEditFormData(v=> v ? { ...v, toQuantity:e.target.value } : null)} 
-                          required 
-                          className="form-input"
-                        />
-                      </div>
-                      <div className="form-group">
+                    required 
+                    className="form-input"
+                  />
+                </div>
+                <div className="form-group">
                         <label>
                           {editFormData.type === 'Deposit' 
                             ? `${editFormData.fiatCurrency} Price (USD per ${editFormData.fiatCurrency})`
@@ -2363,14 +2406,14 @@ export default function TransactionsPage(){
                             ? `${editFormData.fiatCurrency} Price (USD per ${editFormData.fiatCurrency})`
                             : 'Exchange Rate'}
                         </label>
-                        <input 
-                          type="number" 
-                          step="any" 
+                  <input 
+                    type="number" 
+                    step="any" 
                           placeholder={editFormData.fiatCurrency === 'EUR' ? '1.08' : '1.0'}
                           value={editFormData.toPriceUsd} 
                           onChange={e=>setEditFormData(v=> v ? { ...v, toPriceUsd:e.target.value } : null)}
-                          className="form-input"
-                        />
+                    className="form-input"
+                  />
                         {(editFormData.type === 'Deposit' || editFormData.type === 'Withdrawal') && (
                           <small style={{ color: 'var(--muted)', fontSize: '11px', marginTop: '2px' }}>
                             {editFormData.fiatCurrency === 'USD' 
@@ -2378,8 +2421,8 @@ export default function TransactionsPage(){
                               : `USD per 1 ${editFormData.fiatCurrency} (e.g., 1.08 means 1 EUR = $1.08 USD)`}
                           </small>
                         )}
-                      </div>
-                    </div>
+                </div>
+              </div>
                   </div>
                 </>
               )}
@@ -2388,35 +2431,35 @@ export default function TransactionsPage(){
               <div className="form-section">
                 <div className="form-section-title">📝 Additional Details</div>
                 <div className="form-section-compact">
-                  <div className="form-group">
-                    <label>Date & Time *</label>
-                    <input 
-                      type="datetime-local" 
+                <div className="form-group">
+                  <label>Date & Time *</label>
+                  <input 
+                    type="datetime-local" 
                       value={editFormData.datetime} 
                       onChange={e=>setEditFormData(v=> v ? { ...v, datetime:e.target.value } : null)} 
-                      required 
-                      className="form-input"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Fees (USD)</label>
-                    <input 
-                      type="number" 
-                      step="any" 
-                      placeholder="0.00" 
+                    required 
+                    className="form-input"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Fees (USD)</label>
+                  <input 
+                    type="number" 
+                    step="any" 
+                    placeholder="0.00" 
                       value={editFormData.feesUsd} 
                       onChange={e=>setEditFormData(v=> v ? { ...v, feesUsd:e.target.value } : null)} 
-                      className="form-input"
-                    />
-                  </div>
+                    className="form-input"
+                  />
+                </div>
                   <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                    <label>Notes</label>
-                    <input 
+                <label>Notes</label>
+                <input 
                       placeholder="Optional notes about this transaction" 
                       value={editFormData.notes || ''} 
                       onChange={e=>setEditFormData(v=> v ? { ...v, notes:e.target.value } : null)}
-                      className="form-input"
-                    />
+                  className="form-input"
+                />
                   </div>
                 </div>
               </div>
@@ -2453,7 +2496,7 @@ export default function TransactionsPage(){
           </div>
         </div>
       )}
-    <style jsx>{`
+      <style jsx>{`
       .transaction-toolbar-actions {
         display: flex;
         flex-wrap: wrap;
@@ -2476,16 +2519,16 @@ export default function TransactionsPage(){
         align-items: flex-start;
       }
 
-      .transaction-modal {
+        .transaction-modal {
         max-width: 800px;
-        width: 100%;
-        max-height: 90vh;
-        overflow-y: auto;
-      }
+          width: 100%;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
 
-      .transaction-form {
-        display: flex;
-        flex-direction: column;
+        .transaction-form {
+          display: flex;
+          flex-direction: column;
         gap: 12px;
       }
 
@@ -2501,7 +2544,7 @@ export default function TransactionsPage(){
 
       .form-section-title {
         font-size: 12px;
-        font-weight: 700;
+          font-weight: 700;
         color: var(--muted);
         text-transform: uppercase;
         letter-spacing: 0.5px;
@@ -2528,17 +2571,17 @@ export default function TransactionsPage(){
           transform: rotate(90deg);
           padding: 8px 0 !important;
         }
-      }
+        }
 
-      .form-group {
-        display: flex;
-        flex-direction: column;
+        .form-group {
+          display: flex;
+          flex-direction: column;
         gap: 4px;
-      }
+        }
 
-      .form-group label {
-        font-weight: 600;
-        color: var(--text);
+        .form-group label {
+          font-weight: 600;
+          color: var(--text);
         font-size: 13px;
       }
 
@@ -2549,58 +2592,58 @@ export default function TransactionsPage(){
       }
 
 
-      .form-row {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 16px;
-      }
-
-      .form-input, .form-select {
-        background: var(--surface);
-        color: var(--text);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 10px 12px;
-        font-size: 14px;
-        transition: border-color 0.2s ease;
-      }
-
-      .form-input:focus, .form-select:focus {
-        outline: none;
-        border-color: var(--primary);
-        box-shadow: 0 0 0 2px var(--primary)22;
-      }
-
-      .error-messages {
-        background: #fee2e2;
-        border: 1px solid #fecaca;
-        border-radius: 8px;
-        padding: 12px;
-        margin-bottom: 16px;
-      }
-
-      .error-message {
-        color: #dc2626;
-        font-size: 14px;
-        margin-bottom: 4px;
-      }
-
-      .error-message:last-child {
-        margin-bottom: 0;
-      }
-
-      @media (max-width: 768px) {
         .form-row {
-          grid-template-columns: 1fr;
-          gap: 12px;
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 16px;
         }
 
         .form-input, .form-select {
-          padding: 12px;
-          font-size: 16px;
+          background: var(--surface);
+          color: var(--text);
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 10px 12px;
+          font-size: 14px;
+          transition: border-color 0.2s ease;
         }
-      }
-    `}</style>
+
+        .form-input:focus, .form-select:focus {
+          outline: none;
+          border-color: var(--primary);
+          box-shadow: 0 0 0 2px var(--primary)22;
+        }
+
+        .error-messages {
+          background: #fee2e2;
+          border: 1px solid #fecaca;
+          border-radius: 8px;
+          padding: 12px;
+          margin-bottom: 16px;
+        }
+
+        .error-message {
+          color: #dc2626;
+          font-size: 14px;
+          margin-bottom: 4px;
+        }
+
+        .error-message:last-child {
+          margin-bottom: 0;
+        }
+
+        @media (max-width: 768px) {
+          .form-row {
+            grid-template-columns: 1fr;
+            gap: 12px;
+          }
+
+          .form-input, .form-select {
+            padding: 12px;
+            font-size: 16px;
+          }
+        }
+      `}</style>
     </main>
     </AuthGuard>
   );

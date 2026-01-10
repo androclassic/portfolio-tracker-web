@@ -1,12 +1,13 @@
 import type { HistResp, PricePoint } from './types';
 
-const TTL_MS = 12 * 60 * 60 * 1000; // 12h
-const HIST_CACHE_VERSION = 'v2';
+const TTL_MS = 24 * 60 * 60 * 1000; // 24h (increased from 12h)
+const HIST_CACHE_VERSION = 'v3'; // Increment when cache format changes
 
 type CacheObj = { expiresAt: number; prices: PricePoint[] };
 
 function readCache(key: string): PricePoint[] | null {
   try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
     const raw = localStorage.getItem(key);
     if (!raw) return null;
     const obj = JSON.parse(raw) as CacheObj;
@@ -19,9 +20,12 @@ function readCache(key: string): PricePoint[] | null {
 
 function writeCache(key: string, prices: PricePoint[]) {
   try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
     const payload: CacheObj = { expiresAt: Date.now() + TTL_MS, prices };
     localStorage.setItem(key, JSON.stringify(payload));
-  } catch {}
+  } catch {
+    // localStorage might be full or disabled
+  }
 }
 
 function chunkIntoThreeMonthRanges(startSec: number, endSec: number): Array<{ s: number; e: number }> {
@@ -38,49 +42,118 @@ function chunkIntoThreeMonthRanges(startSec: number, endSec: number): Array<{ s:
   return out;
 }
 
-export async function fetchHistoricalWithLocalCache(symbols: string[], startUnixSec: number, endUnixSec: number): Promise<HistResp> {
+/**
+ * Fetch historical prices with aggressive client-side caching
+ * Uses localStorage to avoid HTTP requests on repeat visits
+ * Fetches missing chunks in parallel for speed
+ */
+export async function fetchHistoricalWithLocalCache(
+  symbols: string[],
+  startUnixSec: number,
+  endUnixSec: number
+): Promise<HistResp> {
+  const perfStart = performance.now();
   const chunks = chunkIntoThreeMonthRanges(startUnixSec, endUnixSec);
   const all: PricePoint[] = [];
   const symKey = symbols.slice().sort().join(',');
+  console.log(`[Performance] 📊 Price cache: checking ${chunks.length} chunks for ${symbols.length} symbols`);
 
+  // Step 1: Check localStorage cache for all chunks
+  const missingChunks: Array<{ s: number; e: number; key: string }> = [];
   for (const ch of chunks) {
-    // Versioned to allow invalidating old cached ranges when we change server-side generation logic
-    // (e.g., stablecoin daily series date normalization).
     const key = `hist:${HIST_CACHE_VERSION}:${symKey}:${ch.s}:${ch.e}`;
     const cached = readCache(key);
-    if (cached) {
+    if (cached && cached.length > 0) {
       all.push(...cached);
-      continue;
+    } else {
+      missingChunks.push({ ...ch, key });
     }
-    const url = `/api/prices?symbols=${encodeURIComponent(symKey)}&start=${ch.s}&end=${ch.e}`;
-    const resp = await fetch(url);
-    if (!resp.ok) continue;
-    const json = (await resp.json()) as HistResp;
-    const arr = (json?.prices || []) as PricePoint[];
-    // store and append
-    writeCache(key, arr);
-    all.push(...arr);
   }
 
-  // dedupe and sort
+  // If we have all chunks cached, return immediately (fastest path)
+  if (missingChunks.length === 0) {
+    // Dedupe and sort
+    const map = new Map<string, PricePoint>();
+    for (const p of all) {
+      const k = `${p.date}|${p.asset.toUpperCase()}`;
+      if (!map.has(k)) map.set(k, p);
+    }
+    const merged = Array.from(map.values()).sort((a, b) => 
+      a.date.localeCompare(b.date) || a.asset.localeCompare(b.asset)
+    );
+    const perfEnd = performance.now();
+    const duration = perfEnd - perfStart;
+    console.log(`[Performance] 📊 Price cache: all from localStorage in ${duration.toFixed(2)}ms (${merged.length} prices)`);
+    return { prices: merged };
+  }
+
+  // Step 2: Fetch missing chunks in parallel (much faster than sequential)
+  console.log(`[Performance] 📊 Price cache: fetching ${missingChunks.length} missing chunks from API`);
+  const fetchStart = performance.now();
+  const fetchPromises = missingChunks.map(async ({ s, e, key }) => {
+    try {
+      const url = `/api/prices?symbols=${encodeURIComponent(symKey)}&start=${s}&end=${e}`;
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        console.warn(`[Price Cache] Failed to fetch ${s}-${e}: ${resp.status}`);
+        return [];
+      }
+      const json = (await resp.json()) as HistResp;
+      const arr = (json?.prices || []) as PricePoint[];
+      
+      // Store in localStorage cache immediately
+      if (arr.length > 0) {
+        writeCache(key, arr);
+      }
+      
+      return arr;
+    } catch (error) {
+      console.warn(`[Price Cache] Error fetching ${s}-${e}:`, error);
+      return [];
+    }
+  });
+
+  // Wait for all parallel requests
+  const fetchedArrays = await Promise.all(fetchPromises);
+  const fetchEnd = performance.now();
+  const fetchDuration = fetchEnd - fetchStart;
+  console.log(`[Performance] 📊 Price cache: API fetch completed in ${fetchDuration.toFixed(2)}ms (${(fetchDuration / 1000).toFixed(2)}s)`);
+  for (const arr of fetchedArrays) {
+    if (arr.length > 0) {
+      all.push(...arr);
+    }
+  }
+
+  // Step 3: Dedupe and sort final result
   const map = new Map<string, PricePoint>();
   for (const p of all) {
     const k = `${p.date}|${p.asset.toUpperCase()}`;
     if (!map.has(k)) map.set(k, p);
   }
-  const merged = Array.from(map.values()).sort((a,b)=> a.date.localeCompare(b.date) || a.asset.localeCompare(b.asset));
+  const merged = Array.from(map.values()).sort((a, b) => 
+    a.date.localeCompare(b.date) || a.asset.localeCompare(b.asset)
+  );
+  
+  const perfEnd = performance.now();
+  const totalDuration = perfEnd - perfStart;
+  const totalDurationSec = (totalDuration / 1000).toFixed(2);
+  console.log(`[Performance] 📊 Price cache: total time ${totalDuration.toFixed(2)}ms (${totalDurationSec}s) - ${merged.length} prices`);
   return { prices: merged };
 }
 
 export function clearHistCaches() {
   try {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    const keys: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       if (k && k.startsWith('hist:')) {
-        localStorage.removeItem(k);
+        keys.push(k);
       }
     }
-  } catch {}
+    keys.forEach(k => localStorage.removeItem(k));
+  } catch {
+    // Ignore errors
+  }
 }
-
 
