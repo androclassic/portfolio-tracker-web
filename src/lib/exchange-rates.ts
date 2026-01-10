@@ -157,7 +157,6 @@ async function getExchangeRatesFromDB(
     }
     return map;
   } catch (error) {
-    console.warn('[FX Rates] Error reading from DB cache:', error);
     return new Map();
   }
 }
@@ -205,14 +204,12 @@ async function storeExchangeRatesInDB(
       );
     }
   } catch (error) {
-    console.warn('[FX Rates] Error storing in DB cache:', error);
+    // Silently fail - cache is optional
   }
 }
 
 // Preload exchange rates for a date range
 export async function preloadExchangeRates(startDate: string, endDate: string): Promise<void> {
-  const perfStart = performance.now();
-  console.log(`[Performance] 💱 Starting FX rates preload: ${startDate} to ${endDate}`);
   // First, try to load from database cache
   const currencies = ['EUR', 'USD', 'RON'];
   const currencyPairs: Array<{ from: string; to: string }> = [];
@@ -263,10 +260,6 @@ export async function preloadExchangeRates(startDate: string, endDate: string): 
 
   // If we have all rates cached, return early
   if (!needsFetch && dbRates.size > 0) {
-    const perfEnd = performance.now();
-    const duration = perfEnd - perfStart;
-    const durationSec = (duration / 1000).toFixed(2);
-    console.log(`[Performance] 💱 FX rates: all from DB cache in ${duration.toFixed(2)}ms (${durationSec}s)`);
     return;
   }
 
@@ -292,8 +285,6 @@ export async function preloadExchangeRates(startDate: string, endDate: string): 
   const missingStartDate = missingDateArray[0];
   const missingEndDate = missingDateArray[missingDateArray.length - 1];
 
-  console.log(`[FX Rates] Fetching missing rates for ${missingDates.size} dates (${missingStartDate} to ${missingEndDate})`);
-
   // Many public FX endpoints struggle with very large timespans; chunk requests to stay reliable.
   // 1 year chunks keeps payload sizes sane and avoids provider-side limits/timeouts.
   const chunks = chunkDateRanges(missingStartDate, missingEndDate, 366);
@@ -311,7 +302,6 @@ export async function preloadExchangeRates(startDate: string, endDate: string): 
           // Add a small delay between chunks to avoid rate limiting
           await new Promise(resolve => setTimeout(resolve, 100));
         } catch (chunkError) {
-          console.warn(`[FX Rates] Provider ${provider.name} failed for chunk ${c.start}..${c.end}:`, chunkError);
           // Continue with other chunks
         }
       }
@@ -399,19 +389,15 @@ export async function preloadExchangeRates(startDate: string, endDate: string): 
           const [from, to] = pair.split('-');
           if (from && to && rates.size > 0) {
             storePromises.push(
-              storeExchangeRatesInDB(from, to, rates).catch(err => {
-                console.warn(`[FX Rates] Failed to store ${pair} in DB:`, err);
+              storeExchangeRatesInDB(from, to, rates).catch(() => {
+                // Silently fail - cache is optional
               })
             );
           }
         }
         await Promise.all(storePromises);
-      } else {
-        // In browser, we only use in-memory cache (rateCache)
-        console.log(`[FX Rates] Skipping DB storage (browser environment), using in-memory cache only`);
       }
 
-      console.log(`[FX Rates] Provider ${provider.name} fetched ${newlyFetchedCount} missing rates`);
 
       // Update missing dates - remove dates we just fetched
       for (const d of dateRangeInclusive(missingStartDate, missingEndDate)) {
@@ -435,21 +421,18 @@ export async function preloadExchangeRates(startDate: string, endDate: string): 
 
       // If we've covered all missing dates, we're done
       if (missingDates.size === 0) {
-        console.log(`[FX Rates] Successfully fetched all missing rates`);
         return;
       }
 
       // Continue to next provider to fill remaining gaps
     } catch (error) {
       lastErr = error;
-      console.warn(`[FX Rates] Provider ${provider.name} failed:`, error);
       continue;
     }
   }
 
   // If we got some data but not all, that's better than nothing
   if (anyProviderSucceeded && missingDates.size < requestedDates.size) {
-    console.warn(`[FX Rates] Fetched partial data: ${missingDates.size} dates still missing out of ${requestedDates.size} total`);
     return;
   }
 
@@ -541,7 +524,6 @@ export async function getHistoricalExchangeRate(
         }
       }
     } catch (error) {
-      console.warn(`Provider failed for ${fromCurrency}/${toCurrency}:`, error);
       continue;
     }
   }

@@ -137,25 +137,18 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
     // But allow computation if we have transactions even if prices are still loading
     // This prevents the dashboard from getting stuck, but ensures we have data to work with
     if (loadingTxs && !txs) {
-      console.log('[Dashboard] Waiting for transactions...');
       return; // Wait for transactions
     }
 
     // Wait for historical prices if they're still loading and we don't have any yet
     // This ensures stacked chart and other price-dependent computations have data
     if (loadingHist && historicalPrices.length === 0) {
-      console.log('[Dashboard] Waiting for historical prices...');
       return; // Wait for historical prices
     }
-
-    // Log when historicalPrices changes
-    console.log(`[Dashboard] useEffect triggered: historicalPrices.length=${historicalPrices.length}, loadingHist=${loadingHist}, loadingTxs=${loadingTxs}, cacheKey=${cacheKey}`);
 
     // Compute even if loadingTxs is true - we can work with empty/partial data
     // This prevents the dashboard from getting stuck in a loading state
     // Computation is fast (5ms for 793 transactions), so no need to defer
-    const computeStart = performance.now();
-    console.log(`[Performance] 🔄 Starting dashboard computation: txs=${txs?.length || 0}, historicalPrices=${historicalPrices.length}, assets=${assets.length}, loadingHist=${loadingHist}`);
     
     // Compute holdings
     const holdings: Record<string, number> = {};
@@ -191,7 +184,6 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
     // Compute daily positions
     const dailyPos: Array<{ date: string; asset: string; position: number }> = [];
     if (txs && txs.length > 0) {
-      console.log(`[Dashboard] Computing dailyPos from ${txs.length} transactions`);
         const rows: Array<{ asset: string; day: string; signed: number }> = [];
         for (const t of txs) {
           const day = new Date(t.datetime).toISOString().slice(0, 10);
@@ -243,7 +235,6 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
           }
         }
       }
-      console.log(`[Dashboard] Computed ${dailyPos.length} daily positions`);
 
       // Compute notes by day/asset
       const notesByDayAsset = new Map<string, string>();
@@ -265,7 +256,6 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
 
       // Compute price index
       const hist = { prices: historicalPrices };
-      console.log(`[Dashboard] hist.prices.length=${hist.prices.length}, historicalPrices.length=${historicalPrices.length}`);
       let priceIndex = {
         dates: [] as string[],
         dateIndex: {} as Record<string, number>,
@@ -306,9 +296,7 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
       let stacked = { dates: [] as string[], totals: [] as number[], perAssetUsd: new Map<string, number[]>() };
       // Compute if we have historical prices (dailyPos is preferred but we can compute from transactions if needed)
       const canComputeStacked = hist && hist.prices && hist.prices.length > 0 && assets.length > 0 && txs;
-      console.log(`[Stacked] Condition check: hist=${!!hist}, hist.prices=${!!hist?.prices}, hist.prices.length=${hist?.prices?.length || 0}, assets.length=${assets.length}, txs=${!!txs}, txs.length=${txs?.length || 0}, canCompute=${canComputeStacked}, loadingHist=${loadingHist}`);
       if (canComputeStacked) {
-        console.log(`[Stacked] ✅ Computing with ${hist.prices.length} prices, ${dailyPos?.length || 0} daily positions, ${assets.length} assets, ${txs.length} transactions`);
         const EPS = 1e-9;
         const priceMap = new Map<string, number>();
         for (const p of hist.prices) priceMap.set(p.date + '|' + p.asset.toUpperCase(), p.price_usd);
@@ -319,7 +307,6 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
           for (const p of dailyPos) posMap.set(p.date + '|' + p.asset.toUpperCase(), p.position);
         } else {
           // Compute positions from transactions if dailyPos is not available
-          console.log(`[Stacked] Computing positions from transactions (dailyPos not available)`);
           const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
           const cumulativeHoldings: Record<string, number> = {};
           
@@ -386,15 +373,6 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
           perAssetUsd.set(a, y);
         }
         stacked = { dates, totals, perAssetUsd };
-        console.log(`[Stacked] ✅ Computed ${stacked.dates.length} dates, ${stacked.totals.length} totals, perAssetUsd.size=${perAssetUsd.size}`);
-      } else {
-        const reasons = [];
-        if (!hist) reasons.push('no hist');
-        if (!hist?.prices) reasons.push('no hist.prices');
-        if (hist?.prices?.length === 0) reasons.push(`hist.prices.length=${hist?.prices?.length || 0}`);
-        if (assets.length === 0) reasons.push(`assets.length=${assets.length}`);
-        if (!txs) reasons.push('no txs');
-        console.log(`[Stacked] ❌ Skipping: ${reasons.join(', ')}`);
       }
 
     const computed: DashboardData = {
@@ -425,9 +403,6 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
     }
 
     computedDataRef.current = computed;
-    
-    const duration = performance.now() - computeStart;
-    console.log(`[Performance] Dashboard computation: ${duration.toFixed(2)}ms (${txs?.length || 0} transactions)`);
     
     // Set state immediately to update UI
     setComputedData(computed);
@@ -465,22 +440,15 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
       setFxRateMap(new Map());
       
       // Load FX rates in background (non-blocking)
-      const fxStart = performance.now();
-      console.log(`[Performance] 💱 Starting FX rates load: ${dates.length} dates`);
       const start = dates[0];
       const end = dates[dates.length - 1];
       try {
         await preloadExchangeRates(start, end);
-        const fxPreloadEnd = performance.now();
-        const fxPreloadDuration = fxPreloadEnd - fxStart;
-        console.log(`[Performance] 💱 FX rates preload completed in ${fxPreloadDuration.toFixed(2)}ms (${(fxPreloadDuration / 1000).toFixed(2)}s)`);
       } catch (e) {
-        console.warn('Failed to preload FX for dashboard:', e);
         // Continue anyway - we'll use fallback rates
       }
       if (cancelled) return;
       
-      const mapBuildStart = performance.now();
       const fiat = getFiatCurrencies();
       const map = new Map<string, Record<string, number>>();
       for (const d of dates) {
@@ -495,12 +463,7 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
         }
         map.set(d, rec);
       }
-      const mapBuildEnd = performance.now();
       if (!cancelled) {
-        const fxEnd = performance.now();
-        const fxTotalDuration = fxEnd - fxStart;
-        const mapBuildDuration = mapBuildEnd - mapBuildStart;
-        console.log(`[Performance] 💱 FX rates: total load time ${fxTotalDuration.toFixed(2)}ms (${(fxTotalDuration / 1000).toFixed(2)}s) - map build: ${mapBuildDuration.toFixed(2)}ms, ${map.size} dates`);
         setFxRateMap(map);
         // Update computed data with FX map (but don't trigger re-render by updating state)
         if (computedDataRef.current) {
@@ -509,8 +472,8 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
       }
     };
     // Run in background - don't block
-    run().catch(err => {
-      console.warn('FX rate loading error (non-blocking):', err);
+    run().catch(() => {
+      // Silently fail - we'll use fallback rates
     });
     return () => {
       cancelled = true;

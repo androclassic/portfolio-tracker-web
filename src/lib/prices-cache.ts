@@ -52,11 +52,9 @@ export async function fetchHistoricalWithLocalCache(
   startUnixSec: number,
   endUnixSec: number
 ): Promise<HistResp> {
-  const perfStart = performance.now();
   const chunks = chunkIntoThreeMonthRanges(startUnixSec, endUnixSec);
   const all: PricePoint[] = [];
   const symKey = symbols.slice().sort().join(',');
-  console.log(`[Performance] 📊 Price cache: checking ${chunks.length} chunks for ${symbols.length} symbols`);
 
   // Step 1: Check localStorage cache for all chunks
   const missingChunks: Array<{ s: number; e: number; key: string }> = [];
@@ -81,21 +79,15 @@ export async function fetchHistoricalWithLocalCache(
     const merged = Array.from(map.values()).sort((a, b) => 
       a.date.localeCompare(b.date) || a.asset.localeCompare(b.asset)
     );
-    const perfEnd = performance.now();
-    const duration = perfEnd - perfStart;
-    console.log(`[Performance] 📊 Price cache: all from localStorage in ${duration.toFixed(2)}ms (${merged.length} prices)`);
     return { prices: merged };
   }
 
   // Step 2: Fetch missing chunks in parallel (much faster than sequential)
-  console.log(`[Performance] 📊 Price cache: fetching ${missingChunks.length} missing chunks from API`);
-  const fetchStart = performance.now();
   const fetchPromises = missingChunks.map(async ({ s, e, key }) => {
     try {
       const url = `/api/prices?symbols=${encodeURIComponent(symKey)}&start=${s}&end=${e}`;
       const resp = await fetch(url);
       if (!resp.ok) {
-        console.warn(`[Price Cache] Failed to fetch ${s}-${e}: ${resp.status}`);
         return [];
       }
       const json = (await resp.json()) as HistResp;
@@ -108,16 +100,12 @@ export async function fetchHistoricalWithLocalCache(
       
       return arr;
     } catch (error) {
-      console.warn(`[Price Cache] Error fetching ${s}-${e}:`, error);
       return [];
     }
   });
 
   // Wait for all parallel requests
   const fetchedArrays = await Promise.all(fetchPromises);
-  const fetchEnd = performance.now();
-  const fetchDuration = fetchEnd - fetchStart;
-  console.log(`[Performance] 📊 Price cache: API fetch completed in ${fetchDuration.toFixed(2)}ms (${(fetchDuration / 1000).toFixed(2)}s)`);
   for (const arr of fetchedArrays) {
     if (arr.length > 0) {
       all.push(...arr);
@@ -134,10 +122,6 @@ export async function fetchHistoricalWithLocalCache(
     a.date.localeCompare(b.date) || a.asset.localeCompare(b.asset)
   );
   
-  const perfEnd = performance.now();
-  const totalDuration = perfEnd - perfStart;
-  const totalDurationSec = (totalDuration / 1000).toFixed(2);
-  console.log(`[Performance] 📊 Price cache: total time ${totalDuration.toFixed(2)}ms (${totalDurationSec}s) - ${merged.length} prices`);
   return { prices: merged };
 }
 
