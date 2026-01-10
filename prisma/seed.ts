@@ -69,11 +69,12 @@ async function main() {
     if (rawType === 'buy' || rawType === 'sell') {
       // Legacy Buy: USDC -> Asset
       if (rawType === 'buy') {
-        const fromQuantity = costUsd || (priceUsd ? quantity * priceUsd : null);
+        const fromQuantity = costUsd || (priceUsd ? quantity * priceUsd : quantity);
+        if (!fromQuantity || fromQuantity <= 0) return acc; // Skip if we can't calculate a valid quantity
         acc.push({
           type: 'Swap',
           fromAsset: 'USDC',
-          fromQuantity: fromQuantity ?? undefined,
+          fromQuantity: fromQuantity,
           fromPriceUsd: 1.0,
           toAsset: asset,
           toQuantity: quantity,
@@ -85,14 +86,15 @@ async function main() {
         });
       } else {
         // Legacy Sell: Asset -> USDC
-        const toQuantity = proceedsUsd || (priceUsd ? quantity * priceUsd : null);
+        const toQuantity = proceedsUsd || (priceUsd ? quantity * priceUsd : quantity);
+        if (!toQuantity || toQuantity <= 0) return acc; // Skip if we can't calculate a valid quantity
         acc.push({
           type: 'Swap',
           fromAsset: asset,
           fromQuantity: quantity,
           fromPriceUsd: priceUsd ?? undefined,
           toAsset: 'USDC',
-          toQuantity: toQuantity ?? undefined,
+          toQuantity: toQuantity,
           toPriceUsd: 1.0,
           datetime: dt,
           feesUsd: feesUsd ?? undefined,
