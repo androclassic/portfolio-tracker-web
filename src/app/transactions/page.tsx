@@ -14,6 +14,7 @@ import { getHistoricalExchangeRate } from '@/lib/exchange-rates';
 import { calculateHoldings } from '@/lib/portfolio-utils';
 import { fetchHistoricalWithLocalCache } from '@/lib/prices-cache';
 import AuthGuard from '@/components/AuthGuard';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 
 const fetcher = jsonFetcher;
 
@@ -1127,8 +1128,11 @@ export default function TransactionsPage(){
     }
   }
 
+  const isMobile = useIsMobile();
   const nf = new Intl.NumberFormat(undefined,{ maximumFractionDigits: 8 });
   const df = new Intl.DateTimeFormat(undefined,{ dateStyle:'medium', timeStyle:'short' });
+  const dfDate = new Intl.DateTimeFormat(undefined,{ dateStyle:'medium' });
+  const dfTime = new Intl.DateTimeFormat(undefined,{ timeStyle:'short' });
 
   return (
     <AuthGuard redirectTo="/transactions">
@@ -1308,8 +1312,15 @@ Withdrawal,2024-02-28T11:00:00Z,BTC,0.05,55000,USD,2750,1,12,Withdrew some BTC t
           <tbody>
             {filtered.map(t=> (
               <tr key={t.id}>
-                <td style={{ whiteSpace: 'nowrap', color: 'var(--muted)', fontSize: '0.9rem' }}>
-                  {df.format(new Date(t.datetime))}
+                <td style={{ color: 'var(--muted)', fontSize: '0.9rem', ...(isMobile ? {} : { whiteSpace: 'nowrap' }) }}>
+                  {isMobile ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.4' }}>
+                      <span>{dfDate.format(new Date(t.datetime))}</span>
+                      <span style={{ fontSize: '0.85em', opacity: 0.8 }}>{dfTime.format(new Date(t.datetime))}</span>
+                    </div>
+                  ) : (
+                    df.format(new Date(t.datetime))
+                  )}
                 </td>
                 <td>
                   <span className={`transaction-type-badge ${t.type.toLowerCase()}`}>

@@ -416,10 +416,36 @@ select option{background:var(--surface);color:var(--text)}
     padding:6px 10px;
   }
 
-  /* Chart modal header should wrap on smaller screens */
+  /* Chart modal header: ensure close button stays in top right on mobile */
   .chart-modal-header{
-    flex-wrap:wrap;
-    align-items:flex-start;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .chart-modal-header > div:first-child {
+    flex: 1;
+    min-width: 0;
+  }
+  .chart-modal-header .icon-btn {
+    flex-shrink: 0;
+    margin-left: auto;
+    order: 999;
+  }
+
+  /* Modal headers: keep close button in top right on mobile */
+  .modal .card-header {
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+  .modal .card-title {
+    flex: 1;
+    min-width: 0;
+  }
+  .modal .card-actions {
+    width: auto;
+    flex-shrink: 0;
+    justify-content: flex-end;
   }
 }
 
@@ -521,6 +547,34 @@ select option{background:var(--surface);color:var(--text)}
   .js-plotly-plot .plotly{
     height:250px !important;
   }
+  
+  /* Make legend scrollable on mobile for stacked charts */
+  .js-plotly-plot .legend{
+    max-height: 200px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Ensure chart container doesn't overflow */
+  .js-plotly-plot .plot-container{
+    overflow: visible;
+  }
+  
+  /* Make Plotly modebar buttons bigger on mobile for easier tapping */
+  .js-plotly-plot .modebar {
+    transform: scale(1.4);
+    transform-origin: top right;
+  }
+  .js-plotly-plot .modebar-btn {
+    width: 32px !important;
+    height: 32px !important;
+    padding: 6px !important;
+  }
+  .js-plotly-plot .modebar-btn svg {
+    width: 20px !important;
+    height: 20px !important;
+  }
 }
 
 @media (max-width: 480px) {
@@ -536,6 +590,27 @@ select option{background:var(--surface);color:var(--text)}
   }
   .js-plotly-plot .plotly{
     height:200px !important;
+  }
+  
+  /* Smaller legend on very small screens */
+  .js-plotly-plot .legend{
+    max-height: 150px;
+    font-size: 10px !important;
+  }
+  
+  /* Even bigger modebar buttons on very small screens */
+  .js-plotly-plot .modebar {
+    transform: scale(1.6);
+    transform-origin: top right;
+  }
+  .js-plotly-plot .modebar-btn {
+    width: 36px !important;
+    height: 36px !important;
+    padding: 8px !important;
+  }
+  .js-plotly-plot .modebar-btn svg {
+    width: 22px !important;
+    height: 22px !important;
   }
 }
 
@@ -782,9 +857,22 @@ select option{background:var(--surface);color:var(--text)}
   border-radius: var(--radius-sm);
   padding: 12px;
   min-width: 200px;
+  max-width: calc(100% - 32px);
   box-shadow: var(--shadow-md);
   z-index: 10;
   pointer-events: none;
+}
+
+@media (max-width: 768px) {
+  .stacked-hover-tooltip {
+    top: 8px;
+    right: 8px;
+    left: 8px;
+    min-width: auto;
+    max-width: calc(100% - 16px);
+    padding: 10px;
+    font-size: 0.875rem;
+  }
 }
 
 .tooltip-date {

@@ -32,7 +32,8 @@ export type PlotlyChartProps = {
   onLegendClick?: (event: unknown) => boolean | void;
   onLegendDoubleClick?: (event: unknown) => boolean | void;
   /**
-   * Show Plotly modebar. Defaults to false for a more app-native feel.
+   * Show Plotly modebar. Defaults to true to enable zoom/pan controls.
+   * Set to false to hide the modebar.
    */
   showModeBar?: boolean;
 };
@@ -52,7 +53,7 @@ export function PlotlyChart({
   onUnhover,
   onLegendClick,
   onLegendDoubleClick,
-  showModeBar = false,
+  showModeBar = true,
 }: PlotlyChartProps) {
   const theme = usePlotlyTheme();
 
@@ -66,6 +67,24 @@ export function PlotlyChart({
     const base = theme.configDefaults;
     const merged = mergeDeep(base, user);
     merged.displayModeBar = showModeBar;
+    
+    // Configure modebar buttons - show only essential ones
+    if (showModeBar) {
+      merged.modeBarButtonsToRemove = [
+        'pan2d',
+        'lasso2d',
+        'select2d',
+        'zoomIn2d',
+        'zoomOut2d',
+        'resetScale2d',
+        'hoverClosestCartesian',
+        'hoverCompareCartesian',
+        'toggleHover',
+        'toImage',
+      ];
+      // Keep only: zoom2d (box zoom/selection), autoScale2d (autofit/zoom out)
+    }
+    
     return merged;
   }, [theme.configDefaults, config, showModeBar]);
 
