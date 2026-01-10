@@ -13,9 +13,12 @@ function parseFloatSafe(v: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function normalizeType(v: string): 'Buy' | 'Sell' {
+function normalizeType(v: string): 'Deposit' | 'Withdrawal' | 'Swap' {
   const s = (v || '').toLowerCase();
-  return s === 'sell' ? 'Sell' : 'Buy';
+  if (s === 'deposit') return 'Deposit';
+  if (s === 'withdrawal' || s === 'withdraw') return 'Withdrawal';
+  // Legacy: Buy/Sell become Swap
+  return 'Swap';
 }
 
 function parseDateFlexible(input: string): Date | null {
@@ -49,7 +52,8 @@ async function main() {
 
   const data: Prisma.TransactionCreateManyInput[] = rows.reduce<Prisma.TransactionCreateManyInput[]>((acc, r: any) => {
     const asset = String(r.asset || '').trim().toUpperCase();
-    const type = normalizeType(String(r.type || 'Buy'));
+    const rawType = String(r.type || 'Buy').toLowerCase();
+    const type = normalizeType(rawType);
     const priceUsd = parseFloatSafe(r.price_usd);
     const qtyParsed = parseFloatSafe(r.quantity) || 0;
     const quantity = Math.abs(qtyParsed);
@@ -58,9 +62,76 @@ async function main() {
     const costUsd = parseFloatSafe(r.cost_usd);
     const proceedsUsd = parseFloatSafe(r.proceeds_usd);
     const notes = r.notes ? String(r.notes) : null;
-    if (dt && asset && quantity >= 0) {
-      acc.push({ asset, type, priceUsd: priceUsd ?? undefined, quantity, datetime: dt, feesUsd: feesUsd ?? undefined, costUsd: costUsd ?? undefined, proceedsUsd: proceedsUsd ?? undefined, notes: notes ?? undefined, portfolioId: 1 });
+    
+    if (!dt || !asset || quantity < 0) return acc;
+    
+    // Convert old Buy/Sell format to new Swap format
+    if (rawType === 'buy' || rawType === 'sell') {
+      // Legacy Buy: USDC -> Asset
+      if (rawType === 'buy') {
+        const fromQuantity = costUsd || (priceUsd ? quantity * priceUsd : null);
+        acc.push({
+          type: 'Swap',
+          fromAsset: 'USDC',
+          fromQuantity: fromQuantity ?? undefined,
+          fromPriceUsd: 1.0,
+          toAsset: asset,
+          toQuantity: quantity,
+          toPriceUsd: priceUsd ?? undefined,
+          datetime: dt,
+          feesUsd: feesUsd ?? undefined,
+          notes: notes ?? undefined,
+          portfolioId: 1,
+        });
+      } else {
+        // Legacy Sell: Asset -> USDC
+        const toQuantity = proceedsUsd || (priceUsd ? quantity * priceUsd : null);
+        acc.push({
+          type: 'Swap',
+          fromAsset: asset,
+          fromQuantity: quantity,
+          fromPriceUsd: priceUsd ?? undefined,
+          toAsset: 'USDC',
+          toQuantity: toQuantity ?? undefined,
+          toPriceUsd: 1.0,
+          datetime: dt,
+          feesUsd: feesUsd ?? undefined,
+          notes: notes ?? undefined,
+          portfolioId: 1,
+        });
+      }
+    } else if (type === 'Deposit') {
+      // Deposit: Fiat -> Stablecoin (assuming USDC for now)
+      acc.push({
+        type: 'Deposit',
+        fromAsset: asset, // Fiat currency
+        fromQuantity: quantity,
+        fromPriceUsd: priceUsd ?? undefined,
+        toAsset: 'USDC',
+        toQuantity: costUsd || (priceUsd ? quantity * priceUsd : quantity),
+        toPriceUsd: 1.0,
+        datetime: dt,
+        feesUsd: feesUsd ?? undefined,
+        notes: notes ?? undefined,
+        portfolioId: 1,
+      });
+    } else if (type === 'Withdrawal') {
+      // Withdrawal: Stablecoin -> Fiat
+      acc.push({
+        type: 'Withdrawal',
+        fromAsset: 'USDC',
+        fromQuantity: quantity,
+        fromPriceUsd: 1.0,
+        toAsset: asset, // Fiat currency
+        toQuantity: proceedsUsd || (priceUsd ? quantity * priceUsd : quantity),
+        toPriceUsd: priceUsd ?? undefined,
+        datetime: dt,
+        feesUsd: feesUsd ?? undefined,
+        notes: notes ?? undefined,
+        portfolioId: 1,
+      });
     }
+    
     return acc;
   }, []);
 

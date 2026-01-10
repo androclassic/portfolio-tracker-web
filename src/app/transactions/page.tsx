@@ -705,7 +705,19 @@ export default function TransactionsPage(){
     }
 
     // Build payload based on transaction type
-    let payload: any = {
+    const payload: {
+      type: 'Deposit' | 'Withdrawal' | 'Swap';
+      toAsset: string;
+      toQuantity: number;
+      toPriceUsd: number | null;
+      datetime: string;
+      notes: string | null;
+      feesUsd: number | null;
+      portfolioId: number;
+      fromAsset?: string | null;
+      fromQuantity?: number | null;
+      fromPriceUsd?: number | null;
+    } = {
       type: newTx.type,
       toAsset: newTx.toAsset,
       toQuantity: Number(newTx.toQuantity),
@@ -986,7 +998,7 @@ export default function TransactionsPage(){
     setTxErrors([]);
     
     try {
-      let body: Partial<Tx> = {
+      const body: Partial<Tx> = {
         id: editing.id,
         type: editFormData.type,
         datetime: editFormData.datetime,
