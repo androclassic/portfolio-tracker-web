@@ -34,8 +34,6 @@ function DashboardPageContent() {
     stacked,
   } = useDashboardData();
   
-  // Measure render time and log all useMemo computations
-  React.
   const [selectedAsset, setSelectedAsset] = useState<string>('');
   const [selectedPnLAsset, setSelectedPnLAsset] = useState<string>('');
   const [selectedBtcChart, setSelectedBtcChart] = useState<string>('accumulation');
@@ -1416,14 +1414,6 @@ Timeframe options:
                 return <div className="chart-loading">Loading portfolio composition...</div>;
               }
               if (!stacked.dates.length) {
-                // Debug info
-                console.log('[Stacked Chart] No dates:', {
-                  stackedDates: stacked.dates.length,
-                  historicalPrices: historicalPrices?.length || 0,
-                  dailyPos: dailyPos?.length || 0,
-                  loadingHist,
-                  loadingTxs,
-                });
                 return <div className="chart-empty">No composition data (prices: {historicalPrices?.length || 0}, positions: {dailyPos?.length || 0})</div>;
               }
           const idx = sliceStartIndexForIsoDates(stacked.dates, timeframe);
