@@ -1382,16 +1382,75 @@ export default function CashDashboardPage(){
 
   // Calculate running balance over time (all fiat currencies converted to USD)
   const balanceOverTime = useMemo(() => {
+    // If filtering by year, calculate starting balance from all transactions before that year
+    let startingBalancesByCurrency: Record<string, number> = {};
+    if (selectedTaxYear !== 'all') {
+      const allFiatTxs = (txs || []).filter(tx => {
+        const isCashTransaction = (tx.type === 'Deposit' || tx.type === 'Withdrawal');
+        if (!isCashTransaction) return false;
+        
+        const fiatAsset = tx.type === 'Deposit' && tx.fromAsset
+          ? tx.fromAsset.toUpperCase()
+          : tx.toAsset.toUpperCase();
+        const isFiat = fiatCurrencies.includes(fiatAsset);
+        if (!isFiat) return false;
+        
+        // Only include transactions before the selected year
+        const txYear = new Date(tx.datetime).getFullYear().toString();
+        return txYear < selectedTaxYear;
+      });
+      
+      // Initialize starting balances
+      fiatCurrencies.forEach(currency => {
+        startingBalancesByCurrency[currency] = 0;
+      });
+      
+      // Calculate starting balance from all transactions before the selected year
+      allFiatTxs.forEach(tx => {
+        const currency = tx.type === 'Deposit' && tx.fromAsset
+          ? tx.fromAsset.toUpperCase()
+          : tx.toAsset.toUpperCase();
+        const amount = tx.type === 'Deposit'
+          ? (tx.fromQuantity || 0)
+          : (tx.toQuantity || 0);
+        
+        if (tx.type === 'Deposit') {
+          startingBalancesByCurrency[currency] = (startingBalancesByCurrency[currency] || 0) + amount;
+        } else if (tx.type === 'Withdrawal') {
+          startingBalancesByCurrency[currency] = (startingBalancesByCurrency[currency] || 0) - amount;
+        }
+      });
+    }
+    
     const sortedTxs = [...fiatTxs].sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
     
     const dates: string[] = [];
     const balances: number[] = [];
-    const balancesByCurrency: Record<string, number> = {};
+    const balancesByCurrency: Record<string, number> = { ...startingBalancesByCurrency };
     
-    // Initialize balances for all fiat currencies
+    // Initialize balances for all fiat currencies (if not already set from starting balances)
     fiatCurrencies.forEach(currency => {
-      balancesByCurrency[currency] = 0;
+      if (balancesByCurrency[currency] === undefined) {
+        balancesByCurrency[currency] = 0;
+      }
     });
+    
+    // Add starting balance point if filtering by year
+    if (selectedTaxYear !== 'all' && sortedTxs.length > 0) {
+      const firstTxDate = new Date(sortedTxs[0].datetime);
+      const yearStart = new Date(parseInt(selectedTaxYear), 0, 1);
+      if (firstTxDate > yearStart) {
+        // Add a point at the start of the year with the starting balance
+        let startingBalanceUsd = 0;
+        for (const [curr, balance] of Object.entries(balancesByCurrency)) {
+          if (balance !== 0) {
+            startingBalanceUsd += convertFiat(balance, curr, 'USD');
+          }
+        }
+        dates.push(yearStart.toISOString().split('T')[0]);
+        balances.push(startingBalanceUsd);
+      }
+    }
     
     sortedTxs.forEach(tx => {
       const date = new Date(tx.datetime).toISOString().split('T')[0];
@@ -1423,7 +1482,7 @@ export default function CashDashboardPage(){
     });
     
     return { dates, balances };
-  }, [fiatTxs, fiatCurrencies]);
+  }, [fiatTxs, fiatCurrencies, selectedTaxYear, txs]);
 
   // Calculate monthly cash flow
   const monthlyCashFlow = useMemo(() => {
