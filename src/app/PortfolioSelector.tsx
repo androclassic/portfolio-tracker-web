@@ -49,8 +49,21 @@ export default function PortfolioSelector() {
   }
 
   const modal = isOpen && createPortal(
-        <div className="modal-backdrop" onClick={(e)=>{ if (e.target === e.currentTarget) setIsOpen(false); }}>
-          <div className="modal" role="dialog" aria-modal="true">
+        <div 
+          className="modal-backdrop" 
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsOpen(false);
+            }
+          }}
+        >
+          <div 
+            className="modal" 
+            role="dialog" 
+            aria-modal="true" 
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="card-header">
               <div className="card-title">
                 <h3>Manage portfolios</h3>
@@ -66,7 +79,12 @@ export default function PortfolioSelector() {
               {hasPortfolios ? (
                 portfolios.map(p=> (
                   <div key={p.id} style={{ display:'flex', alignItems:'center', gap:8 }}>
-                    <input value={renameMap[p.id]||''} onChange={e=>setRenameMap(m=>({ ...m, [p.id]: e.target.value }))} />
+                    <input 
+                      value={renameMap[p.id]||''} 
+                      onChange={e=>setRenameMap(m=>({ ...m, [p.id]: e.target.value }))} 
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                    />
                     <button className="btn btn-secondary btn-sm" onClick={()=>rename(p.id)}>Rename</button>
                     <button className="btn btn-danger btn-sm" onClick={()=>remove(p.id)}>Delete</button>
                   </div>
@@ -77,7 +95,13 @@ export default function PortfolioSelector() {
                 </p>
               )}
               <form onSubmit={createPortfolio} style={{ display:'flex', gap:8 }}>
-                <input placeholder="New portfolio name" value={newName} onChange={e=>setNewName(e.target.value)} />
+                <input 
+                  placeholder="New portfolio name" 
+                  value={newName} 
+                  onChange={e=>setNewName(e.target.value)}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                />
                 <button className="btn btn-primary btn-sm" type="submit">Add</button>
               </form>
             </section>

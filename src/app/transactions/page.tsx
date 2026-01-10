@@ -111,6 +111,7 @@ export default function TransactionsPage(){
   };
 
   const [assetFilter, setAssetFilter] = useState<string>('All');
+  const [typeFilter, setTypeFilter] = useState<string>('All');
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('desc');
   const [isOpen, setIsOpen] = useState(false);
   const [swapMode, setSwapMode] = useState<'buy' | 'sell' | 'swap' | null>(null);
@@ -134,6 +135,24 @@ export default function TransactionsPage(){
   const [txErrors, setTxErrors] = useState<string[]>([]);
   const [isLoadingPrice, setIsLoadingPrice] = useState(false);
   const [editing, setEditing] = useState<Tx|null>(null);
+  const [editSwapMode, setEditSwapMode] = useState<'buy' | 'sell' | 'swap' | null>(null);
+  const [editFormData, setEditFormData] = useState<{
+    type: TransactionType;
+    fromAsset: string;
+    fromQuantity: string;
+    fromPriceUsd: string;
+    fromSelectedAsset: SupportedAsset | null;
+    toAsset: string;
+    toQuantity: string;
+    toPriceUsd: string;
+    toSelectedAsset: SupportedAsset | null;
+    fiatCurrency: string;
+    fiatAmount: string;
+    swapUsdValue: string;
+    datetime: string;
+    notes: string;
+    feesUsd: string;
+  } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   const assets = useMemo(()=>{
@@ -153,12 +172,23 @@ export default function TransactionsPage(){
 
   const filtered = useMemo(()=>{
     const list = (txs||[]).filter(t=> {
-      if (assetFilter==='All') return true;
-      const asset = assetFilter.toUpperCase();
-      return t.toAsset.toUpperCase()===asset || (t.fromAsset && t.fromAsset.toUpperCase()===asset);
+      // Filter by asset
+      if (assetFilter!=='All') {
+        const asset = assetFilter.toUpperCase();
+        if (t.toAsset.toUpperCase()!==asset && (!t.fromAsset || t.fromAsset.toUpperCase()!==asset)) {
+          return false;
+        }
+      }
+      // Filter by transaction type
+      if (typeFilter!=='All') {
+        if (t.type!==typeFilter) {
+          return false;
+        }
+      }
+      return true;
     });
     return list.sort((a,b)=> sortDir==='asc' ? new Date(a.datetime).getTime()-new Date(b.datetime).getTime() : new Date(b.datetime).getTime()-new Date(a.datetime).getTime());
-  }, [txs, assetFilter, sortDir]);
+  }, [txs, assetFilter, typeFilter, sortDir]);
 
   useEffect(() => {
     if (isOpen && !newTx.datetime) {
@@ -373,6 +403,8 @@ export default function TransactionsPage(){
   }, [newTx.type, newTx.swapUsdValue, newTx.toQuantity]);
 
   // Auto-calculate for Deposit transactions
+  // Exchange rate should be the fiat price (EUR/USD rate), which is: stablecoin amount / fiat amount
+  // This represents how many USD worth of stablecoin you get per 1 unit of fiat
   useEffect(() => {
     if (newTx.type === 'Deposit' && newTx.fiatCurrency && newTx.fiatAmount && newTx.toQuantity) {
       const fiatAmount = Number(newTx.fiatAmount);
@@ -380,6 +412,7 @@ export default function TransactionsPage(){
       
       if (fiatAmount > 0 && stablecoinAmount > 0) {
         // Calculate exchange rate: stablecoin amount / fiat amount
+        // For EUR deposits: if you deposit 100 EUR and get 108 USDT, rate = 108/100 = 1.08 (USD per EUR)
         const exchangeRate = stablecoinAmount / fiatAmount;
         // Only update if the calculated rate is significantly different (avoid infinite loops)
         const currentRate = Number(newTx.toPriceUsd) || 1.0;
@@ -412,6 +445,81 @@ export default function TransactionsPage(){
       }
     }
   }, [newTx.type, newTx.fiatCurrency, newTx.fiatAmount, newTx.toQuantity]);
+
+  // Auto-calculate for Edit Form - Swap USD value
+  useEffect(() => {
+    if (editFormData && editFormData.type === 'Swap' && editFormData.fromQuantity && editFormData.fromPriceUsd) {
+      const usdValue = Number(editFormData.fromQuantity) * Number(editFormData.fromPriceUsd);
+      if (usdValue > 0 && (!editFormData.swapUsdValue || Math.abs(Number(editFormData.swapUsdValue) - usdValue) / usdValue < 0.01)) {
+        setEditFormData(prev => prev ? { ...prev, swapUsdValue: usdValue.toString() } : null);
+      }
+    }
+  }, [editFormData?.type, editFormData?.fromQuantity, editFormData?.fromPriceUsd]);
+
+  // Auto-calculate for Edit Form - From Price USD from Transaction USD Value
+  useEffect(() => {
+    if (editFormData && editFormData.type === 'Swap' && editFormData.swapUsdValue && editFormData.fromQuantity) {
+      const usdValue = Number(editFormData.swapUsdValue);
+      const quantity = Number(editFormData.fromQuantity);
+      if (usdValue > 0 && quantity > 0) {
+        const calculatedPrice = usdValue / quantity;
+        const currentPrice = Number(editFormData.fromPriceUsd) || 0;
+        const priceDiff = currentPrice === 0 ? calculatedPrice : Math.abs(calculatedPrice - currentPrice) / currentPrice;
+        if (currentPrice === 0 || priceDiff > 0.001) {
+          setEditFormData(prev => prev ? { ...prev, fromPriceUsd: calculatedPrice.toFixed(8).replace(/\.?0+$/, '') } : null);
+        }
+      }
+    }
+  }, [editFormData?.type, editFormData?.swapUsdValue, editFormData?.fromQuantity]);
+
+  // Auto-calculate for Edit Form - To Price USD from Transaction USD Value
+  useEffect(() => {
+    if (editFormData && editFormData.type === 'Swap' && editFormData.swapUsdValue && editFormData.toQuantity) {
+      const usdValue = Number(editFormData.swapUsdValue);
+      const quantity = Number(editFormData.toQuantity);
+      if (usdValue > 0 && quantity > 0) {
+        const calculatedPrice = usdValue / quantity;
+        const currentPrice = Number(editFormData.toPriceUsd) || 0;
+        const priceDiff = currentPrice === 0 ? calculatedPrice : Math.abs(calculatedPrice - currentPrice) / currentPrice;
+        if (currentPrice === 0 || priceDiff > 0.001) {
+          setEditFormData(prev => prev ? { ...prev, toPriceUsd: calculatedPrice.toFixed(8).replace(/\.?0+$/, '') } : null);
+        }
+      }
+    }
+  }, [editFormData?.type, editFormData?.swapUsdValue, editFormData?.toQuantity]);
+
+  // Auto-calculate for Edit Form - Deposit exchange rate
+  // Exchange rate should be the fiat price (EUR/USD rate), which is: stablecoin amount / fiat amount
+  useEffect(() => {
+    if (editFormData && editFormData.type === 'Deposit' && editFormData.fiatAmount && editFormData.toQuantity) {
+      const fiatAmount = Number(editFormData.fiatAmount);
+      const stablecoinAmount = Number(editFormData.toQuantity);
+      if (fiatAmount > 0 && stablecoinAmount > 0) {
+        // Calculate exchange rate: stablecoin amount / fiat amount
+        // For EUR deposits: if you deposit 100 EUR and get 108 USDT, rate = 108/100 = 1.08 (USD per EUR)
+        const exchangeRate = stablecoinAmount / fiatAmount;
+        const currentRate = Number(editFormData.toPriceUsd) || 1.0;
+        if (Math.abs(exchangeRate - currentRate) > 0.001) {
+          setEditFormData(prev => prev ? { ...prev, toPriceUsd: exchangeRate.toFixed(8) } : null);
+        }
+      }
+    }
+  }, [editFormData?.type, editFormData?.fiatCurrency, editFormData?.fiatAmount, editFormData?.toQuantity]);
+
+  // Auto-calculate for Edit Form - Withdrawal exchange rate
+  useEffect(() => {
+    if (editFormData && editFormData.type === 'Withdrawal' && editFormData.fiatAmount && editFormData.toQuantity) {
+      const fiatAmount = Number(editFormData.fiatAmount);
+      const stablecoinAmount = Number(editFormData.toQuantity);
+      if (fiatAmount > 0 && stablecoinAmount > 0) {
+        const exchangeRate = fiatAmount / stablecoinAmount;
+        const currentRate = Number(editFormData.toPriceUsd) || 1.0;
+        if (Math.abs(exchangeRate - currentRate) > 0.001) {
+          setEditFormData(prev => prev ? { ...prev, toPriceUsd: exchangeRate.toFixed(8) } : null);
+        }
+      }
+    }
+  }, [editFormData?.type, editFormData?.fiatCurrency, editFormData?.fiatAmount, editFormData?.toQuantity]);
 
   const handleFromAssetSelection = async (asset: SupportedAsset | null, symbol: string) => {
     if (!asset) {
@@ -482,6 +590,78 @@ export default function TransactionsPage(){
     }
   };
 
+  const handleEditFromAssetSelection = async (asset: SupportedAsset | null, symbol: string) => {
+    if (!editFormData) return;
+    
+    if (!asset) {
+      setEditFormData(prev => prev ? {
+        ...prev,
+        fromAsset: symbol.toUpperCase(),
+      } : null);
+      return;
+    }
+    
+    setIsLoadingPrice(true);
+    setTxErrors([]);
+    
+    try {
+      const defaults = await getTransactionDefaults(asset);
+      const currentQuantity = Number(editFormData.fromQuantity) || 0;
+      const usdValue = currentQuantity > 0 
+        ? (currentQuantity * Number(defaults.priceUsd)).toFixed(2)
+        : defaults.priceUsd;
+      
+      setEditFormData(prev => prev ? {
+        ...prev,
+        fromAsset: symbol.toUpperCase(),
+        fromSelectedAsset: asset,
+        fromPriceUsd: defaults.priceUsd,
+        swapUsdValue: prev.swapUsdValue || (currentQuantity > 0 ? usdValue : ''),
+        datetime: prev.datetime || defaults.datetime
+      } : null);
+    } catch (error) {
+      console.error('Failed to get transaction defaults:', error);
+    } finally {
+      setIsLoadingPrice(false);
+    }
+  };
+
+  const handleEditToAssetSelection = async (asset: SupportedAsset | null, symbol: string) => {
+    if (!editFormData) return;
+    
+    // For Deposit/Withdrawal, validate that only stablecoins are selected
+    if ((editFormData.type === 'Deposit' || editFormData.type === 'Withdrawal') && asset && !isStablecoin(symbol)) {
+      setTxErrors([`For ${editFormData.type} transactions, you can only use stablecoins (USDC, USDT, DAI, BUSD). Please select a stablecoin.`]);
+      return;
+    }
+    
+    if (!asset) {
+      setEditFormData(prev => prev ? {
+        ...prev,
+        toAsset: symbol.toUpperCase(),
+      } : null);
+      return;
+    }
+    
+    setIsLoadingPrice(true);
+    setTxErrors([]);
+    
+    try {
+      const defaults = await getTransactionDefaults(asset);
+      setEditFormData(prev => prev ? {
+        ...prev,
+        toAsset: symbol.toUpperCase(),
+        toSelectedAsset: asset,
+        toPriceUsd: defaults.priceUsd,
+        datetime: prev.datetime || defaults.datetime
+      } : null);
+    } catch (error) {
+      console.error('Failed to get transaction defaults:', error);
+    } finally {
+      setIsLoadingPrice(false);
+    }
+  };
+
   async function addTx(e: React.FormEvent){
     e.preventDefault();
     setTxErrors([]);
@@ -544,20 +724,29 @@ export default function TransactionsPage(){
       // For Deposit: fromAsset = fiat currency, fromQuantity = fiat amount
       payload.fromAsset = newTx.fiatCurrency.toUpperCase();
       payload.fromQuantity = Number(newTx.fiatAmount);
-      // For USD, price is 1.0. For EUR, fetch the exchange rate for the transaction date
-      if (newTx.fiatCurrency.toUpperCase() === 'USD') {
-        payload.fromPriceUsd = 1.0;
+      // Exchange rate field shows the fiat price (EUR/USD rate)
+      // Store it in fromPriceUsd (fiat price), and set toPriceUsd to 1.0 (stablecoin price)
+      const fiatPrice = newTx.toPriceUsd ? Number(newTx.toPriceUsd) : null;
+      if (fiatPrice && fiatPrice > 0) {
+        payload.fromPriceUsd = fiatPrice;
       } else {
-        // For EUR, get the EUR/USD rate for the transaction date
-        try {
-          const txDate = newTx.datetime ? newTx.datetime.split('T')[0] : new Date().toISOString().split('T')[0];
-          const eurUsdRate = await getHistoricalExchangeRate('EUR', 'USD', txDate);
-          payload.fromPriceUsd = eurUsdRate;
-        } catch (error) {
-          console.warn('Failed to fetch EUR/USD rate, using default 1.08:', error);
-          payload.fromPriceUsd = 1.08; // Fallback to approximate rate
+        // Fallback: For USD, price is 1.0. For EUR, fetch the exchange rate for the transaction date
+        if (newTx.fiatCurrency.toUpperCase() === 'USD') {
+          payload.fromPriceUsd = 1.0;
+        } else {
+          try {
+            const txDate = newTx.datetime ? newTx.datetime.split('T')[0] : new Date().toISOString().split('T')[0];
+            const eurUsdRate = await getHistoricalExchangeRate('EUR', 'USD', txDate);
+            payload.fromPriceUsd = eurUsdRate;
+          } catch (error) {
+            console.warn('Failed to fetch EUR/USD rate, using default 1.08:', error);
+            payload.fromPriceUsd = 1.08; // Fallback to approximate rate
+          }
         }
       }
+      payload.toAsset = newTx.toAsset;
+      payload.toQuantity = Number(newTx.toQuantity);
+      payload.toPriceUsd = 1.0; // Stablecoin price is always 1.0
     } else if (newTx.type === 'Withdrawal') {
       // For Withdrawal: fromAsset = stablecoin, fromQuantity = stablecoin amount
       // toAsset = fiat currency, toQuantity = fiat amount
@@ -684,39 +873,238 @@ export default function TransactionsPage(){
     }
   }
 
-  function startEdit(t: Tx){ setEditing(t); }
+  function startEdit(t: Tx){ 
+    setEditing(t);
+    
+    // Convert transaction to edit form format
+    if (t.type === 'Deposit') {
+      // Deposit: fromAsset = fiat, fromQuantity = fiat amount, toAsset = stablecoin, toQuantity = stablecoin amount
+      // Exchange rate should be the fiat price (fromPriceUsd), not the stablecoin price (toPriceUsd = 1.0)
+      const fiatCurrency = (t.fromAsset || 'USD').toUpperCase();
+      const fiatAmount = (t.fromQuantity || 0).toString();
+      const stablecoinAmount = (t.toQuantity || 0).toString();
+      // Use fromPriceUsd for the fiat price (EUR/USD rate), fallback to calculating from amounts
+      let exchangeRate = t.fromPriceUsd;
+      if (!exchangeRate || exchangeRate <= 0) {
+        // Calculate from amounts if not stored
+        const fiat = Number(fiatAmount);
+        const stable = Number(stablecoinAmount);
+        if (fiat > 0 && stable > 0) {
+          exchangeRate = stable / fiat; // This gives stablecoins per fiat unit, but we want fiat price
+          // Actually, for EUR deposits, we want EUR/USD rate, which is USD per EUR
+          // If we deposited 100 EUR and got 108 USDT, the rate is 108/100 = 1.08 (USD per EUR)
+          exchangeRate = stable / fiat;
+        } else {
+          exchangeRate = fiatCurrency === 'USD' ? 1.0 : 1.08; // Default
+        }
+      }
+      
+      setEditFormData({
+        type: 'Deposit',
+        fromAsset: '',
+        fromQuantity: '',
+        fromPriceUsd: '',
+        fromSelectedAsset: null,
+        toAsset: t.toAsset || '',
+        toQuantity: stablecoinAmount,
+        toPriceUsd: exchangeRate.toString(), // Store fiat price here for display
+        toSelectedAsset: null,
+        fiatCurrency,
+        fiatAmount,
+        swapUsdValue: '',
+        datetime: t.datetime ? new Date(t.datetime).toISOString().slice(0, 16) : '',
+        notes: t.notes || '',
+        feesUsd: t.feesUsd?.toString() || '',
+      });
+    } else if (t.type === 'Withdrawal') {
+      // Withdrawal: fromAsset = stablecoin, fromQuantity = stablecoin amount, toAsset = fiat, toQuantity = fiat amount
+      const fiatCurrency = (t.toAsset || 'USD').toUpperCase();
+      const fiatAmount = (t.toQuantity || 0).toString();
+      const stablecoinAmount = (t.fromQuantity || 0).toString();
+      const exchangeRate = t.toPriceUsd || 1.0;
+      
+      setEditFormData({
+        type: 'Withdrawal',
+        fromAsset: '',
+        fromQuantity: '',
+        fromPriceUsd: '',
+        fromSelectedAsset: null,
+        toAsset: t.fromAsset || '',
+        toQuantity: stablecoinAmount,
+        toPriceUsd: exchangeRate.toString(),
+        toSelectedAsset: null,
+        fiatCurrency,
+        fiatAmount,
+        swapUsdValue: '',
+        datetime: t.datetime ? new Date(t.datetime).toISOString().slice(0, 16) : '',
+        notes: t.notes || '',
+        feesUsd: t.feesUsd?.toString() || '',
+      });
+    } else if (t.type === 'Swap') {
+      // Swap: determine mode based on assets
+      const fromIsStable = t.fromAsset ? isStablecoin(t.fromAsset) : false;
+      const toIsStable = t.toAsset ? isStablecoin(t.toAsset) : false;
+      
+      let mode: 'buy' | 'sell' | 'swap' = 'swap';
+      if (fromIsStable && !toIsStable) {
+        mode = 'buy';
+      } else if (!fromIsStable && toIsStable) {
+        mode = 'sell';
+      }
+      
+      setEditSwapMode(mode);
+      
+      // Calculate USD value from transaction
+      const fromUsd = (t.fromQuantity || 0) * (t.fromPriceUsd || 0);
+      const toUsd = (t.toQuantity || 0) * (t.toPriceUsd || 0);
+      const usdValue = fromUsd > 0 ? fromUsd : toUsd;
+      
+      setEditFormData({
+        type: 'Swap',
+        fromAsset: t.fromAsset || '',
+        fromQuantity: (t.fromQuantity || 0).toString(),
+        fromPriceUsd: (t.fromPriceUsd || 0).toString(),
+        fromSelectedAsset: null,
+        toAsset: t.toAsset || '',
+        toQuantity: (t.toQuantity || 0).toString(),
+        toPriceUsd: (t.toPriceUsd || 0).toString(),
+        toSelectedAsset: null,
+        fiatCurrency: 'USD',
+        fiatAmount: '',
+        swapUsdValue: usdValue.toString(),
+        datetime: t.datetime ? new Date(t.datetime).toISOString().slice(0, 16) : '',
+        notes: t.notes || '',
+        feesUsd: t.feesUsd?.toString() || '',
+      });
+    }
+  }
 
   async function saveEdit(e: React.FormEvent){
     e.preventDefault();
-    if (!editing) return;
+    if (!editing || !editFormData) return;
     setIsSaving(true);
+    setTxErrors([]);
+    
     try {
-      const body: Partial<Tx> = {
+      let body: Partial<Tx> = {
         id: editing.id,
-        type: editing.type,
-        fromAsset: editing.fromAsset,
-        fromQuantity: editing.fromQuantity,
-        fromPriceUsd: editing.fromPriceUsd,
-        toAsset: editing.toAsset,
-        toQuantity: editing.toQuantity,
-        toPriceUsd: editing.toPriceUsd,
-        datetime: editing.datetime,
-        notes: editing.notes ?? null,
-        feesUsd: editing.feesUsd ?? null,
+        type: editFormData.type,
+        datetime: editFormData.datetime,
+        notes: editFormData.notes || null,
+        feesUsd: editFormData.feesUsd ? Number(editFormData.feesUsd) : null,
       };
+      
+      if (editFormData.type === 'Swap') {
+        body.fromAsset = editFormData.fromAsset;
+        body.fromQuantity = editFormData.fromQuantity ? Number(editFormData.fromQuantity) : null;
+        body.fromPriceUsd = editFormData.fromPriceUsd ? Number(editFormData.fromPriceUsd) : null;
+        body.toAsset = editFormData.toAsset;
+        body.toQuantity = editFormData.toQuantity ? Number(editFormData.toQuantity) : null;
+        body.toPriceUsd = editFormData.toPriceUsd ? Number(editFormData.toPriceUsd) : null;
+      } else if (editFormData.type === 'Deposit') {
+        // Deposit: fromAsset = fiat currency, fromQuantity = fiat amount
+        body.fromAsset = editFormData.fiatCurrency.toUpperCase();
+        body.fromQuantity = Number(editFormData.fiatAmount);
+        // Exchange rate field shows the fiat price (EUR/USD rate)
+        // Store it in fromPriceUsd (fiat price), and set toPriceUsd to 1.0 (stablecoin price)
+        const fiatPrice = editFormData.toPriceUsd ? Number(editFormData.toPriceUsd) : null;
+        if (fiatPrice && fiatPrice > 0) {
+          body.fromPriceUsd = fiatPrice;
+        } else {
+          // Fallback: For USD, price is 1.0. For EUR, fetch the exchange rate for the transaction date
+          if (editFormData.fiatCurrency.toUpperCase() === 'USD') {
+            body.fromPriceUsd = 1.0;
+          } else {
+            try {
+              const txDate = editFormData.datetime ? editFormData.datetime.split('T')[0] : new Date().toISOString().split('T')[0];
+              const eurUsdRate = await getHistoricalExchangeRate('EUR', 'USD', txDate);
+              body.fromPriceUsd = eurUsdRate;
+            } catch (error) {
+              console.warn('Failed to fetch EUR/USD rate, using default 1.08:', error);
+              body.fromPriceUsd = 1.08;
+            }
+          }
+        }
+        body.toAsset = editFormData.toAsset;
+        body.toQuantity = Number(editFormData.toQuantity);
+        body.toPriceUsd = 1.0; // Stablecoin price is always 1.0
+      } else if (editFormData.type === 'Withdrawal') {
+        // Withdrawal: fromAsset = stablecoin, fromQuantity = stablecoin amount
+        body.fromAsset = editFormData.toAsset; // The stablecoin being withdrawn
+        body.fromQuantity = Number(editFormData.toQuantity); // The stablecoin amount
+        body.fromPriceUsd = 1.0; // Stablecoins are always $1
+        
+        // toAsset = fiat currency, toQuantity = fiat amount
+        body.toAsset = editFormData.fiatCurrency.toUpperCase();
+        body.toQuantity = Number(editFormData.fiatAmount);
+        // For USD, price is 1.0. For EUR, fetch the exchange rate
+        if (editFormData.fiatCurrency.toUpperCase() === 'USD') {
+          body.toPriceUsd = 1.0;
+        } else {
+          try {
+            const txDate = editFormData.datetime ? editFormData.datetime.split('T')[0] : new Date().toISOString().split('T')[0];
+            const eurUsdRate = await getHistoricalExchangeRate('EUR', 'USD', txDate);
+            body.toPriceUsd = eurUsdRate;
+          } catch (error) {
+            console.warn('Failed to fetch EUR/USD rate, using default 1.08:', error);
+            body.toPriceUsd = 1.08;
+          }
+        }
+      }
+      
       const res = await fetch('/api/transactions', { method:'PUT', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
       if (res.ok) {
         await res.json();
         await forceRefresh();
         setEditing(null);
+        setEditFormData(null);
+        setEditSwapMode(null);
         window.dispatchEvent(new CustomEvent('transactions-changed'));
       } else {
         const errorData = await res.json();
-        alert(errorData.error || 'Failed to update transaction. Please try again.');
+        // Handle different error response formats
+        let errors: string[] = [];
+        if (typeof errorData === 'string') {
+          errors = [errorData];
+        } else if (errorData.error) {
+          if (typeof errorData.error === 'object' && errorData.error !== null) {
+            const zodError = errorData.error as { formErrors?: string[]; fieldErrors?: Record<string, string[]> };
+            if (zodError.formErrors && Array.isArray(zodError.formErrors)) {
+              errors = zodError.formErrors;
+            } else if (zodError.fieldErrors && typeof zodError.fieldErrors === 'object') {
+              errors = Object.entries(zodError.fieldErrors)
+                .flatMap(([field, fieldErrs]) => 
+                  Array.isArray(fieldErrs) 
+                    ? fieldErrs.map(err => `${field}: ${err}`)
+                    : [`${field}: ${String(fieldErrs)}`]
+                );
+            } else {
+              errors = ['Invalid transaction data'];
+            }
+          } else if (typeof errorData.error === 'string') {
+            errors = [errorData.error];
+          } else {
+            errors = ['Failed to update transaction'];
+          }
+        } else if (errorData.formErrors && Array.isArray(errorData.formErrors)) {
+          errors = errorData.formErrors;
+        } else if (errorData.fieldErrors && typeof errorData.fieldErrors === 'object') {
+          errors = Object.entries(errorData.fieldErrors)
+            .flatMap(([field, fieldErrs]) => 
+              Array.isArray(fieldErrs) 
+                ? fieldErrs.map(err => `${field}: ${err}`)
+                : [`${field}: ${String(fieldErrs)}`]
+            );
+        } else if (errorData.message) {
+          errors = [errorData.message];
+        } else {
+          errors = ['Failed to update transaction'];
+        }
+        setTxErrors(errors);
       }
     } catch (error) {
       console.error('Error updating transaction:', error);
-      alert('Network error. Please try again.');
+      setTxErrors(['Network error. Please try again.']);
     } finally {
       setIsSaving(false);
     }
@@ -738,6 +1126,14 @@ export default function TransactionsPage(){
         <div className="filters">
           <label>Asset
             <select value={assetFilter} onChange={e=>setAssetFilter(e.target.value)}>{assets.map(a=> <option key={a} value={a}>{a}</option>)}</select>
+          </label>
+          <label>Type
+            <select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)}>
+              <option value="All">All</option>
+              <option value="Deposit">Deposit</option>
+              <option value="Withdrawal">Withdrawal</option>
+              <option value="Swap">Swap</option>
+            </select>
           </label>
           <label>Sort by date
             <select value={sortDir} onChange={e=>setSortDir((e.target.value as 'asc'|'desc'))}>
@@ -815,7 +1211,12 @@ export default function TransactionsPage(){
                       const fd = new FormData(); fd.append('file', file);
                       const res = await fetch(`/api/transactions/import?portfolioId=${selectedId}`, { method:'POST', body: fd });
                       if (res.ok) {
-                        await res.json();
+                        const result = await res.json();
+                        if (result.warnings) {
+                          alert(`Import completed with warnings:\n${result.warnings.message}\n\nImported: ${result.imported} transactions`);
+                        } else {
+                          alert(`Successfully imported ${result.imported} transactions`);
+                        }
                         await forceRefresh();
                         window.dispatchEvent(new CustomEvent('transactions-changed'));
                         e.target.value = '';
@@ -1447,7 +1848,11 @@ export default function TransactionsPage(){
                     </div>
                     <div className="form-group">
                       <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        Exchange Rate
+                        {newTx.type === 'Deposit' 
+                          ? `${newTx.fiatCurrency} Price (USD per ${newTx.fiatCurrency})`
+                          : newTx.type === 'Withdrawal'
+                          ? `${newTx.fiatCurrency} Price (USD per ${newTx.fiatCurrency})`
+                          : 'Exchange Rate'}
                         {(newTx.type === 'Deposit' || newTx.type === 'Withdrawal') && 
                          newTx.fiatAmount && 
                          newTx.toQuantity && 
@@ -1483,11 +1888,18 @@ export default function TransactionsPage(){
                       <input 
                         type="number" 
                         step="any" 
-                        placeholder="1.0"
+                        placeholder={newTx.fiatCurrency === 'EUR' ? '1.08' : '1.0'}
                         value={newTx.toPriceUsd} 
                         onChange={e=>setNewTx(v=>({ ...v, toPriceUsd:e.target.value }))}
                         className="form-input"
                       />
+                      {(newTx.type === 'Deposit' || newTx.type === 'Withdrawal') && (
+                        <small style={{ color: 'var(--muted)', fontSize: '11px', marginTop: '2px' }}>
+                          {newTx.fiatCurrency === 'USD' 
+                            ? 'USD price is always 1.0'
+                            : `USD per 1 ${newTx.fiatCurrency} (e.g., 1.08 means 1 EUR = $1.08 USD)`}
+                        </small>
+                      )}
                     </div>
                     {getCalculationHint() && (
                       <div className="form-group" style={{ gridColumn: '1 / -1' }}>
@@ -1570,141 +1982,459 @@ export default function TransactionsPage(){
         </div>
       )}
 
-      {editing && (
-        <div className="modal-backdrop" onClick={(e)=>{ if (e.target === e.currentTarget) setEditing(null); }}>
+      {editing && editFormData && (
+        <div className="modal-backdrop" onClick={(e)=>{ if (e.target === e.currentTarget) { setEditing(null); setEditFormData(null); setEditSwapMode(null); } }}>
           <div className="modal transaction-modal" role="dialog" aria-modal="true">
             <div className="card-header">
               <div className="card-title">
                 <h3>Edit Transaction</h3>
               </div>
             </div>
+            {txErrors.length > 0 && (
+              <div className="error-messages">
+                {txErrors.map((err, i) => (
+                  <div key={i} className="error-message">{err}</div>
+                ))}
+              </div>
+            )}
             <form onSubmit={saveEdit} className="transaction-form">
+              {/* Transaction Type */}
               <div className="form-group">
-                <label>Type *</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  Transaction Type *
+                </label>
                 <select 
-                  value={editing.type} 
-                  onChange={e=>setEditing(v=> v? { ...v, type:e.target.value as TransactionType } : v)}
+                  value={editFormData.type} 
+                  onChange={e=>{
+                    const newType = e.target.value as TransactionType;
+                    setEditFormData(v=> v ? { 
+                      ...v, 
+                      type: newType,
+                      fromAsset: '',
+                      fromQuantity: '',
+                      fromSelectedAsset: null,
+                      toAsset: '',
+                      toQuantity: '',
+                      toSelectedAsset: null,
+                      fiatCurrency: (newType === 'Deposit' || newType === 'Withdrawal') ? (v.fiatCurrency || 'USD') : 'USD',
+                      fiatAmount: (newType === 'Deposit' || newType === 'Withdrawal') ? v.fiatAmount : '',
+                      swapUsdValue: '',
+                    } : null);
+                    if (newType !== 'Swap') {
+                      setEditSwapMode(null);
+                    }
+                  }}
                   className="form-select"
                 >
-                  <option value="Deposit">Deposit</option>
-                  <option value="Withdrawal">Withdrawal</option>
-                  <option value="Swap">Swap</option>
+                  <option value="Deposit">💰 Deposit (Fiat → Stablecoin)</option>
+                  <option value="Withdrawal">💸 Withdrawal (Stablecoin → Fiat)</option>
+                  <option value="Swap">🔄 Swap (Crypto ↔ Crypto)</option>
                 </select>
               </div>
 
-              {editing.type === 'Swap' && (
+              {/* Swap Form */}
+              {editFormData.type === 'Swap' && (
                 <>
+                  {/* Sub-type selector for Swap */}
                   <div className="form-group">
-                    <label>From Asset</label>
+                    <label style={{ fontSize: '13px', fontWeight: 600, marginBottom: '8px' }}>
+                      What type of swap? *
+                    </label>
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(3, 1fr)', 
+                      gap: '8px',
+                      marginBottom: '16px'
+                    }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditSwapMode('buy');
+                          setEditFormData(v => v ? {
+                            ...v,
+                            fromAsset: '',
+                            toAsset: '',
+                            fromSelectedAsset: null,
+                            toSelectedAsset: null,
+                            fromQuantity: '',
+                            toQuantity: '',
+                            swapUsdValue: '',
+                          } : null);
+                        }}
+                        style={{
+                          padding: '12px',
+                          borderRadius: '8px',
+                          border: editSwapMode === 'buy' ? '2px solid var(--primary)' : '2px solid var(--border)',
+                          background: editSwapMode === 'buy' ? 'rgba(var(--primary-rgb), 0.15)' : 'var(--surface)',
+                          color: 'var(--text)',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          transition: 'all 0.2s',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <span style={{ fontSize: '20px' }}>📈</span>
+                        <span>Buy</span>
+                        <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 400 }}>Stablecoin → Crypto</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditSwapMode('sell');
+                          setEditFormData(v => v ? {
+                            ...v,
+                            fromAsset: '',
+                            toAsset: '',
+                            fromSelectedAsset: null,
+                            toSelectedAsset: null,
+                            fromQuantity: '',
+                            toQuantity: '',
+                            swapUsdValue: '',
+                          } : null);
+                        }}
+                        style={{
+                          padding: '12px',
+                          borderRadius: '8px',
+                          border: editSwapMode === 'sell' ? '2px solid var(--primary)' : '2px solid var(--border)',
+                          background: editSwapMode === 'sell' ? 'rgba(var(--primary-rgb), 0.15)' : 'var(--surface)',
+                          color: 'var(--text)',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          transition: 'all 0.2s',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <span style={{ fontSize: '20px' }}>📉</span>
+                        <span>Sell</span>
+                        <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 400 }}>Crypto → Stablecoin</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditSwapMode('swap');
+                          setEditFormData(v => v ? {
+                            ...v,
+                            fromAsset: '',
+                            toAsset: '',
+                            fromSelectedAsset: null,
+                            toSelectedAsset: null,
+                            fromQuantity: '',
+                            toQuantity: '',
+                            swapUsdValue: '',
+                          } : null);
+                        }}
+                        style={{
+                          padding: '12px',
+                          borderRadius: '8px',
+                          border: editSwapMode === 'swap' ? '2px solid var(--primary)' : '2px solid var(--border)',
+                          background: editSwapMode === 'swap' ? 'rgba(var(--primary-rgb), 0.15)' : 'var(--surface)',
+                          color: 'var(--text)',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          fontWeight: 600,
+                          transition: 'all 0.2s',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <span style={{ fontSize: '20px' }}>🔄</span>
+                        <span>Swap</span>
+                        <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 400 }}>Crypto → Crypto</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* USD Value */}
+                  <div className="form-group" style={{ marginBottom: '20px' }}>
+                    <label style={{ fontSize: '14px', fontWeight: 700, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      💵 Transaction USD Value *
+                    </label>
                     <input 
-                      placeholder="From Asset" 
-                      value={editing.fromAsset ?? ''} 
-                      onChange={e=>setEditing(v=> v? { ...v, fromAsset:e.target.value } : v)} 
+                      type="number" 
+                      step="any" 
+                      placeholder="0.00" 
+                      value={editFormData.swapUsdValue} 
+                      onChange={e=>setEditFormData(v=> v ? { ...v, swapUsdValue: e.target.value } : null)} 
                       className="form-input"
+                      style={{ fontSize: '18px', padding: '14px', fontWeight: 600 }}
                     />
                   </div>
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label>From Quantity</label>
-                      <input 
-                        type="number" 
-                        step="any" 
-                        placeholder="From Quantity" 
-                        value={editing.fromQuantity ?? ''} 
-                        onChange={e=>setEditing(v=> v? { ...v, fromQuantity:e.target.value === ''? null : Number(e.target.value) } : v)} 
-                        className="form-input"
-                      />
+
+                  {/* Visual Flow */}
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: '1fr auto 1fr', 
+                    gap: '16px', 
+                    alignItems: 'center',
+                    padding: '20px',
+                    background: 'rgba(255, 255, 255, 0.02)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '12px'
+                  }}>
+                    {/* FROM */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        {editSwapMode === 'buy' ? 'You Pay' : editSwapMode === 'sell' ? 'You Sell' : 'You Swap From'}
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '13px', marginBottom: '6px' }}>Asset *</label>
+                        <AssetInput
+                          value={editFormData.fromAsset}
+                          onChange={handleEditFromAssetSelection}
+                          placeholder={
+                            editSwapMode === 'sell'
+                              ? "Select crypto (e.g., BTC)" 
+                              : editSwapMode === 'buy'
+                              ? "Select stablecoin (e.g., USDC)"
+                              : "Select crypto (e.g., BTC)"
+                          }
+                          disabled={isLoadingPrice}
+                          filter={
+                            editSwapMode === 'sell'
+                              ? (asset) => !isStablecoin(asset.symbol)
+                              : editSwapMode === 'buy'
+                              ? (asset) => isStablecoin(asset.symbol)
+                              : (asset) => !isStablecoin(asset.symbol)
+                          }
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '13px', marginBottom: '6px' }}>Quantity *</label>
+                        <input 
+                          type="number" 
+                          step="any" 
+                          placeholder="0.00" 
+                          value={editFormData.fromQuantity} 
+                          onChange={e=>setEditFormData(v=> v ? { ...v, fromQuantity: e.target.value } : null)} 
+                          required 
+                          className="form-input"
+                        />
+                      </div>
                     </div>
-                    <div className="form-group">
-                      <label>From Price USD</label>
-                      <input 
-                        type="number" 
-                        step="any" 
-                        placeholder="From Price USD" 
-                        value={editing.fromPriceUsd ?? ''} 
-                        onChange={e=>setEditing(v=> v? { ...v, fromPriceUsd:e.target.value === ''? null : Number(e.target.value) } : v)} 
-                        className="form-input"
-                      />
+
+                    {/* ARROW */}
+                    <div style={{ 
+                      fontSize: '32px', 
+                      color: 'var(--primary)', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      padding: '0 8px'
+                    }}>
+                      →
+                    </div>
+
+                    {/* TO */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        {editSwapMode === 'buy' ? 'You Buy' : editSwapMode === 'sell' ? 'You Receive' : 'You Receive'}
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '13px', marginBottom: '6px' }}>Asset *</label>
+                        <AssetInput
+                          value={editFormData.toAsset}
+                          onChange={handleEditToAssetSelection}
+                          placeholder={
+                            editSwapMode === 'buy'
+                              ? "Select crypto (e.g., BTC)"
+                              : editSwapMode === 'sell'
+                              ? "Select stablecoin (e.g., USDC)"
+                              : "Select crypto (e.g., ETH)"
+                          }
+                          disabled={isLoadingPrice}
+                          filter={
+                            editSwapMode === 'buy'
+                              ? (asset) => !isStablecoin(asset.symbol)
+                              : editSwapMode === 'sell'
+                              ? (asset) => isStablecoin(asset.symbol)
+                              : (asset) => !isStablecoin(asset.symbol)
+                          }
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ fontSize: '13px', marginBottom: '6px' }}>Quantity *</label>
+                        <input 
+                          type="number" 
+                          step="any" 
+                          placeholder="0.00" 
+                          value={editFormData.toQuantity} 
+                          onChange={e=>setEditFormData(v=> v ? { ...v, toQuantity:e.target.value } : null)} 
+                          required 
+                          className="form-input"
+                        />
+                      </div>
                     </div>
                   </div>
                 </>
               )}
 
-              <div className="form-group">
-                <label>To Asset *</label>
-                <input 
-                  placeholder="To Asset" 
-                  value={editing.toAsset} 
-                  onChange={e=>setEditing(v=> v? { ...v, toAsset:e.target.value } : v)} 
-                  required 
-                  className="form-input"
-                />
-              </div>
+              {/* Deposit/Withdrawal Sections */}
+              {(editFormData.type === 'Deposit' || editFormData.type === 'Withdrawal') && (
+                <>
+                  <div className="form-section">
+                    <div className="form-section-title">
+                      {editFormData.type === 'Deposit' ? '💰 Deposited' : '💸 Withdrawn'}
+                    </div>
+                    <div className="form-section-compact">
+                      <div className="form-group">
+                        <label>Currency *</label>
+                        <select 
+                          value={editFormData.fiatCurrency} 
+                          onChange={e=>setEditFormData(v=> v ? { ...v, fiatCurrency: e.target.value } : null)}
+                          className="form-select"
+                        >
+                          <option value="USD">USD</option>
+                          <option value="EUR">EUR</option>
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label>
+                          {editFormData.type === 'Deposit' ? 'Amount Deposited *' : 'Amount Received *'}
+                        </label>
+                        <input 
+                          type="number" 
+                          step="any" 
+                          placeholder="0.00" 
+                          value={editFormData.fiatAmount} 
+                          onChange={e=>setEditFormData(v=> v ? { ...v, fiatAmount: e.target.value } : null)} 
+                          required 
+                          className="form-input"
+                        />
+                      </div>
+                    </div>
+                  </div>
 
-              <div className="form-row">
-                <div className="form-group">
-                  <label>To Quantity *</label>
-                  <input 
-                    type="number" 
-                    step="any" 
-                    placeholder="To Quantity" 
-                    value={editing.toQuantity} 
-                    onChange={e=>setEditing(v=> v? { ...v, toQuantity:Number(e.target.value) } : v)} 
-                    required 
-                    className="form-input"
-                  />
-                </div>
-                <div className="form-group">
-                  <label>To Price USD</label>
-                  <input 
-                    type="number" 
-                    step="any" 
-                    placeholder="To Price USD" 
-                    value={editing.toPriceUsd ?? ''} 
-                    onChange={e=>setEditing(v=> v? { ...v, toPriceUsd:e.target.value === ''? null : Number(e.target.value) } : v)} 
-                    className="form-input"
-                  />
-                </div>
-              </div>
+                  <div className="form-section">
+                    <div className="form-section-title">
+                      {editFormData.type === 'Deposit' ? '💵 Received' : '💵 Received'}
+                    </div>
+                    <div className="form-section-compact">
+                      <div className="form-group">
+                        <label>Stablecoin *</label>
+                        <AssetInput
+                          value={editFormData.toAsset}
+                          onChange={handleEditToAssetSelection}
+                          placeholder="Select stablecoin (e.g., USDC)"
+                          disabled={isLoadingPrice}
+                          filter={(asset) => asset.category === 'stablecoin'}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>
+                          {editFormData.type === 'Deposit' ? 'Amount Received *' : 'Amount *'}
+                        </label>
+                        <input 
+                          type="number" 
+                          step="any" 
+                          placeholder="0.00" 
+                          value={editFormData.toQuantity} 
+                          onChange={e=>setEditFormData(v=> v ? { ...v, toQuantity:e.target.value } : null)} 
+                          required 
+                          className="form-input"
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>
+                          {editFormData.type === 'Deposit' 
+                            ? `${editFormData.fiatCurrency} Price (USD per ${editFormData.fiatCurrency})`
+                            : editFormData.type === 'Withdrawal'
+                            ? `${editFormData.fiatCurrency} Price (USD per ${editFormData.fiatCurrency})`
+                            : 'Exchange Rate'}
+                        </label>
+                        <input 
+                          type="number" 
+                          step="any" 
+                          placeholder={editFormData.fiatCurrency === 'EUR' ? '1.08' : '1.0'}
+                          value={editFormData.toPriceUsd} 
+                          onChange={e=>setEditFormData(v=> v ? { ...v, toPriceUsd:e.target.value } : null)}
+                          className="form-input"
+                        />
+                        {(editFormData.type === 'Deposit' || editFormData.type === 'Withdrawal') && (
+                          <small style={{ color: 'var(--muted)', fontSize: '11px', marginTop: '2px' }}>
+                            {editFormData.fiatCurrency === 'USD' 
+                              ? 'USD price is always 1.0'
+                              : `USD per 1 ${editFormData.fiatCurrency} (e.g., 1.08 means 1 EUR = $1.08 USD)`}
+                          </small>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
 
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Date & Time *</label>
-                  <input 
-                    type="datetime-local" 
-                    value={editing.datetime && !isNaN(new Date(editing.datetime).getTime()) ? new Date(editing.datetime).toISOString().slice(0,16) : ''} 
-                    onChange={e=>setEditing(v=> v? { ...v, datetime:e.target.value } : v)} 
-                    required 
-                    className="form-input"
-                  />
+              {/* Additional Details */}
+              <div className="form-section">
+                <div className="form-section-title">📝 Additional Details</div>
+                <div className="form-section-compact">
+                  <div className="form-group">
+                    <label>Date & Time *</label>
+                    <input 
+                      type="datetime-local" 
+                      value={editFormData.datetime} 
+                      onChange={e=>setEditFormData(v=> v ? { ...v, datetime:e.target.value } : null)} 
+                      required 
+                      className="form-input"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Fees (USD)</label>
+                    <input 
+                      type="number" 
+                      step="any" 
+                      placeholder="0.00" 
+                      value={editFormData.feesUsd} 
+                      onChange={e=>setEditFormData(v=> v ? { ...v, feesUsd:e.target.value } : null)} 
+                      className="form-input"
+                    />
+                  </div>
+                  <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label>Notes</label>
+                    <input 
+                      placeholder="Optional notes about this transaction" 
+                      value={editFormData.notes || ''} 
+                      onChange={e=>setEditFormData(v=> v ? { ...v, notes:e.target.value } : null)}
+                      className="form-input"
+                    />
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label>Fees (USD)</label>
-                  <input 
-                    type="number" 
-                    step="any" 
-                    placeholder="Fees USD" 
-                    value={editing.feesUsd ?? ''} 
-                    onChange={e=>setEditing(v=> v? { ...v, feesUsd:e.target.value === ''? null : Number(e.target.value) } : v)} 
-                    className="form-input"
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label>Notes</label>
-                <input 
-                  placeholder="Notes (optional)" 
-                  value={editing.notes ?? ''} 
-                  onChange={e=>setEditing(v=> v? { ...v, notes:e.target.value } : v)} 
-                  className="form-input"
-                />
               </div>
 
               <div className="actions">
-                <button type="button" className="btn btn-secondary" onClick={()=>setEditing(null)} disabled={isSaving}>Cancel</button>
-                <button type="submit" className="btn btn-primary" disabled={isSaving}>
-                  {isSaving ? 'Saving...' : 'Save'}
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={()=>{
+                    setEditing(null);
+                    setEditFormData(null);
+                    setEditSwapMode(null);
+                  }}
+                  disabled={isSaving}
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="btn btn-primary" 
+                  disabled={isLoadingPrice || isSaving}
+                >
+                  {isLoadingPrice || isSaving ? (
+                    <>
+                      <span className="loading-spinner"></span>
+                      {isSaving ? 'Saving...' : 'Loading...'}
+                    </>
+                  ) : (
+                    'Save Transaction'
+                  )}
                 </button>
               </div>
             </form>

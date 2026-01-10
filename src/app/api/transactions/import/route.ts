@@ -14,13 +14,12 @@ function parseFloatSafe(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function normalizeType(v: unknown): 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal' | 'Swap' {
+function normalizeType(v: unknown): 'Deposit' | 'Withdrawal' | 'Swap' {
   const s = String(v || '').toLowerCase();
   if (s === 'swap') return 'Swap';
-  if (s === 'sell') return 'Sell';
   if (s === 'deposit') return 'Deposit';
   if (s === 'withdrawal' || s === 'withdraw') return 'Withdrawal';
-  return 'Buy';
+  return 'Swap'; // Default to Swap
 }
 
 function parseDateFlexible(input: unknown): Date | null {
@@ -29,7 +28,7 @@ function parseDateFlexible(input: unknown): Date | null {
   // Try native
   const native = new Date(raw);
   if (isValidDate(native)) return native;
-  // Try common text formats used in seed
+  // Try common text formats
   const formats = [
     'dd MMM yyyy, h:mma',
     'dd MMM yyyy, h:mm a',
@@ -79,6 +78,7 @@ export async function POST(req: NextRequest) {
     where: { id: Number.isFinite(portfolioId) ? portfolioId : -1, userId: auth.userId } 
   });
   if (!portfolio) return NextResponse.json({ error: 'Invalid portfolio' }, { status: 403 });
+  
   const ct = req.headers.get('content-type') || '';
 
   let csvText = '';
@@ -101,192 +101,133 @@ export async function POST(req: NextRequest) {
   if (!csvText.trim()) return NextResponse.json({ error: 'Empty CSV' }, { status: 400 });
 
   const rows = parseCsv(csvText, { columns: true, skip_empty_lines: true }) as Array<Record<string, unknown>>;
-  const isTradingView = rows.length > 0 && ['Symbol','Side','Qty','Fill Price','Closing Time'].every(k => Object.prototype.hasOwnProperty.call(rows[0], k));
+  
+  // Verify CSV has required columns for new format
+  if (rows.length === 0) {
+    return NextResponse.json({ error: 'CSV file is empty' }, { status: 400 });
+  }
+  
+  const firstRow = rows[0];
+  const hasRequiredColumns = (
+    (Object.prototype.hasOwnProperty.call(firstRow, 'from_asset') || Object.prototype.hasOwnProperty.call(firstRow, 'fromAsset')) &&
+    (Object.prototype.hasOwnProperty.call(firstRow, 'to_asset') || Object.prototype.hasOwnProperty.call(firstRow, 'toAsset')) &&
+    (Object.prototype.hasOwnProperty.call(firstRow, 'type') || Object.prototype.hasOwnProperty.call(firstRow, 'Type')) &&
+    (Object.prototype.hasOwnProperty.call(firstRow, 'datetime') || Object.prototype.hasOwnProperty.call(firstRow, 'Datetime') || Object.prototype.hasOwnProperty.call(firstRow, 'date'))
+  );
+  
+  if (!hasRequiredColumns) {
+    return NextResponse.json({ 
+      error: 'CSV must have columns: type, datetime, from_asset, from_quantity, to_asset, to_quantity (and optionally from_price_usd, to_price_usd, fees_usd, notes)'
+    }, { status: 400 });
+  }
 
-  type TxInput = {
-    asset: string;
-    type: 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal' | 'Swap';
-    priceUsd?: number | null;
-    quantity: number;
-    datetime: Date;
-    feesUsd?: number | null;
-    costUsd?: number | null;
-    proceedsUsd?: number | null;
-    notes?: string | null;
-    portfolioId: number;
-  };
-
-  const parsed: TxInput[] = [];
+  const transactions: Array<Prisma.TransactionCreateManyInput> = [];
   const allAssets: string[] = [];
   const invalidRows: Array<{row: number, reason: string}> = [];
   
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     const obj = r as Record<string, unknown>;
-    let asset = '';
-    let type: 'Buy' | 'Sell' | 'Deposit' | 'Withdrawal' | 'Swap' = 'Swap';
-    let priceUsd: number | null = null;
-    let quantity = 0;
-    let dt: Date | null = null;
-    let feesUsd: number | null = null;
-    let notes: string | null = null;
-
-    if (isTradingView) {
-      // TradingView columns: Symbol, Side, Qty, Fill Price, Commission, Closing Time
-      const sym = String(obj['Symbol'] || '').trim();
-      if (!sym) {
-        invalidRows.push({row: i + 1, reason: 'Missing Symbol'});
-        continue;
-      }
-      if (sym === '$CASH') asset = 'USD'; else asset = sym.toUpperCase().endsWith('USD') ? sym.toUpperCase().slice(0, -3) : sym.toUpperCase();
-      type = normalizeType(obj['Side']);
-      priceUsd = parseFloatSafe(obj['Fill Price']);
-      const qtyParsed = parseFloatSafe(obj['Qty']) || 0;
-      quantity = Math.abs(qtyParsed);
-      dt = parseDateFlexible(obj['Closing Time']);
-      feesUsd = parseFloatSafe(obj['Commission']);
-      notes = null;
-    } else {
-      asset = String((obj['asset'] ?? obj['Asset'] ?? '')).trim().toUpperCase();
-      type = normalizeType(obj['type'] ?? obj['Type']);
-      priceUsd = parseFloatSafe(obj['price_usd'] ?? obj['PriceUsd'] ?? obj['Price USD']);
-      const qtyParsed = parseFloatSafe(obj['quantity'] ?? obj['Quantity']) || 0;
-      quantity = Math.abs(qtyParsed);
-      dt = parseDateFlexible(obj['datetime'] ?? obj['Date'] ?? obj['Datetime'] ?? obj['date'] ?? obj['timestamp'] ?? obj['Time'] ?? obj['TimeStamp']);
-      feesUsd = parseFloatSafe(obj['fees_usd'] ?? obj['FeesUsd'] ?? obj['Fees USD']);
-      notes = obj['notes'] != null ? String(obj['notes']) : null;
-    }
     
-    if (!asset) {
-      invalidRows.push({row: i + 1, reason: 'Missing asset'});
+    const txType = normalizeType(obj['type'] ?? obj['Type']);
+    if (txType !== 'Deposit' && txType !== 'Withdrawal' && txType !== 'Swap') {
+      invalidRows.push({row: i + 1, reason: `Invalid type: ${txType}. Must be Deposit, Withdrawal, or Swap`});
       continue;
     }
     
-    allAssets.push(asset);
-    const costUsd = parseFloatSafe(obj['cost_usd'] ?? obj['CostUsd'] ?? obj['Cost USD']);
-    const proceedsUsd = parseFloatSafe(obj['proceeds_usd'] ?? obj['ProceedsUsd'] ?? obj['Proceeds USD']);
+    const fromAsset = String((obj['from_asset'] ?? obj['fromAsset'] ?? obj['FromAsset'] ?? '')).trim().toUpperCase() || null;
+    const fromQuantity = parseFloatSafe(obj['from_quantity'] ?? obj['fromQuantity'] ?? obj['FromQuantity']);
+    const fromPriceUsd = parseFloatSafe(obj['from_price_usd'] ?? obj['fromPriceUsd'] ?? obj['FromPriceUsd']);
+    
+    const toAsset = String((obj['to_asset'] ?? obj['toAsset'] ?? obj['ToAsset'] ?? '')).trim().toUpperCase();
+    const toQuantity = parseFloatSafe(obj['to_quantity'] ?? obj['toQuantity'] ?? obj['ToQuantity']);
+    const toPriceUsd = parseFloatSafe(obj['to_price_usd'] ?? obj['toPriceUsd'] ?? obj['ToPriceUsd']);
+    
+    const dt = parseDateFlexible(obj['datetime'] ?? obj['Datetime'] ?? obj['date'] ?? obj['Date']);
+    const feesUsd = parseFloatSafe(obj['fees_usd'] ?? obj['feesUsd'] ?? obj['FeesUsd']);
+    const notes = obj['notes'] != null ? String(obj['notes']) : null;
+    
+    if (!toAsset) {
+      invalidRows.push({row: i + 1, reason: 'Missing to_asset'});
+      continue;
+    }
+    
+    if (txType === 'Swap' && (!fromAsset || fromQuantity === null || toQuantity === null)) {
+      invalidRows.push({row: i + 1, reason: 'Swap transactions require from_asset, from_quantity, and to_quantity'});
+      continue;
+    }
+    
+    if (txType === 'Deposit' && (!fromAsset || fromQuantity === null || toQuantity === null)) {
+      invalidRows.push({row: i + 1, reason: 'Deposit transactions require from_asset, from_quantity, and to_quantity'});
+      continue;
+    }
+    
+    if (txType === 'Withdrawal' && (!fromAsset || fromQuantity === null || toQuantity === null)) {
+      invalidRows.push({row: i + 1, reason: 'Withdrawal transactions require from_asset, from_quantity, and to_quantity'});
+      continue;
+    }
     
     if (!dt) {
       invalidRows.push({row: i + 1, reason: 'Invalid or missing date'});
       continue;
     }
     
-    if (quantity <= 0) {
-      invalidRows.push({row: i + 1, reason: 'Invalid quantity'});
-      continue;
-    }
+    if (fromAsset) allAssets.push(fromAsset);
+    allAssets.push(toAsset);
     
-    parsed.push({ 
-      asset, 
-      type, 
-      priceUsd: (type==='Buy' || type==='Sell') ? (priceUsd ?? null) : null, 
-      quantity, 
-      datetime: dt, 
-      feesUsd: feesUsd ?? null, 
-      costUsd: costUsd ?? null, 
-      proceedsUsd: proceedsUsd ?? null, 
-      notes: notes ?? null, 
-      portfolioId: portfolio.id 
+    transactions.push({
+      type: txType,
+      datetime: dt,
+      fromAsset: fromAsset || null,
+      fromQuantity: fromQuantity ?? null,
+      fromPriceUsd: fromPriceUsd ?? null,
+      toAsset,
+      toQuantity: toQuantity ?? 0,
+      toPriceUsd: toPriceUsd ?? null,
+      feesUsd: feesUsd ?? null,
+      notes: notes ?? null,
+      portfolioId: portfolio.id,
     });
   }
-
-  // Validate assets against supported list
+  
+  // Validate assets
   const uniqueAssets = [...new Set(allAssets)];
   const assetValidation = validateAssetList(uniqueAssets);
   
-  // Filter parsed transactions: allow supported crypto assets, and always allow fiat currencies
-  const supportedTransactions = parsed.filter(tx => 
-    isFiatCurrency(tx.asset) || assetValidation.supported.includes(tx.asset)
-  );
-
-  if (!supportedTransactions.length) {
+  // Filter transactions with supported assets
+  const supportedTransactions = transactions.filter(tx => {
+    const fromValid = !tx.fromAsset || isFiatCurrency(tx.fromAsset) || assetValidation.supported.includes(tx.fromAsset);
+    const toValid = isFiatCurrency(tx.toAsset) || assetValidation.supported.includes(tx.toAsset);
+    return fromValid && toValid;
+  });
+  
+  if (supportedTransactions.length === 0) {
     return NextResponse.json({ 
       imported: 0,
+      totalRows: rows.length,
+      processedRows: transactions.length,
+      supportedRows: 0,
       warnings: {
         unsupportedAssets: assetValidation.unsupported,
         invalidRows: invalidRows,
-        totalRows: rows.length,
-        supportedRows: 0
+        message: `${assetValidation.unsupported.length > 0 ? 
+          `Unsupported cryptocurrencies: ${assetValidation.unsupported.join(', ')}. ` : ''
+        }${invalidRows.length > 0 ? 
+          `${invalidRows.length} rows had invalid data. ` : ''
+        }Only supported cryptocurrencies were imported.`
       }
     });
   }
-
-  // Convert old format (Buy/Sell) to new format (Swap)
-  const convertedTransactions = supportedTransactions.map(tx => {
-    if (tx.type === 'Buy') {
-      // Buy: USDC -> Crypto
-      const costUsd = tx.costUsd ?? (tx.quantity * (tx.priceUsd ?? 0));
-      return {
-        type: 'Swap',
-        datetime: tx.datetime,
-        feesUsd: tx.feesUsd,
-        notes: tx.notes,
-        fromAsset: 'USDC',
-        fromQuantity: costUsd,
-        fromPriceUsd: 1.0,
-        toAsset: tx.asset,
-        toQuantity: tx.quantity,
-        toPriceUsd: tx.priceUsd ?? (costUsd / tx.quantity),
-        portfolioId: tx.portfolioId,
-      };
-    } else if (tx.type === 'Sell') {
-      // Sell: Crypto -> USDC
-      const proceedsUsd = tx.proceedsUsd ?? (tx.quantity * (tx.priceUsd ?? 0));
-      return {
-        type: 'Swap',
-        datetime: tx.datetime,
-        feesUsd: tx.feesUsd,
-        notes: tx.notes,
-        fromAsset: tx.asset,
-        fromQuantity: tx.quantity,
-        fromPriceUsd: tx.priceUsd ?? (proceedsUsd / tx.quantity),
-        toAsset: 'USDC',
-        toQuantity: proceedsUsd,
-        toPriceUsd: 1.0,
-        portfolioId: tx.portfolioId,
-      };
-    } else if (tx.type === 'Deposit') {
-      // Deposit: Fiat -> USDC
-      return {
-        type: 'Deposit',
-        datetime: tx.datetime,
-        feesUsd: tx.feesUsd,
-        notes: tx.notes,
-        fromAsset: null,
-        fromQuantity: null,
-        fromPriceUsd: null,
-        toAsset: tx.asset.toUpperCase() === 'USD' ? 'USDC' : tx.asset,
-        toQuantity: tx.quantity,
-        toPriceUsd: tx.priceUsd ?? 1.0,
-        portfolioId: tx.portfolioId,
-      };
-    } else {
-      // Withdrawal: USDC -> Fiat
-      return {
-        type: 'Withdrawal',
-        datetime: tx.datetime,
-        feesUsd: tx.feesUsd,
-        notes: tx.notes,
-        fromAsset: null,
-        fromQuantity: null,
-        fromPriceUsd: null,
-        toAsset: tx.asset.toUpperCase() === 'USD' ? 'USDC' : tx.asset,
-        toQuantity: tx.quantity,
-        toPriceUsd: tx.priceUsd ?? 1.0,
-        portfolioId: tx.portfolioId,
-      };
-    }
-  });
-
+  
+  // Import transactions
   const chunkSize = 500;
   let imported = 0;
-  for (let i = 0; i < convertedTransactions.length; i += chunkSize) {
-    const chunk = convertedTransactions.slice(i, i + chunkSize);
-    const res = await prisma.transaction.createMany({ data: chunk as Prisma.TransactionCreateManyInput[] });
+  for (let i = 0; i < supportedTransactions.length; i += chunkSize) {
+    const chunk = supportedTransactions.slice(i, i + chunkSize);
+    const res = await prisma.transaction.createMany({ data: chunk });
     imported += res.count;
   }
-
-  // Prepare response with import summary
+  
   const response: {
     imported: number;
     totalRows: number;
@@ -300,11 +241,10 @@ export async function POST(req: NextRequest) {
   } = { 
     imported,
     totalRows: rows.length,
-    processedRows: parsed.length,
+    processedRows: transactions.length,
     supportedRows: supportedTransactions.length
   };
-
-  // Add warnings if there are issues
+  
   if (assetValidation.unsupported.length > 0 || invalidRows.length > 0) {
     response.warnings = {
       unsupportedAssets: assetValidation.unsupported,
@@ -316,8 +256,6 @@ export async function POST(req: NextRequest) {
       }Only supported cryptocurrencies were imported.`
     };
   }
-
+  
   return NextResponse.json(response);
 }
-
-
