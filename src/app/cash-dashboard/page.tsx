@@ -11,7 +11,7 @@ import { startIsoForTimeframe } from '@/lib/timeframe';
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
 import type { Transaction as Tx } from '@/lib/types';
-import type { RomaniaTaxReport, TaxableEvent, BuyLotTrace } from '@/lib/tax/romania';
+import type { RomaniaTaxReport, TaxableEvent, BuyLotTrace } from '@/lib/tax/romania-v2';
 
 type BuyLotTraceWithFundingSells = BuyLotTrace & {
   fundingSells?: Array<{ asset: string; amountUsd: number; costBasisUsd?: number; saleTransactionId: number; saleDatetime: string }>;
