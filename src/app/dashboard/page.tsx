@@ -10,6 +10,7 @@ import { buildNetWorthLineChartModel } from '@/lib/chart-models/net-worth';
 import { ChartCard } from '@/components/ChartCard';
 import { sliceStartIndexForIsoDates, sampleDataPoints, sampleDataWithDates } from '@/lib/timeframe';
 import DashboardDataProvider, { useDashboardData } from '../DashboardDataProvider';
+import { useIsMobile, useIsSmallMobile } from '@/hooks/useMediaQuery';
 
 import type { Layout, Data } from 'plotly.js';
 import type { Transaction as Tx } from '@/lib/types';
@@ -45,6 +46,8 @@ function DashboardPageContent() {
   const [hiddenStackedAssets, setHiddenStackedAssets] = useState<Set<string>>(() => new Set());
 
   const { selectedId } = usePortfolio();
+  const isMobile = useIsMobile();
+  const isSmallMobile = useIsSmallMobile();
 
   const colorFor = useCallback((asset: string): string => {
     return getAssetColor(asset);
@@ -1180,12 +1183,20 @@ function DashboardPageContent() {
                 y: s.y.slice(0, minLength),
               }));
               
-              // Sample data points for performance (max 100 points)
+              // Sample data points for performance (max 100 points when not expanded, 200 when expanded)
               const maxPoints = expanded ? 200 : 100;
+              let chartModel;
+              
               if (finalDates.length > maxPoints) {
                 const dataArrays = finalSeries.map(s => s.y);
                 const sampled = sampleDataPoints(finalDates, dataArrays, maxPoints);
-                const sampledModel = {
+                
+                // Validate sampled data
+                if (sampled.dates.length === 0 || sampled.dataArrays.length === 0 || sampled.dataArrays[0]!.length === 0) {
+                  return <div className="chart-empty">No data available for the selected timeframe</div>;
+                }
+                
+                chartModel = {
                   ...netWorthChartModel,
                   x: sampled.dates,
                   series: sampled.dataArrays.map((yData, i) => ({
@@ -1193,17 +1204,45 @@ function DashboardPageContent() {
                     y: yData,
                   })),
                 };
-                return <LineChart model={sampledModel} />;
+              } else {
+                chartModel = {
+                  ...netWorthChartModel,
+                  x: finalDates,
+                  series: finalSeries,
+                };
               }
               
-              const slicedModel = {
-                ...netWorthChartModel,
-                x: finalDates,
-                series: finalSeries,
+              // Validate the final model
+              if (!chartModel.x || chartModel.x.length === 0 || !chartModel.series || chartModel.series.length === 0) {
+                return <div className="chart-empty">No data available for the selected timeframe</div>;
+              }
+              
+              // Ensure all series have the same length as x
+              const xLength = chartModel.x.length;
+              const validSeries = chartModel.series.map(s => {
+                if (s.y.length !== xLength) {
+                  // Truncate or pad to match x length
+                  return {
+                    ...s,
+                    y: s.y.slice(0, xLength),
+                  };
+                }
+                return s;
+              }).filter(s => s.y.length > 0);
+              
+              if (validSeries.length === 0) {
+                return <div className="chart-empty">No data available for the selected timeframe</div>;
+              }
+              
+              const finalModel = {
+                ...chartModel,
+                series: validSeries,
               };
+              
               return (
                 <LineChart
-                  model={slicedModel}
+                  key={`net-worth-${timeframe}-${expanded}`}
+                  model={finalModel}
                 />
               );
             }}
@@ -1451,17 +1490,44 @@ Timeframe options:
                 data={slicedSeries as unknown as Data[]}
                 layout={{
                   autosize: true,
-                  height: expanded ? undefined : 340,
-                  margin: { t: 30, r: 10, l: 40, b: 40 },
-                  legend: { orientation: 'h' },
+                  height: expanded ? undefined : (isSmallMobile ? 280 : isMobile ? 300 : 340),
+                  margin: isMobile 
+                    ? { t: 20, r: isSmallMobile ? 60 : 80, l: isSmallMobile ? 35 : 40, b: isSmallMobile ? 50 : 60 }
+                    : { t: 30, r: 10, l: 40, b: 40 },
+                  legend: { 
+                    orientation: isMobile ? 'v' : 'h',
+                    x: isMobile ? (isSmallMobile ? 0.98 : 1.01) : 0.5,
+                    y: isMobile ? 1 : -0.15,
+                    xanchor: isMobile ? 'left' : 'center',
+                    yanchor: isMobile ? 'top' : 'top',
+                    font: { size: isSmallMobile ? 9 : isMobile ? 10 : 12 },
+                    bgcolor: 'transparent',
+                    borderwidth: 0,
+                    itemwidth: isMobile ? 20 : undefined,
+                  },
                   hovermode: 'x', // Use x mode to get date on hover
-                  xaxis: { showspikes: true, spikemode: 'across', spikesnap: 'cursor', spikethickness: 1 },
-                  yaxis:
-                    stackedMode === 'percent'
-                      ? { title: { text: 'Share of total (%)' }, ticksuffix: '%', range: [0, 100] }
-                      : { title: { text: 'Value (USD)' } },
-                      paper_bgcolor: 'transparent',
-                      plot_bgcolor: 'transparent',
+                  xaxis: { 
+                    showspikes: true, 
+                    spikemode: 'across', 
+                    spikesnap: 'cursor', 
+                    spikethickness: 1,
+                    title: { font: { size: isSmallMobile ? 11 : isMobile ? 12 : 14 } },
+                    tickfont: { size: isSmallMobile ? 9 : isMobile ? 10 : 12 },
+                  },
+                  yaxis: {
+                    ...(stackedMode === 'percent'
+                      ? { 
+                          title: { text: 'Share of total (%)', font: { size: isSmallMobile ? 11 : isMobile ? 12 : 14 } }, 
+                          ticksuffix: '%', 
+                          range: [0, 100] 
+                        }
+                      : { 
+                          title: { text: 'Value (USD)', font: { size: isSmallMobile ? 11 : isMobile ? 12 : 14 } } 
+                        }),
+                    tickfont: { size: isSmallMobile ? 9 : isMobile ? 10 : 12 },
+                  },
+                  paper_bgcolor: 'transparent',
+                  plot_bgcolor: 'transparent',
                 }}
                 style={{ width: '100%', height: expanded ? '100%' : undefined }}
                 onHover={(evt: unknown) => {

@@ -86,7 +86,20 @@ function buildTheme(): PlotlyTheme {
     configDefaults: {
       responsive: true,
       displaylogo: false,
-      displayModeBar: false,
+      displayModeBar: true, // Enable modebar by default for zoom controls
+      modeBarButtonsToRemove: [
+        'pan2d',
+        'lasso2d',
+        'select2d',
+        'zoomIn2d',
+        'zoomOut2d',
+        'resetScale2d',
+        'hoverClosestCartesian',
+        'hoverCompareCartesian',
+        'toggleHover',
+        'toImage',
+      ],
+      // Keep only: zoom2d (box zoom/selection), autoScale2d (autofit/zoom out)
     },
   };
 }
