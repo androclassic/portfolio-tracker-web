@@ -1002,24 +1002,24 @@ export default function TransactionsPage(){
         id: editing.id,
         type: editFormData.type,
         datetime: editFormData.datetime,
-        notes: editFormData.notes || null,
-        feesUsd: editFormData.feesUsd ? Number(editFormData.feesUsd) : null,
+        notes: editFormData.notes || undefined,
+        feesUsd: editFormData.feesUsd ? Number(editFormData.feesUsd) : undefined,
       };
       
       if (editFormData.type === 'Swap') {
         body.fromAsset = editFormData.fromAsset;
-        body.fromQuantity = editFormData.fromQuantity ? Number(editFormData.fromQuantity) : null;
-        body.fromPriceUsd = editFormData.fromPriceUsd ? Number(editFormData.fromPriceUsd) : null;
+        body.fromQuantity = editFormData.fromQuantity ? Number(editFormData.fromQuantity) : undefined;
+        body.fromPriceUsd = editFormData.fromPriceUsd ? Number(editFormData.fromPriceUsd) : undefined;
         body.toAsset = editFormData.toAsset;
-        body.toQuantity = editFormData.toQuantity ? Number(editFormData.toQuantity) : null;
-        body.toPriceUsd = editFormData.toPriceUsd ? Number(editFormData.toPriceUsd) : null;
+        body.toQuantity = editFormData.toQuantity ? Number(editFormData.toQuantity) : 0; // toQuantity is required, use 0 as fallback
+        body.toPriceUsd = editFormData.toPriceUsd ? Number(editFormData.toPriceUsd) : undefined;
       } else if (editFormData.type === 'Deposit') {
         // Deposit: fromAsset = fiat currency, fromQuantity = fiat amount
         body.fromAsset = editFormData.fiatCurrency.toUpperCase();
         body.fromQuantity = Number(editFormData.fiatAmount);
         // Exchange rate field shows the fiat price (EUR/USD rate)
         // Store it in fromPriceUsd (fiat price), and set toPriceUsd to 1.0 (stablecoin price)
-        const fiatPrice = editFormData.toPriceUsd ? Number(editFormData.toPriceUsd) : null;
+        const fiatPrice = editFormData.toPriceUsd ? Number(editFormData.toPriceUsd) : undefined;
         if (fiatPrice && fiatPrice > 0) {
           body.fromPriceUsd = fiatPrice;
         } else {

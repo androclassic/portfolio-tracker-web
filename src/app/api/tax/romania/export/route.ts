@@ -47,7 +47,22 @@ export async function GET(req: NextRequest) {
       orderBy: {
         datetime: 'asc',
       },
-    });
+    }) as Array<{
+      id: number;
+      type: string;
+      datetime: Date;
+      feesUsd: number | null;
+      notes: string | null;
+      fromAsset: string | null;
+      fromQuantity: number | null;
+      fromPriceUsd: number | null;
+      toAsset: string;
+      toQuantity: number;
+      toPriceUsd: number | null;
+      portfolioId: number;
+      createdAt: Date;
+      updatedAt: Date;
+    }>;
 
     // Preload real historical FX rates for fiat-related dates only (strict tax mode)
     // Crypto buys/sells are already in USD (USDC) so they don't need FX.
