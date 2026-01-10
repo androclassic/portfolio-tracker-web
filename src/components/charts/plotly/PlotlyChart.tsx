@@ -71,6 +71,7 @@ export function PlotlyChart({
     // Configure modebar buttons - show only essential ones
     if (showModeBar) {
       merged.modeBarButtonsToRemove = [
+        'zoom2d',
         'pan2d',
         'lasso2d',
         'select2d',
@@ -82,7 +83,7 @@ export function PlotlyChart({
         'toggleHover',
         'toImage',
       ];
-      // Keep only: zoom2d (box zoom/selection), autoScale2d (autofit/zoom out)
+      // Keep only: autoScale2d (autofit/zoom out)
     }
     
     return merged;

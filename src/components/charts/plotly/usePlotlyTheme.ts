@@ -88,6 +88,7 @@ function buildTheme(): PlotlyTheme {
       displaylogo: false,
       displayModeBar: true, // Enable modebar by default for zoom controls
       modeBarButtonsToRemove: [
+        'zoom2d',
         'pan2d',
         'lasso2d',
         'select2d',
@@ -99,7 +100,7 @@ function buildTheme(): PlotlyTheme {
         'toggleHover',
         'toImage',
       ],
-      // Keep only: zoom2d (box zoom/selection), autoScale2d (autofit/zoom out)
+      // Keep only: autoScale2d (autofit/zoom out)
     },
   };
 }

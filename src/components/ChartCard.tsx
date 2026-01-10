@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { TimeframeSelector } from '@/components/TimeframeSelector';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 import type { DashboardTimeframe } from '@/lib/timeframe';
 
 export function ChartCard(props: {
@@ -33,13 +34,18 @@ export function ChartCard(props: {
   const [timeframe, setTimeframe] = useState<DashboardTimeframe>(props.defaultTimeframe ?? 'all');
   const [expanded, setExpanded] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const isMobile = useIsMobile();
 
   const header = useMemo(() => {
     return (
-      <div className="card-header" onClick={() => setCollapsed(!collapsed)} style={{ cursor: 'pointer' }}>
+      <div
+        className="card-header"
+        onClick={() => isMobile && setCollapsed(!collapsed)}
+        style={{ cursor: isMobile ? 'pointer' : 'default' }}
+      >
         <div className="card-title">
           <h2>{props.title}</h2>
-          {props.infoText ? (
+          {props.infoText && !isMobile ? (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -60,6 +66,7 @@ export function ChartCard(props: {
               {props.headerActions ? props.headerActions({ timeframe, setTimeframe, expanded: false }) : null}
             </>
           )}
+          {/* Collapse/expand button */}
           <button
             type="button"
             className="icon-btn"
@@ -71,6 +78,8 @@ export function ChartCard(props: {
           >
             {collapsed ? '▼' : '▲'}
           </button>
+
+          {/* Maximize button - available on both mobile and desktop */}
           <button
             type="button"
             className="icon-btn"
@@ -85,7 +94,7 @@ export function ChartCard(props: {
         </div>
       </div>
     );
-  }, [props.title, props.infoText, props.headerActions, timeframeEnabled, timeframe, expanded, collapsed]);
+  }, [props.title, props.infoText, props.headerActions, timeframeEnabled, timeframe, expanded, collapsed, isMobile]);
 
   return (
     <>
