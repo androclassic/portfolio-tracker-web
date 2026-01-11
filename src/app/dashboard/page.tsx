@@ -11,6 +11,7 @@ import { ChartCard } from '@/components/ChartCard';
 import { sliceStartIndexForIsoDates, sampleDataPoints, sampleDataWithDates } from '@/lib/timeframe';
 import DashboardDataProvider, { useDashboardData } from '../DashboardDataProvider';
 import { useIsMobile, useIsSmallMobile } from '@/hooks/useMediaQuery';
+import { ShortTimeframeSelector, type ShortTimeframe } from '@/components/ShortTimeframeSelector';
 
 import type { Layout, Data } from 'plotly.js';
 import type { Transaction as Tx } from '@/lib/types';
@@ -41,7 +42,7 @@ function DashboardPageContent() {
   const [selectedAltcoin, setSelectedAltcoin] = useState<string>('ALL');
   const [selectedProfitAsset, setSelectedProfitAsset] = useState<string>('ADA');
   const [selectedCostAsset, setSelectedCostAsset] = useState<string>('');
-  const [heatmapTimeframe, setHeatmapTimeframe] = useState<string>('24h');
+  const [heatmapTimeframe, setHeatmapTimeframe] = useState<ShortTimeframe>('24h');
   const [stackedMode, setStackedMode] = useState<'usd' | 'percent'>('usd');
   const [hiddenStackedAssets, setHiddenStackedAssets] = useState<Set<string>>(() => new Set());
 
@@ -1005,12 +1006,15 @@ function DashboardPageContent() {
     const heatmapData: { asset: string; pnl: number; color: string }[] = [];
 
     let referencePriceMap: Map<string, number> | null = null;
-    if (heatmapTimeframe !== 'current' && hist && hist.prices && hist.prices.length > 0) {
+    if (hist && hist.prices && hist.prices.length > 0) {
       const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
       const n = dates.length;
       if (n >= 2) {
-        let targetDateIndex = n - 2;
-        if (heatmapTimeframe === '7d' || heatmapTimeframe === '30d') {
+        let targetDateIndex = n - 2; // Default to second to last date (approximately 24h if daily data)
+        if (heatmapTimeframe === '24h') {
+          // Use second to last date (approximately 24h ago if daily data)
+          targetDateIndex = n - 2;
+        } else if (heatmapTimeframe === '7d' || heatmapTimeframe === '30d') {
           const daysBack = heatmapTimeframe === '7d' ? 7 : 30;
           const targetDate = new Date();
           targetDate.setDate(targetDate.getDate() - daysBack);
@@ -1033,7 +1037,7 @@ function DashboardPageContent() {
     }
 
     for (const asset of assets) {
-      if (heatmapTimeframe !== 'current' && isStablecoin(asset)) continue;
+      if (isStablecoin(asset)) continue;
       
       const arr = grouped[asset] || [];
       let totalQuantity = 0;
@@ -1058,18 +1062,11 @@ function DashboardPageContent() {
 
       if (totalQuantity <= 0) continue;
 
-      let pnl: number;
-      if (heatmapTimeframe === 'current') {
-        const currentPrice = latestPrices[asset] || 0;
-        const currentValueUsd = totalQuantity * currentPrice;
-        pnl = currentValueUsd - totalCostUsd;
-      } else {
-        const currentPrice = latestPrices[asset] || 0;
-        const referencePrice = referencePriceMap?.get(asset) ?? currentPrice;
-        const currentValueUsd = totalQuantity * currentPrice;
-        const referenceValueUsd = totalQuantity * referencePrice;
-        pnl = currentValueUsd - referenceValueUsd;
-      }
+      const currentPrice = latestPrices[asset] || 0;
+      const referencePrice = referencePriceMap?.get(asset) ?? currentPrice;
+      const currentValueUsd = totalQuantity * currentPrice;
+      const referenceValueUsd = totalQuantity * referencePrice;
+      const pnl = currentValueUsd - referenceValueUsd;
 
       const color = pnl >= 0 ? '#16a34a' : '#dc2626';
       heatmapData.push({ asset, pnl, color });
@@ -1275,6 +1272,9 @@ function DashboardPageContent() {
         <ChartCard
           title="Portfolio Gains/Losses Heatmap"
           timeframeEnabled={false}
+          headerActions={({ expanded }) => (
+            <ShortTimeframeSelector value={heatmapTimeframe} onChange={setHeatmapTimeframe} />
+          )}
         >
           {({ timeframe, expanded }) => {
             if (isLoading) {
