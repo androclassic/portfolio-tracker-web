@@ -205,11 +205,11 @@ function DashboardPageContent() {
             price = 1.0;
           } else {
             // Fallback: try to get from historicalPrices (most recent)
-            const assetPrices = hist.prices.filter(p => p.asset === asset);
+            const assetPrices = hist.prices.filter(p => p.asset === asset && p.price_usd != null && p.price_usd > 0);
             if (assetPrices.length > 0) {
               // Sort by date descending and take the most recent price
               assetPrices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-              price = assetPrices[0]!.price_usd;
+              price = assetPrices[0]!.price_usd || 0;
             } else {
               price = 0;
             }
@@ -289,15 +289,22 @@ function DashboardPageContent() {
           price = 1.0;
         } else {
           // Fallback: try to find price from historicalPrices for this date or closest before it
-          const assetPrices = hist.prices.filter(p => p.asset === asset && p.date <= date);
+          const assetPrices = hist.prices.filter(p => p.asset === asset && p.date <= date && p.price_usd != null && p.price_usd > 0);
           if (assetPrices.length > 0) {
             // Sort by date descending and take the most recent price on or before this date
             assetPrices.sort((a, b) => b.date.localeCompare(a.date));
-            price = assetPrices[0]!.price_usd;
+            price = assetPrices[0]!.price_usd || 0;
           } else if (latestPrices[asset]) {
             // Last resort: use latest price if available
             price = latestPrices[asset];
+          } else {
+            price = 0;
           }
+        }
+        
+        // Ensure price is always a valid number
+        if (price === undefined || price === null || isNaN(price)) {
+          price = 0;
         }
 
         const value = position * price;
@@ -446,15 +453,22 @@ function DashboardPageContent() {
           px = 1.0;
         } else {
           // Fallback: try to find price from historicalPrices for this date or closest before it
-          const assetPrices = hist.prices.filter(p => p.asset === asset && p.date <= date);
+          const assetPrices = hist.prices.filter(p => p.asset === asset && p.date <= date && p.price_usd != null && p.price_usd > 0);
           if (assetPrices.length > 0) {
             // Sort by date descending and take the most recent price on or before this date
             assetPrices.sort((a, b) => b.date.localeCompare(a.date));
-            px = assetPrices[0]!.price_usd;
+            px = assetPrices[0]!.price_usd || 0;
           } else if (latestPrices[asset]) {
             // Last resort: use latest price if available
             px = latestPrices[asset];
+          } else {
+            px = 0;
           }
+        }
+        
+        // Ensure px is always a valid number
+        if (px === undefined || px === null || isNaN(px)) {
+          px = 0;
         }
         if (px > 0 && position > 0) {
           portfolioVal += position * px;

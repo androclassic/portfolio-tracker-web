@@ -57,8 +57,11 @@ export default function AllocationPieChart({
     <PieChart
       model={model}
       getHoverText={(slice) => {
-        const units = Number((slice.meta?.units as number | undefined) ?? 0);
-        const value = Number(slice.value ?? 0);
+        const units = Number((slice.meta?.units as number | undefined) ?? 0) || 0;
+        const value = Number(slice.value ?? 0) || 0;
+        if (isNaN(value) || !isFinite(value)) {
+          return `<b>${slice.label}</b><br>Holdings: ${units.toFixed(6)}<br>Value: $0.00`;
+        }
         return `<b>${slice.label}</b><br>Holdings: ${units.toFixed(6)}<br>Value: $${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
       }}
     />
