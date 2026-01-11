@@ -7,6 +7,7 @@ import AuthGuard from '@/components/AuthGuard';
 import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
 import { ChartCard } from '@/components/ChartCard';
 import { startIsoForTimeframe } from '@/lib/timeframe';
+import CryptoIcon from '../components/CryptoIcon';
 
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
@@ -1090,7 +1091,7 @@ function createSankeyExplorerData(event: TaxableEvent, opts: {
   return { data: [data], layout, nodeKeys };
 }
 
-function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transactions?: Tx[] }) {
+function SankeyExplorer({ event, transactions, onTransactionClick }: { event: TaxableEvent; transactions?: Tx[]; onTransactionClick?: (txId: number) => void }) {
   const directSales = event.saleTrace || [];
   const rootSaleIds = useMemo(() => directSales.map((s) => s.saleTransactionId), [directSales]);
   // Start compact: show only Withdrawal + direct funding sells. Buy lots appear when you click a sell.
@@ -1098,6 +1099,9 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
 
   const [visibleSaleIds, setVisibleSaleIds] = useState<number[]>(rootSaleIds);
   const [visibleBuyIds, setVisibleBuyIds] = useState<number[]>(rootBuyIds);
+  // Separate state for transaction tree expansion (starts collapsed)
+  const [treeVisibleSaleIds, setTreeVisibleSaleIds] = useState<number[]>([]);
+  const [treeVisibleBuyIds, setTreeVisibleBuyIds] = useState<number[]>([]);
   const [showDepositTxs, setShowDepositTxs] = useState<boolean>(false);
   const [showLabels, setShowLabels] = useState<boolean>(false);
   const [nodeThickness, setNodeThickness] = useState<number>(10);
@@ -1197,6 +1201,7 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
   }, [rootSaleIds, rootBuyIds]);
 
   const onExpandAll = useCallback(() => {
+    // Only expand the Sankey diagram, NOT the transaction tree
     const allSales = new Set<number>(visibleSaleIds);
     const allBuys = new Set<number>(visibleBuyIds);
     for (const s of deepSales) {
@@ -1207,6 +1212,7 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
     setVisibleBuyIds(Array.from(allBuys.values()));
     // Keep deposit transaction nodes OFF by default when expanding everything (too noisy).
     setShowDepositTxs(false);
+    // Do NOT expand the transaction tree - it should remain collapsed for manual navigation
   }, [deepSales, visibleSaleIds, visibleBuyIds]);
 
   // Build hierarchical transaction tree for better exploration
@@ -1217,6 +1223,7 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
       transactionId?: number;
       asset: string;
       amount: number;
+      quantity?: number; // Quantity of asset
       costBasis?: number;
       datetime: string;
       children: Array<typeof tree[number]>;
@@ -1234,34 +1241,50 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
         transactionId: withdrawalTx.id,
         asset: withdrawalTx.toAsset.toUpperCase(),
         amount: withdrawalAmount,
+        quantity: withdrawalTx.toQuantity || 0,
         datetime: withdrawalTx.datetime,
         children: [],
         expanded: true,
       });
     }
 
-    // Add direct sales
-    for (const sale of directSales) {
+    // Use deepSales to show the full hierarchy (matches what's in the Sankey diagram)
+    for (const sale of deepSales) {
       const saleTx = transactions?.find(t => t.id === sale.saleTransactionId);
       if (saleTx) {
         // Always check if there are buy lots (to show expand button even when collapsed)
         const hasBuyLots = sale.buyLots && sale.buyLots.length > 0;
         
+        // Calculate quantity sold from transaction or estimate from proceeds
+        let saleQuantity = 0;
+        if (saleTx.fromAsset && saleTx.fromAsset.toUpperCase() === sale.asset.toUpperCase()) {
+          saleQuantity = saleTx.fromQuantity || 0;
+        } else if (saleTx.toAsset && saleTx.toAsset.toUpperCase() === sale.asset.toUpperCase()) {
+          saleQuantity = saleTx.toQuantity || 0;
+        } else {
+          // Estimate from proceeds if we have a price
+          const price = saleTx.fromPriceUsd || saleTx.toPriceUsd || 0;
+          if (price > 0 && sale.proceedsUsd > 0) {
+            saleQuantity = sale.proceedsUsd / price;
+          }
+        }
+        
         const saleNode: typeof tree[number] = {
           id: `sell-${sale.saleTransactionId}`,
           type: 'sell' as const,
           transactionId: sale.saleTransactionId,
-          asset: saleTx.toAsset.toUpperCase(),
+          asset: sale.asset.toUpperCase(), // Use sale.asset (what's being sold) not saleTx.toAsset (what's received)
           amount: sale.proceedsUsd || 0,
+          quantity: saleQuantity,
           costBasis: sale.costBasisUsd || 0,
           datetime: saleTx.datetime,
           children: [],
-          expanded: visibleSaleIds.includes(sale.saleTransactionId),
+          expanded: treeVisibleSaleIds.includes(sale.saleTransactionId), // Use tree-specific state
           hasChildren: hasBuyLots, // Track if there are children available
         };
         
         // Add buy lots for this sale
-        if (visibleSaleIds.includes(sale.saleTransactionId) && hasBuyLots) {
+        if (treeVisibleSaleIds.includes(sale.saleTransactionId) && hasBuyLots) {
           for (const buyLot of sale.buyLots) {
             const buyTx = transactions?.find(t => t.id === buyLot.buyTransactionId);
             if (buyTx) {
@@ -1274,31 +1297,45 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
                 transactionId: buyLot.buyTransactionId,
                 asset: buyLot.asset.toUpperCase(),
                 amount: (buyLot.cashSpentUsd || buyLot.costBasisUsd || 0),
+                quantity: buyLot.quantity || 0,
                 costBasis: buyLot.costBasisUsd || 0,
                 datetime: buyLot.buyDatetime,
                 children: [] as typeof tree[number][],
-                expanded: visibleBuyIds.includes(buyLot.buyTransactionId),
+                expanded: treeVisibleBuyIds.includes(buyLot.buyTransactionId), // Use tree-specific state
                 hasChildren: hasFundingSells, // Track if there are children available
               };
 
               // Add funding sells for this buy
-              if (visibleBuyIds.includes(buyLot.buyTransactionId) && hasFundingSells) {
+              if (treeVisibleBuyIds.includes(buyLot.buyTransactionId) && hasFundingSells) {
                 for (const fundingSell of fundingSells) {
                   const fundingTx = transactions?.find(t => t.id === fundingSell.saleTransactionId);
+                  // Estimate quantity from amount and price if available
+                  let fundingQuantity = 0;
                   if (fundingTx) {
-                    buyNode.children.push({
-                      id: `funding-sell-${fundingSell.saleTransactionId}`,
-                      type: 'sell',
-                      transactionId: fundingSell.saleTransactionId,
-                      asset: fundingSell.asset.toUpperCase(),
-                      amount: fundingSell.amountUsd || 0,
-                      costBasis: fundingSell.costBasisUsd || 0,
-                      datetime: fundingSell.saleDatetime,
-                      children: [],
-                      expanded: false,
-                      hasChildren: false,
-                    });
+                    if (fundingTx.fromAsset && fundingTx.fromAsset.toUpperCase() === fundingSell.asset.toUpperCase()) {
+                      fundingQuantity = fundingTx.fromQuantity || 0;
+                    } else if (fundingTx.toAsset && fundingTx.toAsset.toUpperCase() === fundingSell.asset.toUpperCase()) {
+                      fundingQuantity = fundingTx.toQuantity || 0;
+                    } else {
+                      const price = fundingTx.fromPriceUsd || fundingTx.toPriceUsd || 0;
+                      if (price > 0 && fundingSell.amountUsd > 0) {
+                        fundingQuantity = fundingSell.amountUsd / price;
+                      }
+                    }
                   }
+                  buyNode.children.push({
+                    id: `funding-sell-${fundingSell.saleTransactionId}`,
+                    type: 'sell',
+                    transactionId: fundingSell.saleTransactionId,
+                    asset: fundingSell.asset.toUpperCase(),
+                    amount: fundingSell.amountUsd || 0,
+                    quantity: fundingQuantity,
+                    costBasis: fundingSell.costBasisUsd || 0,
+                    datetime: fundingSell.saleDatetime,
+                    children: [],
+                    expanded: false,
+                    hasChildren: false,
+                  });
                 }
               }
 
@@ -1315,31 +1352,137 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
     }
 
     return tree;
-  }, [event, transactions, directSales, visibleSaleIds, visibleBuyIds]);
+  }, [event, transactions, deepSales, treeVisibleSaleIds, treeVisibleBuyIds]);
 
   const toggleNode = useCallback((nodeId: string) => {
+    // Toggle transaction tree expansion (separate from Sankey diagram)
     if (nodeId.startsWith('sell-')) {
       const saleId = Number(nodeId.slice('sell-'.length));
-      if (visibleSaleIds.includes(saleId)) {
-        setVisibleSaleIds(visibleSaleIds.filter(id => id !== saleId));
+      if (treeVisibleSaleIds.includes(saleId)) {
+        setTreeVisibleSaleIds(treeVisibleSaleIds.filter(id => id !== saleId));
       } else {
-        setVisibleSaleIds([...visibleSaleIds, saleId]);
+        setTreeVisibleSaleIds([...treeVisibleSaleIds, saleId]);
       }
     } else if (nodeId.startsWith('buy-')) {
       const buyId = Number(nodeId.slice('buy-'.length));
-      if (visibleBuyIds.includes(buyId)) {
-        setVisibleBuyIds(visibleBuyIds.filter(id => id !== buyId));
+      if (treeVisibleBuyIds.includes(buyId)) {
+        setTreeVisibleBuyIds(treeVisibleBuyIds.filter(id => id !== buyId));
       } else {
-        setVisibleBuyIds([...visibleBuyIds, buyId]);
+        setTreeVisibleBuyIds([...treeVisibleBuyIds, buyId]);
       }
     }
-  }, [visibleSaleIds, visibleBuyIds]);
+  }, [treeVisibleSaleIds, treeVisibleBuyIds]);
+
+  const [selectedTransactionId, setSelectedTransactionId] = useState<number | null>(null);
+
+  const renderTransactionDetails = useCallback((tx: Tx | undefined) => {
+    if (!tx) return null;
+
+    const nf = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 8 });
+    const df = new Intl.DateTimeFormat('en-US', { 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    return (
+      <div style={{ 
+        padding: '16px', 
+        backgroundColor: 'var(--card)', 
+        borderRadius: '8px', 
+        border: '1px solid var(--border)',
+        marginTop: '12px'
+      }}>
+        <h5 style={{ margin: '0 0 12px 0', fontSize: '1rem', fontWeight: 600 }}>Transaction Details</h5>
+        <div style={{ display: 'grid', gap: '12px', fontSize: '0.9rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: 'var(--muted)' }}>Date:</span>
+            <span>{df.format(new Date(tx.datetime))}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ color: 'var(--muted)' }}>Type:</span>
+            <span className={`transaction-type-badge ${tx.type.toLowerCase()}`}>
+              {tx.type === 'Deposit' ? '💰' : tx.type === 'Withdrawal' ? '💸' : '🔄'} {tx.type}
+            </span>
+          </div>
+          {tx.fromAsset && (
+            <div style={{ 
+              padding: '12px', 
+              backgroundColor: 'var(--surface)', 
+              borderRadius: '6px',
+              border: '1px solid var(--border)'
+            }}>
+              <div style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '8px' }}>From:</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                <CryptoIcon symbol={tx.fromAsset} size={20} alt={`${tx.fromAsset} logo`} />
+                <span style={{ 
+                  display: 'inline-block', 
+                  padding: '4px 10px', 
+                  borderRadius: 12, 
+                  background: `${getAssetColor(tx.fromAsset)}22`, 
+                  color: getAssetColor(tx.fromAsset), 
+                  fontWeight: 600 
+                }}>
+                  {tx.fromAsset.toUpperCase()}
+                </span>
+              </div>
+              {tx.fromQuantity && (
+                <div style={{ fontSize: '0.9em', color: 'var(--muted)', marginTop: '4px' }}>
+                  {nf.format(tx.fromQuantity)} {tx.fromPriceUsd ? `@ $${nf.format(tx.fromPriceUsd)}` : ''}
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{ 
+            padding: '12px', 
+            backgroundColor: 'var(--surface)', 
+            borderRadius: '6px',
+            border: '1px solid var(--border)'
+          }}>
+            <div style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '8px' }}>To:</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+              <CryptoIcon symbol={tx.toAsset} size={20} alt={`${tx.toAsset} logo`} />
+              <span style={{ 
+                display: 'inline-block', 
+                padding: '4px 10px', 
+                borderRadius: 12, 
+                background: `${getAssetColor(tx.toAsset)}22`, 
+                color: getAssetColor(tx.toAsset), 
+                fontWeight: 600 
+              }}>
+                {tx.toAsset.toUpperCase()}
+              </span>
+            </div>
+            <div style={{ fontSize: '0.9em', color: 'var(--muted)', marginTop: '4px' }}>
+              {nf.format(tx.toQuantity)} {tx.toPriceUsd ? `@ $${nf.format(tx.toPriceUsd)}` : ''}
+            </div>
+          </div>
+          {tx.feesUsd && tx.feesUsd > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--muted)' }}>Fees:</span>
+              <span>${nf.format(tx.feesUsd)}</span>
+            </div>
+          )}
+          {tx.notes && (
+            <div>
+              <div style={{ color: 'var(--muted)', fontSize: '0.85rem', marginBottom: '4px' }}>Notes:</div>
+              <div style={{ color: 'var(--text)', fontSize: '0.9rem' }}>{tx.notes}</div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }, []);
 
   const renderTreeNode = useCallback((node: typeof transactionTree[number] & { hasChildren?: boolean }, level: number = 0) => {
     const indent = level * 24;
     const isExpanded = node.expanded;
     // Check both current children and the hasChildren flag (for nodes that have children but they're not loaded yet)
     const hasChildren = node.children.length > 0 || node.hasChildren === true;
+    const tx = node.transactionId ? transactions?.find(t => t.id === node.transactionId) : undefined;
+    const showDetails = selectedTransactionId === node.transactionId;
     
     const typeColors = {
       withdrawal: '#ef4444',
@@ -1371,7 +1514,12 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
             cursor: hasChildren ? 'pointer' : 'default',
             transition: 'all 0.2s',
           }}
-          onClick={() => hasChildren && toggleNode(node.id)}
+          onClick={(e) => {
+            if (hasChildren) {
+              e.stopPropagation();
+              toggleNode(node.id);
+            }
+          }}
           onMouseEnter={(e) => {
             if (hasChildren) {
               e.currentTarget.style.backgroundColor = 'rgba(125, 125, 125, 0.1)';
@@ -1382,7 +1530,13 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
           }}
         >
           {hasChildren && (
-            <span style={{ fontSize: '0.8rem', minWidth: '16px' }}>
+            <span 
+              style={{ fontSize: '0.8rem', minWidth: '16px', cursor: 'pointer' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleNode(node.id);
+              }}
+            >
               {isExpanded ? '▼' : '▶'}
             </span>
           )}
@@ -1394,18 +1548,52 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
           <span style={{ color: getAssetColor(node.asset), fontWeight: 600 }}>
             {node.asset}
           </span>
+          {node.quantity !== undefined && node.quantity > 0 && (
+            <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem', fontSize: '0.85rem' }}>
+              {node.quantity.toFixed(4)} units
+            </span>
+          )}
           <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontSize: '0.9rem' }}>
             ${node.amount.toFixed(2)}
           </span>
-          {node.costBasis !== undefined && (
-            <span style={{ color: 'var(--muted)', fontSize: '0.85rem', minWidth: '80px', textAlign: 'right' }}>
-              Cost: ${node.costBasis.toFixed(2)}
-            </span>
+          {node.costBasis !== undefined && node.costBasis > 0 && (
+            <>
+              {node.quantity !== undefined && node.quantity > 0 && (
+                <span style={{ color: 'var(--muted)', fontSize: '0.8rem', minWidth: '90px', textAlign: 'right' }}>
+                  ${(node.costBasis / node.quantity).toFixed(2)}/unit
+                </span>
+              )}
+              <span style={{ color: 'var(--muted)', fontSize: '0.85rem', minWidth: '90px', textAlign: 'right' }}>
+                Cost: ${node.costBasis.toFixed(2)}
+              </span>
+            </>
           )}
           <span style={{ color: 'var(--muted)', fontSize: '0.8rem', minWidth: '100px', textAlign: 'right' }}>
             {new Date(node.datetime).toLocaleDateString()}
           </span>
+          {node.transactionId && (
+            <button
+              className="btn btn-secondary btn-sm"
+              style={{ 
+                padding: '4px 8px', 
+                fontSize: '0.75rem',
+                marginLeft: '8px'
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedTransactionId(showDetails ? null : node.transactionId || null);
+              }}
+              title="View transaction details"
+            >
+              {showDetails ? '▼' : '▶'} Details
+            </button>
+          )}
         </div>
+        {showDetails && tx && (
+          <div style={{ marginLeft: `${indent + 24}px`, marginBottom: '8px' }}>
+            {renderTransactionDetails(tx)}
+          </div>
+        )}
         {isExpanded && hasChildren && (
           <div style={{ marginLeft: `${indent + 24}px` }}>
             {node.children.map(child => renderTreeNode(child, level + 1))}
@@ -1413,7 +1601,7 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
         )}
       </div>
     );
-  }, [toggleNode]);
+  }, [toggleNode, transactions, selectedTransactionId, renderTransactionDetails]);
 
   return (
     <div>
@@ -1442,27 +1630,8 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
         </div>
       </div>
 
-      {/* Hierarchical Tree View */}
-      <div style={{ 
-        marginBottom: '1.5rem',
-        padding: '16px',
-        backgroundColor: 'var(--card)',
-        borderRadius: '8px',
-        border: '1px solid var(--border)',
-        maxHeight: '600px',
-        overflowY: 'auto'
-      }}>
-        <h4 style={{ margin: '0 0 12px 0', fontSize: '0.95rem', fontWeight: 600, color: 'var(--text)' }}>
-          Transaction Hierarchy
-        </h4>
-        <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '12px' }}>
-          Click on transactions with children (▶) to expand and explore the flow. Colors: 💸 Withdrawal (red), 📤 Sell (orange), 📥 Buy (green), 💰 Deposit (blue)
-        </div>
-        {transactionTree.map(node => renderTreeNode(node))}
-      </div>
-
       {/* Sankey Diagram */}
-      <div style={{ marginTop: '1rem' }}>
+      <div style={{ marginBottom: '1.5rem' }}>
         <h4 style={{ margin: '0 0 12px 0', fontSize: '0.95rem', fontWeight: 600, color: 'var(--text)' }}>
           Flow Diagram
         </h4>
@@ -1502,6 +1671,25 @@ function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transact
           onClick={onNodeClick}
         />
       </div>
+
+      {/* Hierarchical Tree View */}
+      <div style={{ 
+        marginTop: '1.5rem',
+        padding: '16px',
+        backgroundColor: 'var(--card)',
+        borderRadius: '8px',
+        border: '1px solid var(--border)',
+        maxHeight: '600px',
+        overflowY: 'auto'
+      }}>
+        <h4 style={{ margin: '0 0 12px 0', fontSize: '0.95rem', fontWeight: 600, color: 'var(--text)' }}>
+          Transaction Hierarchy
+        </h4>
+        <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '12px' }}>
+          Click on transactions with children (▶) to expand and explore the flow. Click &quot;Details&quot; to view full transaction information. Colors: 💸 Withdrawal (red), 📤 Sell (orange), 📥 Buy (green), 💰 Deposit (blue)
+        </div>
+        {transactionTree.map(node => renderTreeNode(node))}
+      </div>
     </div>
   );
 }
@@ -1514,6 +1702,7 @@ export default function CashDashboardPage(){
   const [selectedTaxYear, setSelectedTaxYear] = useState<string>('all'); // 'all' | '2024' | '2023' | etc.
   const [selectedAssetLotStrategy, setSelectedAssetLotStrategy] = useState<'FIFO' | 'LIFO' | 'HIFO' | 'LOFO'>('FIFO');
   const [selectedCashLotStrategy, setSelectedCashLotStrategy] = useState<'FIFO' | 'LIFO' | 'HIFO' | 'LOFO'>('FIFO');
+  const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
   
   // Fetch Romania tax report for selected year
   const taxReportKey = selectedTaxYear !== 'all' 
@@ -2371,78 +2560,22 @@ export default function CashDashboardPage(){
                             </tr>
                             {event.sourceTrace.length > 0 && (
                               <tr>
-                                <td colSpan={7} style={{ padding: '0', backgroundColor: 'var(--background)' }}>
-                                  <details style={{ cursor: 'pointer' }}>
-                                    <summary style={{ 
-                                      padding: '0.75rem', 
-                                      color: 'var(--muted)',
-                                      fontWeight: 600,
-                                      borderTop: '1px solid var(--border)',
-                                      fontSize: '0.9rem'
-                                    }}>
-                                      📊 Source Trace & Flow Diagram ({event.sourceTrace.length} source{event.sourceTrace.length !== 1 ? 's' : ''})
-                                    </summary>
-                                    <div style={{ padding: '1rem' }}>
-                                      {/* Sankey Diagram */}
-                                      <div style={{ 
-                                        marginBottom: '1.5rem',
-                                        backgroundColor: 'var(--card)',
-                                        borderRadius: '8px',
-                                        padding: '1rem',
-                                        border: '1px solid var(--border)'
-                                      }}>
-                                        <SankeyExplorer event={event} transactions={txs} />
-                                      </div>
-                                      
-                                      {/* Detailed Source Trace */}
-                                      <div style={{ marginTop: '1rem' }}>
-                                        <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.9rem', color: 'var(--text)' }}>
-                                          Detailed Source Breakdown:
-                                        </h4>
-                                        <div style={{ 
-                                          display: 'grid', 
-                                          gap: '0.5rem',
-                                          fontSize: '0.85rem'
-                                        }}>
-                                          {event.sourceTrace.map((trace, traceIdx) => (
-                                            <div 
-                                              key={traceIdx} 
-                                              style={{ 
-                                                padding: '0.5rem',
-                                                backgroundColor: 'var(--surface)',
-                                                borderRadius: '4px',
-                                                border: '1px solid var(--border)',
-                                                display: 'flex',
-                                                justifyContent: 'space-between',
-                                                alignItems: 'center'
-                                              }}
-                                            >
-                                              <div>
-                                                <span style={{ 
-                                                  fontWeight: 'bold',
-                                                  color: getAssetColor(trace.asset)
-                                                }}>
-                                                  {trace.asset}
-                                                </span>
-                                                <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem' }}>
-                                                  {trace.quantity.toFixed(4)} units
-                                                </span>
-                                              </div>
-                                              <div style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>
-                                                <div>${(trace.costBasisUsd / trace.quantity).toFixed(2)} per unit</div>
-                                                <div style={{ fontWeight: 'bold', color: 'var(--text)' }}>
-                                                  Cost: ${trace.costBasisUsd.toFixed(2)}
-                                                </div>
-                                                <div style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
-                                                  {new Date(trace.datetime).toLocaleDateString()}
-                                                </div>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </details>
+                                <td colSpan={7} style={{ padding: '0.75rem', backgroundColor: 'var(--background)', borderTop: '1px solid var(--border)' }}>
+                                  <button
+                                    onClick={() => setExpandedEventId(event.transactionId)}
+                                    className="btn btn-secondary btn-sm"
+                                    style={{ 
+                                      display: 'flex', 
+                                      alignItems: 'center', 
+                                      gap: '0.5rem',
+                                      width: '100%',
+                                      justifyContent: 'center'
+                                    }}
+                                  >
+                                    <span>📊</span>
+                                    <span>Source Trace & Flow Diagram ({event.sourceTrace.length} source{event.sourceTrace.length !== 1 ? 's' : ''})</span>
+                                    <span style={{ marginLeft: 'auto' }}>⛶</span>
+                                  </button>
                                 </td>
                               </tr>
                             )}
@@ -2530,6 +2663,47 @@ export default function CashDashboardPage(){
           </table>
         </div>
       </section>
+
+      {/* Source Trace & Flow Diagram Modal */}
+      {expandedEventId !== null && taxReport && (() => {
+        const event = taxReport.taxableEvents.find(e => e.transactionId === expandedEventId);
+        if (!event) return null;
+        
+        return (
+          <div
+            className="modal-backdrop chart-modal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setExpandedEventId(null)}
+          >
+            <div className="modal chart-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="chart-modal-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ fontWeight: 800, fontSize: '1.1rem' }}>
+                    Source Trace & Flow Diagram
+                  </div>
+                  <div style={{ fontSize: '0.9rem', color: 'var(--muted)' }}>
+                    {event.sourceTrace.length} source{event.sourceTrace.length !== 1 ? 's' : ''} • 
+                    Withdrawal: ${event.fiatAmountUsd.toFixed(2)} • 
+                    P/L: <span style={{ color: event.gainLossUsd >= 0 ? '#10b981' : '#ef4444' }}>
+                      {event.gainLossUsd >= 0 ? '+' : ''}${event.gainLossUsd.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+                <button type="button" className="icon-btn" title="Close" onClick={() => setExpandedEventId(null)}>
+                  ✕
+                </button>
+              </div>
+              <div className="chart-modal-body" style={{ padding: '1.5rem', overflowY: 'auto' }}>
+                <SankeyExplorer event={event} transactions={txs} onTransactionClick={(txId) => {
+                  // Could navigate to transaction page or show details
+                  console.log('Transaction clicked:', txId);
+                }} />
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       </main>
     </AuthGuard>
   );
