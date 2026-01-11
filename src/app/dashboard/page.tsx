@@ -1252,6 +1252,52 @@ function DashboardPageContent() {
 
         {/* Main Charts Grid */}
         <div className="dashboard-grid">
+          {/* Portfolio Gains/Losses Heatmap */}
+        <ChartCard
+          title="Portfolio Gains/Losses Heatmap"
+          timeframeEnabled={false}
+          headerActions={({ expanded }) => (
+            <ShortTimeframeSelector value={heatmapTimeframe} onChange={setHeatmapTimeframe} />
+          )}
+        >
+          {({ timeframe, expanded }) => {
+            if (isLoading) {
+              return <div className="chart-loading">Loading heatmap data...</div>;
+            }
+            if (!portfolioHeatmap.pnlValues.length) {
+              return <div className="chart-empty">No heatmap data available</div>;
+            }
+            // Create treemap data structure for box area visualization
+            const treemapData = [{
+              type: 'treemap' as const,
+              labels: portfolioHeatmap.assets,
+              values: portfolioHeatmap.pnlValues.map(Math.abs), // Use absolute values for area
+              parents: portfolioHeatmap.assets.map(() => ''), // Root level
+              marker: {
+                colors: portfolioHeatmap.colors,
+                line: { width: 1, color: 'white' }
+              },
+              textinfo: 'label+value',
+              texttemplate: '%{label}<br>%{value:.2f}',
+              hovertemplate: '%{label}: %{customdata:.2f} USD<extra></extra>',
+              customdata: portfolioHeatmap.pnlValues, // Keep original signed values for hover
+            }];
+
+            return (
+              <Plot
+                data={treemapData as Data[]}
+                layout={{
+                  height: expanded ? undefined : 400,
+                  margin: { t: 30, r: 10, l: 10, b: 10 },
+                  paper_bgcolor: 'transparent',
+                  plot_bgcolor: 'transparent',
+                }}
+                style={{ width: '100%', height: expanded ? '100%' : undefined }}
+              />
+            );
+          }}
+        </ChartCard>
+
           {/* Net Worth Chart */}
           <ChartCard title="Net Worth Over Time" defaultTimeframe="1y">
             {({ timeframe, expanded }) => {
@@ -1374,52 +1420,6 @@ function DashboardPageContent() {
               height={expanded ? 500 : 320}
             />
               );
-          }}
-        </ChartCard>
-
-        {/* Portfolio Gains/Losses Heatmap */}
-        <ChartCard
-          title="Portfolio Gains/Losses Heatmap"
-          timeframeEnabled={false}
-          headerActions={({ expanded }) => (
-            <ShortTimeframeSelector value={heatmapTimeframe} onChange={setHeatmapTimeframe} />
-          )}
-        >
-          {({ timeframe, expanded }) => {
-            if (isLoading) {
-              return <div className="chart-loading">Loading heatmap data...</div>;
-            }
-            if (!portfolioHeatmap.pnlValues.length) {
-              return <div className="chart-empty">No heatmap data available</div>;
-            }
-            // Create treemap data structure for box area visualization
-            const treemapData = [{
-              type: 'treemap' as const,
-              labels: portfolioHeatmap.assets,
-              values: portfolioHeatmap.pnlValues.map(Math.abs), // Use absolute values for area
-              parents: portfolioHeatmap.assets.map(() => ''), // Root level
-              marker: {
-                colors: portfolioHeatmap.colors,
-                line: { width: 1, color: 'white' }
-              },
-              textinfo: 'label+value',
-              texttemplate: '%{label}<br>%{value:.2f}',
-              hovertemplate: '%{label}: %{customdata:.2f} USD<extra></extra>',
-              customdata: portfolioHeatmap.pnlValues, // Keep original signed values for hover
-            }];
-
-            return (
-              <Plot
-                data={treemapData as Data[]}
-                layout={{
-                  height: expanded ? undefined : 400,
-                  margin: { t: 30, r: 10, l: 10, b: 10 },
-                  paper_bgcolor: 'transparent',
-                  plot_bgcolor: 'transparent',
-                }}
-                style={{ width: '100%', height: expanded ? '100%' : undefined }}
-              />
-            );
           }}
         </ChartCard>
 
