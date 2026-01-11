@@ -30,6 +30,12 @@ export const SUPPORTED_ASSETS: SupportedAsset[] = [
   { symbol: 'ATOM', name: 'Cosmos', marketCapRank: 19, category: 'altcoin' },
   { symbol: 'SUI', name: 'Sui', marketCapRank: 20, category: 'altcoin' },
   { symbol: 'NIGHT', name: 'Midnight', marketCapRank: 0, category: 'altcoin' },
+  // Additional altcoins
+  { symbol: 'ALGO', name: 'Algorand', marketCapRank: 0, category: 'altcoin' },
+  { symbol: 'CRO', name: 'Crypto.com Coin', marketCapRank: 0, category: 'altcoin' },
+  { symbol: 'EGLD', name: 'MultiversX', marketCapRank: 0, category: 'altcoin' },
+  // Additional stablecoins
+  { symbol: 'EURC', name: 'Euro Coin', marketCapRank: 0, category: 'stablecoin' },
   // Fiat currencies
   { symbol: 'USD', name: 'US Dollar', marketCapRank: 0, category: 'fiat' },
   { symbol: 'EUR', name: 'Euro', marketCapRank: 0, category: 'fiat' },
@@ -122,6 +128,10 @@ export const ASSET_COLORS: Record<string, string> = {
   LTC: '#bfbbbb',
   ATOM: '#2e3148',
   SUI: '#6fbcf0',
+  ALGO: '#000000',
+  CRO: '#103f68',
+  EGLD: '#23f7dd',
+  EURC: '#3b82f6',
   // Fiat currency colors
   USD: '#16a34a',
   EUR: '#3b82f6',
@@ -168,6 +178,10 @@ function getCoinGeckoId(symbol: string): string {
     'LTC': '2',
     'ATOM': '3794',
     'SUI': '26375',
+    'ALGO': '4030',
+    'CRO': '3635',
+    'EGLD': '6892',
+    'EURC': '20641',
   };
   
   return coinGeckoMap[symbol.toUpperCase()] || symbol.toLowerCase();
