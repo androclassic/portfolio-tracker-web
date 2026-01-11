@@ -1298,6 +1298,22 @@ function DashboardPageContent() {
           }}
         </ChartCard>
 
+          {/* Allocation Chart */}
+          <ChartCard title="Portfolio Allocation" timeframeEnabled={false}>
+          {({ timeframe, expanded }) => {
+              if (isLoading) {
+                return <div className="chart-loading">Loading allocation...</div>;
+              }
+              return (
+            <AllocationPieChart 
+              data={allocationData}
+              isLoading={isLoading}
+              height={expanded ? 500 : 320}
+            />
+              );
+          }}
+        </ChartCard>
+
           {/* Net Worth Chart */}
           <ChartCard title="Net Worth Over Time" defaultTimeframe="1y">
             {({ timeframe, expanded }) => {
@@ -1355,19 +1371,32 @@ function DashboardPageContent() {
                   return <div className="chart-empty">No data available for the selected timeframe</div>;
                 }
                 
+                // Create a fresh model object with new array references
                 chartModel = {
-                  ...netWorthChartModel,
-                  x: sampled.dates,
+                  title: netWorthChartModel.title,
+                  xAxisTitle: netWorthChartModel.xAxisTitle,
+                  yAxisTitle: netWorthChartModel.yAxisTitle,
+                  height: netWorthChartModel.height,
+                  hovermode: netWorthChartModel.hovermode,
+                  x: [...sampled.dates], // Create new array reference
                   series: sampled.dataArrays.map((yData, i) => ({
                     ...finalSeries[i]!,
-                    y: yData,
+                    y: [...yData], // Create new array reference
                   })),
                 };
               } else {
+                // Create a fresh model object with new array references
                 chartModel = {
-                  ...netWorthChartModel,
-                  x: finalDates,
-                  series: finalSeries,
+                  title: netWorthChartModel.title,
+                  xAxisTitle: netWorthChartModel.xAxisTitle,
+                  yAxisTitle: netWorthChartModel.yAxisTitle,
+                  height: netWorthChartModel.height,
+                  hovermode: netWorthChartModel.hovermode,
+                  x: [...finalDates], // Create new array reference
+                  series: finalSeries.map(s => ({
+                    ...s,
+                    y: [...s.y], // Create new array reference
+                  })),
                 };
               }
               
@@ -1393,34 +1422,27 @@ function DashboardPageContent() {
                 return <div className="chart-empty">No data available for the selected timeframe</div>;
               }
               
+              // Create final model with fresh references
               const finalModel = {
                 ...chartModel,
-                series: validSeries,
+                series: validSeries.map(s => ({
+                  ...s,
+                  y: [...s.y], // Ensure fresh array reference
+                })),
+                x: [...chartModel.x], // Ensure fresh array reference
               };
+              
+              // Create a data-dependent key to force re-render when data changes
+              // Include dates length, last date, and first date to detect data updates
+              const dataKey = `${netWorthOverTime.dates.length}-${netWorthOverTime.dates[netWorthOverTime.dates.length - 1] || ''}-${netWorthOverTime.dates[0] || ''}-${finalModel.x.length}`;
               
               return (
                 <LineChart
-                  key={`net-worth-${timeframe}-${expanded}`}
+                  key={`net-worth-${timeframe}-${expanded}-${dataKey}`}
                   model={finalModel}
                 />
               );
             }}
-        </ChartCard>
-
-          {/* Allocation Chart */}
-          <ChartCard title="Portfolio Allocation" timeframeEnabled={false}>
-          {({ timeframe, expanded }) => {
-              if (isLoading) {
-                return <div className="chart-loading">Loading allocation...</div>;
-              }
-              return (
-            <AllocationPieChart 
-              data={allocationData}
-              isLoading={isLoading}
-              height={expanded ? 500 : 320}
-            />
-              );
-          }}
         </ChartCard>
 
         {/* Cost Basis vs Portfolio Valuation */}
