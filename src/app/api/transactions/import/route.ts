@@ -3,8 +3,10 @@ import { prisma } from '@/lib/prisma';
 import { parse as parseCsv } from 'csv-parse/sync';
 import { parse as parseDateFns, isValid as isValidDate } from 'date-fns';
 import type { Prisma } from '@prisma/client';
-import { validateAssetList, isFiatCurrency } from '@/lib/assets';
+import { validateAssetList, isFiatCurrency, isStablecoin } from '@/lib/assets';
 import { getServerAuth } from '@/lib/auth';
+import { getHistoricalExchangeRateSyncStrict } from '@/lib/exchange-rates';
+import { getHistoricalPrices } from '@/lib/prices/service';
 
 function parseFloatSafe(v: unknown): number | null {
   if (v == null) return null;
@@ -102,6 +104,68 @@ export async function POST(req: NextRequest) {
 
   const rows = parseCsv(csvText, { columns: true, skip_empty_lines: true }) as Array<Record<string, unknown>>;
   
+  // Preload exchange rates and historical prices for the date range of transactions
+  // This ensures EURC, EUR, and crypto prices can be filled
+  let dateRange: { min: number; max: number } | null = null;
+  const allAssetsSet = new Set<string>();
+  
+  if (rows.length > 0) {
+    const dates: string[] = [];
+    for (const r of rows) {
+      const dt = parseDateFlexible(r['datetime'] ?? r['Datetime'] ?? r['date'] ?? r['Date']);
+      if (dt) {
+        const dateStr = dt.toISOString().slice(0, 10);
+        dates.push(dateStr);
+        const unixSec = Math.floor(dt.getTime() / 1000);
+        if (!dateRange) {
+          dateRange = { min: unixSec, max: unixSec };
+        } else {
+          dateRange.min = Math.min(dateRange.min, unixSec);
+          dateRange.max = Math.max(dateRange.max, unixSec);
+        }
+      }
+      
+      // Collect assets
+      const fromAsset = String((r['from_asset'] ?? r['fromAsset'] ?? r['FromAsset'] ?? '')).trim().toUpperCase();
+      const toAsset = String((r['to_asset'] ?? r['toAsset'] ?? r['ToAsset'] ?? '')).trim().toUpperCase();
+      if (fromAsset) allAssetsSet.add(fromAsset);
+      if (toAsset) allAssetsSet.add(toAsset);
+    }
+    
+    if (dates.length > 0) {
+      const minDate = dates.reduce((a, b) => a < b ? a : b);
+      const maxDate = dates.reduce((a, b) => a > b ? a : b);
+      
+      try {
+        // Preload exchange rates for EURC/EUR
+        const { preloadExchangeRates } = await import('@/lib/exchange-rates');
+        await preloadExchangeRates(minDate, maxDate);
+      } catch (err) {
+        console.warn('[Import] Failed to preload exchange rates:', err);
+      }
+      
+      // Preload historical prices for crypto assets
+      if (dateRange && allAssetsSet.size > 0) {
+        try {
+          // Filter out fiat currencies and stablecoins (handled separately)
+          const cryptoAssets = Array.from(allAssetsSet).filter(asset => {
+            const upper = asset.toUpperCase();
+            return !isFiatCurrency(upper) && !isStablecoin(upper) && upper !== 'EURC';
+          });
+          
+          if (cryptoAssets.length > 0) {
+            // Add some buffer to the date range
+            const startUnixSec = dateRange.min - (7 * 24 * 60 * 60); // 7 days before
+            const endUnixSec = dateRange.max + (7 * 24 * 60 * 60); // 7 days after
+            await getHistoricalPrices(cryptoAssets, startUnixSec, endUnixSec);
+          }
+        } catch (err) {
+          console.warn('[Import] Failed to preload historical prices:', err);
+        }
+      }
+    }
+  }
+  
   // Verify CSV has required columns for new format
   if (rows.length === 0) {
     return NextResponse.json({ error: 'CSV file is empty' }, { status: 400 });
@@ -124,6 +188,61 @@ export async function POST(req: NextRequest) {
   const transactions: Array<Prisma.TransactionCreateManyInput> = [];
   const allAssets: string[] = [];
   const invalidRows: Array<{row: number, reason: string}> = [];
+  
+  // Load all historical prices for crypto assets in one query (optimization)
+  const priceMap = new Map<string, Map<string, number>>(); // asset -> date -> price
+  if (dateRange && allAssetsSet.size > 0) {
+    try {
+      const cryptoAssets = Array.from(allAssetsSet).filter(asset => {
+        const upper = asset.toUpperCase();
+        return !isFiatCurrency(upper) && !isStablecoin(upper) && upper !== 'EURC';
+      });
+      
+      if (cryptoAssets.length > 0) {
+        const startDate = new Date(dateRange.min * 1000).toISOString().slice(0, 10);
+        const endDate = new Date(dateRange.max * 1000).toISOString().slice(0, 10);
+        
+        const prices = await prisma.historicalPrice.findMany({
+          where: {
+            asset: { in: cryptoAssets },
+            date: { gte: startDate, lte: endDate },
+          },
+          orderBy: [{ asset: 'asc' }, { date: 'asc' }],
+        });
+        
+        // Build price map: asset -> date -> price
+        for (const price of prices) {
+          if (!priceMap.has(price.asset)) {
+            priceMap.set(price.asset, new Map());
+          }
+          priceMap.get(price.asset)!.set(price.date, price.price_usd);
+        }
+      }
+    } catch (err) {
+      console.warn('[Import] Failed to load historical prices:', err);
+    }
+  }
+  
+  // Helper function to get price for an asset on a specific date
+  const getPriceForDate = (asset: string, dateStr: string): number | null => {
+    const assetPrices = priceMap.get(asset);
+    if (!assetPrices) return null;
+    
+    // Try exact date first
+    if (assetPrices.has(dateStr)) {
+      return assetPrices.get(dateStr)!;
+    }
+    
+    // Find closest date before or on this date
+    const dates = Array.from(assetPrices.keys()).sort().reverse();
+    for (const date of dates) {
+      if (date <= dateStr) {
+        return assetPrices.get(date)!;
+      }
+    }
+    
+    return null;
+  };
   
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -175,15 +294,75 @@ export async function POST(req: NextRequest) {
     if (fromAsset) allAssets.push(fromAsset);
     allAssets.push(toAsset);
     
+    // Fill missing prices using FX rates for EURC and EUR
+    let finalFromPriceUsd = fromPriceUsd;
+    let finalToPriceUsd = toPriceUsd;
+    
+    // Get date string for FX rate lookup (YYYY-MM-DD format)
+    const dateStr = dt.toISOString().slice(0, 10);
+    
+    // Fill EURC prices from EUR/USD rate
+    if (fromAsset === 'EURC' && finalFromPriceUsd === null) {
+      try {
+        const eurUsdRate = getHistoricalExchangeRateSyncStrict('EUR', 'USD', dateStr);
+        finalFromPriceUsd = eurUsdRate;
+      } catch (err) {
+        // If rate not available, leave as null (will be filled later)
+      }
+    }
+    
+    if (toAsset === 'EURC' && finalToPriceUsd === null) {
+      try {
+        const eurUsdRate = getHistoricalExchangeRateSyncStrict('EUR', 'USD', dateStr);
+        finalToPriceUsd = eurUsdRate;
+      } catch (err) {
+        // If rate not available, leave as null (will be filled later)
+      }
+    }
+    
+    // Fill EUR prices from EUR/USD rate
+    if (fromAsset === 'EUR' && finalFromPriceUsd === null) {
+      try {
+        const eurUsdRate = getHistoricalExchangeRateSyncStrict('EUR', 'USD', dateStr);
+        finalFromPriceUsd = eurUsdRate;
+      } catch (err) {
+        // If rate not available, leave as null (will be filled later)
+      }
+    }
+    
+    if (toAsset === 'EUR' && finalToPriceUsd === null) {
+      try {
+        const eurUsdRate = getHistoricalExchangeRateSyncStrict('EUR', 'USD', dateStr);
+        finalToPriceUsd = eurUsdRate;
+      } catch (err) {
+        // If rate not available, leave as null (will be filled later)
+      }
+    }
+    
+    // Fill crypto prices from preloaded historical price data
+    if (fromAsset && finalFromPriceUsd === null && !isFiatCurrency(fromAsset) && fromAsset !== 'EURC') {
+      const price = getPriceForDate(fromAsset, dateStr);
+      if (price !== null) {
+        finalFromPriceUsd = price;
+      }
+    }
+    
+    if (toAsset && finalToPriceUsd === null && !isFiatCurrency(toAsset) && toAsset !== 'EURC') {
+      const price = getPriceForDate(toAsset, dateStr);
+      if (price !== null) {
+        finalToPriceUsd = price;
+      }
+    }
+    
     transactions.push({
       type: txType,
       datetime: dt,
       fromAsset: fromAsset || null,
       fromQuantity: fromQuantity ?? null,
-      fromPriceUsd: fromPriceUsd ?? null,
+      fromPriceUsd: finalFromPriceUsd,
       toAsset,
       toQuantity: toQuantity ?? 0,
-      toPriceUsd: toPriceUsd ?? null,
+      toPriceUsd: finalToPriceUsd,
       feesUsd: feesUsd ?? null,
       notes: notes ?? null,
       portfolioId: portfolio.id,
