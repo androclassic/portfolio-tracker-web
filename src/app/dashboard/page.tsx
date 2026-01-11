@@ -279,6 +279,17 @@ function DashboardPageContent() {
           price = getEURCPrice(date);
         } else if (isStablecoin(asset)) {
           price = 1.0;
+        } else {
+          // Fallback: try to find price from historicalPrices for this date or closest before it
+          const assetPrices = hist.prices.filter(p => p.asset === asset && p.date <= date);
+          if (assetPrices.length > 0) {
+            // Sort by date descending and take the most recent price on or before this date
+            assetPrices.sort((a, b) => b.date.localeCompare(a.date));
+            price = assetPrices[0]!.price_usd;
+          } else if (latestPrices[asset]) {
+            // Last resort: use latest price if available
+            price = latestPrices[asset];
+          }
         }
 
         const value = position * price;
@@ -293,7 +304,7 @@ function DashboardPageContent() {
     }
 
     return { dates, cryptoExStableValue: cryptoExStableValues, stableValue: stableValues, totalValue: totalValues };
-  }, [hist, assets, dailyPos, priceIndex, getEURCPrice]);
+  }, [hist, assets, dailyPos, priceIndex, getEURCPrice, latestPrices]);
 
   const netWorthChartModel = useMemo(() => {
     return buildNetWorthLineChartModel(netWorthOverTime);
@@ -421,8 +432,21 @@ function DashboardPageContent() {
         const di = priceIndex.dateIndex[date];
         if (ai !== undefined && di !== undefined && priceIndex.prices[ai] && priceIndex.prices[ai][di] !== undefined) {
           px = priceIndex.prices[ai][di];
+        } else if (asset === 'EURC') {
+          px = getEURCPrice(date);
         } else if (isStablecoin(asset)) {
           px = 1.0;
+        } else {
+          // Fallback: try to find price from historicalPrices for this date or closest before it
+          const assetPrices = hist.prices.filter(p => p.asset === asset && p.date <= date);
+          if (assetPrices.length > 0) {
+            // Sort by date descending and take the most recent price on or before this date
+            assetPrices.sort((a, b) => b.date.localeCompare(a.date));
+            px = assetPrices[0]!.price_usd;
+          } else if (latestPrices[asset]) {
+            // Last resort: use latest price if available
+            px = latestPrices[asset];
+          }
         }
         if (px > 0 && position > 0) {
           portfolioVal += position * px;
@@ -435,7 +459,7 @@ function DashboardPageContent() {
 
     const result = { dates, costBasis, portfolioValue };
     return result;
-  }, [hist, txs, assets, priceIndex, fxRateMap, latestPrices]);
+  }, [hist, txs, assets, priceIndex, fxRateMap, latestPrices, getEURCPrice, dailyPos]);
 
   // Stacked portfolio value
   const stackedTraces = useMemo(() => {

@@ -120,9 +120,22 @@ export function usePortfolioData() {
       .filter(([_, quantity]) => quantity > 0)
       .map(([asset, quantity]) => {
         // Use EUR/USD rate for EURC
-        const currentPrice = asset.toUpperCase() === 'EURC' && eurUsdRate !== null
+        let currentPrice = asset.toUpperCase() === 'EURC' && eurUsdRate !== null
           ? eurUsdRate
-          : (latestPricesWithEURC[asset] || 0);
+          : (latestPricesWithEURC[asset]);
+        
+        // Fallback: if price is missing or 0, try to get from historicalPrices (most recent)
+        if ((currentPrice === undefined || currentPrice === 0) && asset.toUpperCase() !== 'EURC') {
+          const assetPrices = historicalPrices.filter(p => p.asset === asset);
+          if (assetPrices.length > 0) {
+            // Sort by date descending and take the most recent price
+            assetPrices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            currentPrice = assetPrices[0]!.price_usd;
+          } else {
+            currentPrice = 0;
+          }
+        }
+        
         const currentValue = quantity * currentPrice;
         const btcValue = btcPrice > 0 ? currentValue / btcPrice : 0;
         
