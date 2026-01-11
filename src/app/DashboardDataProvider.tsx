@@ -107,18 +107,26 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
   // Include historicalPrices length in cache key to invalidate when prices load
   const historicalPricesKey = useMemo(() => `${cacheKey}|prices:${historicalPrices.length}`, [cacheKey, historicalPrices.length]);
 
-  // Calculate P&L (must be called unconditionally)
-  const pnlData = usePnLCalculation(txs, latestPrices, historicalPrices);
-
+  // Get EUR/USD rate for EURC from fxRateMap (will be set when fxRateMap loads)
+  const [eurUsdRate, setEurUsdRate] = useState<number | null>(null);
+  
   // Add stablecoins to latestPrices
   const latestPricesStr = useMemo(() => JSON.stringify(latestPrices), [latestPrices]);
+  
   const latestPricesWithStables = useMemo(() => {
     const result = { ...latestPrices };
     for (const stable of stableAssets) {
-      result[stable] = 1.0;
+      if (stable === 'EURC' && eurUsdRate !== null) {
+        result[stable] = eurUsdRate; // Use EUR/USD rate for EURC
+      } else {
+        result[stable] = 1.0;
+      }
     }
     return result;
-  }, [latestPrices, stableAssets]);
+  }, [latestPrices, stableAssets, eurUsdRate]);
+
+  // Calculate P&L using latestPricesWithStables to get correct EURC valuation
+  const pnlData = usePnLCalculation(txs, latestPricesWithStables, historicalPrices);
 
   // Compute expensive data in a deferred way
   useEffect(() => {
@@ -415,6 +423,26 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
     const data = computedData || computedDataRef.current;
     return data?.priceIndex.dates.join(',') || '';
   }, [computedData]);
+  
+  // Extract EUR/USD rate from fxRateMap when it's loaded
+  useEffect(() => {
+    if (fxRateMap.size > 0) {
+      // Try to get latest EUR/USD rate from any date in fxRateMap
+      const dates = Array.from(fxRateMap.keys()).sort().reverse();
+      for (const d of dates) {
+        const rates = fxRateMap.get(d);
+        if (rates && rates['EUR']) {
+          setEurUsdRate(rates['EUR']); // EUR/USD rate
+          return;
+        }
+      }
+    }
+    // Use fallback rate if fxRateMap is empty or doesn't have EUR rate
+    // This ensures EURC is always valued, even before FX rates load
+    if (eurUsdRate === null && stableAssets.includes('EURC')) {
+      setEurUsdRate(1.08); // Approximate EUR/USD rate as fallback
+    }
+  }, [fxRateMap, stableAssets, eurUsdRate]);
   
   // Load FX rates in background - don't block dashboard rendering
   useEffect(() => {

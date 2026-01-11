@@ -54,6 +54,28 @@ function DashboardPageContent() {
     return getAssetColor(asset);
   }, []);
 
+  // Helper to get EURC price (EUR/USD rate) for a given date, or latest if no date
+  const getEURCPrice = useCallback((date?: string): number => {
+    if (date && fxRateMap.has(date)) {
+      const rates = fxRateMap.get(date);
+      if (rates && rates['EUR']) {
+        return rates['EUR']; // EUR/USD rate
+      }
+    }
+    // Try to get latest EUR/USD rate from any date in fxRateMap
+    if (fxRateMap.size > 0) {
+      const dates = Array.from(fxRateMap.keys()).sort().reverse();
+      for (const d of dates) {
+        const rates = fxRateMap.get(d);
+        if (rates && rates['EUR']) {
+          return rates['EUR'];
+        }
+      }
+    }
+    // Fallback to approximate rate if no FX data available
+    return 1.08; // Approximate EUR/USD rate
+  }, [fxRateMap]);
+
   function withAlpha(hex: string, alpha: number): string {
     const h = hex.replace('#', '');
     const r = parseInt(h.substring(0, 2), 16);
@@ -97,11 +119,18 @@ function DashboardPageContent() {
       if (!isStablecoin(sym)) continue;
       const qty = Number(units) || 0;
       if (qty <= 0) continue;
-      const px = latestPrices[sym] || 1;
+      let px = latestPrices[sym];
+      if (px === undefined || px === 0) {
+        if (sym === 'EURC') {
+          px = getEURCPrice();
+        } else {
+          px = 1;
+        }
+      }
       total += qty * px;
     }
     return total;
-  }, [holdings, latestPrices]);
+  }, [holdings, latestPrices, getEURCPrice]);
 
   const hist = useMemo(() => ({ prices: historicalPrices }), [historicalPrices]);
 
@@ -118,7 +147,13 @@ function DashboardPageContent() {
         if (units <= 0) continue;
         let price = latestPrices[a];
         if (price === undefined || price === 0) {
-          price = isStablecoin(a) ? 1.0 : 0;
+          if (a === 'EURC') {
+            price = getEURCPrice();
+          } else if (isStablecoin(a)) {
+            price = 1.0;
+          } else {
+            price = 0;
+          }
         }
         currentValue += price * units;
       }
@@ -156,7 +191,7 @@ function DashboardPageContent() {
       formattedChange: nf2.format(Math.abs(dayChange)),
       formattedPL: nf0.format(totalPL),
     };
-  }, [holdings, latestPrices, hist, pnlData]);
+  }, [holdings, latestPrices, hist, pnlData, getEURCPrice]);
 
   // Allocation data
   const allocationData = useMemo(() => {
@@ -164,13 +199,19 @@ function DashboardPageContent() {
       .map(([asset, units]) => {
         let price = latestPrices[asset];
         if (price === undefined || price === 0) {
-          price = isStablecoin(asset) ? 1.0 : 0;
+          if (asset === 'EURC') {
+            price = getEURCPrice();
+          } else if (isStablecoin(asset)) {
+            price = 1.0;
+          } else {
+            price = 0;
+          }
         }
         return { asset, units, value: price * units };
       })
       .filter(p => p.value > 0)
       .sort((a, b) => b.value - a.value);
-  }, [holdings, latestPrices]);
+  }, [holdings, latestPrices, getEURCPrice]);
 
   // Net worth over time - OPTIMIZED: Use dailyPos with efficient forward-fill
   const netWorthOverTime = useMemo(() => {
@@ -234,6 +275,8 @@ function DashboardPageContent() {
         const di = priceIndex.dateIndex[date];
         if (ai !== undefined && di !== undefined && priceIndex.prices[ai] && priceIndex.prices[ai][di] !== undefined) {
           price = priceIndex.prices[ai][di];
+        } else if (asset === 'EURC') {
+          price = getEURCPrice(date);
         } else if (isStablecoin(asset)) {
           price = 1.0;
         }
@@ -250,7 +293,7 @@ function DashboardPageContent() {
     }
 
     return { dates, cryptoExStableValue: cryptoExStableValues, stableValue: stableValues, totalValue: totalValues };
-  }, [hist, assets, dailyPos, priceIndex]);
+  }, [hist, assets, dailyPos, priceIndex, getEURCPrice]);
 
   const netWorthChartModel = useMemo(() => {
     return buildNetWorthLineChartModel(netWorthOverTime);
@@ -758,7 +801,16 @@ function DashboardPageContent() {
 
       for (const [asset, qty] of Object.entries(currentHoldings)) {
         if (qty <= 0) continue;
-        const price = priceMap.get(date + '|' + asset) || (isStablecoin(asset) ? 1.0 : 0);
+        let price = priceMap.get(date + '|' + asset);
+        if (price === undefined || price === 0) {
+          if (asset === 'EURC') {
+            price = getEURCPrice(date);
+          } else if (isStablecoin(asset)) {
+            price = 1.0;
+          } else {
+            price = 0;
+          }
+        }
         const value = qty * price;
         totalValueUsd += value;
         if (asset === 'BTC') btcValueUsd += value;
@@ -771,7 +823,7 @@ function DashboardPageContent() {
 
     const result = { dates, btcValue, btcPercentage };
     return result;
-  }, [hist, assets, txs]);
+  }, [hist, assets, txs, getEURCPrice]);
 
   // Altcoin Holdings BTC Value - OPTIMIZED: Use dailyPos instead of filtering transactions
   const altcoinVsBtc = useMemo(() => {

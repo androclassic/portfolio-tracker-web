@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { usePortfolio } from '../app/PortfolioProvider';
 import { jsonFetcher } from '@/lib/swr-fetcher';
@@ -11,6 +11,7 @@ import {
   getAssetName 
 } from '@/lib/portfolio-utils';
 import { getAssetColor } from '@/lib/assets';
+import { getHistoricalExchangeRate } from '@/lib/exchange-rates';
 import type { Transaction as Tx } from '@/lib/types';
 
 export function usePortfolioData() {
@@ -54,8 +55,57 @@ export function usePortfolioData() {
     includeCurrentPrices: true
   });
 
+  // Get EUR/USD rate for EURC valuation
+  const [eurUsdRate, setEurUsdRate] = useState<number | null>(null);
+  const hasEURC = useMemo(() => allAssets.some(a => a.toUpperCase() === 'EURC'), [allAssets]);
+  
+  useEffect(() => {
+    if (!hasEURC) {
+      setEurUsdRate(null);
+      return;
+    }
+    
+    // Get today's date
+    const today = new Date().toISOString().slice(0, 10);
+    
+    // Try to get EUR/USD rate for today, or use latest available
+    getHistoricalExchangeRate('EUR', 'USD', today)
+      .then(rate => setEurUsdRate(rate))
+      .catch(() => {
+        // Fallback: try to get rate from historical prices if available
+        // Look for most recent EUR/USD rate in historical data
+        if (historicalPrices.length > 0) {
+          // Try to find a recent date with EUR/USD rate
+          const recentDates = Array.from(new Set(historicalPrices.map(p => p.date)))
+            .sort()
+            .reverse()
+            .slice(0, 10); // Try last 10 dates
+          
+          for (const date of recentDates) {
+            getHistoricalExchangeRate('EUR', 'USD', date)
+              .then(rate => {
+                setEurUsdRate(rate);
+                return;
+              })
+              .catch(() => {});
+          }
+        }
+        // Final fallback
+        setEurUsdRate(1.08);
+      });
+  }, [hasEURC, historicalPrices]);
+
+  // Enhance latestPrices with EURC price (EUR/USD rate)
+  const latestPricesWithEURC = useMemo(() => {
+    const enhanced = { ...latestPrices };
+    if (hasEURC && eurUsdRate !== null) {
+      enhanced['EURC'] = eurUsdRate;
+    }
+    return enhanced;
+  }, [latestPrices, hasEURC, eurUsdRate]);
+
   // Calculate P&L using the same logic as dashboard
-  const pnlData = usePnLCalculation(txs, latestPrices, historicalPrices);
+  const pnlData = usePnLCalculation(txs, latestPricesWithEURC, historicalPrices);
   
   // Calculate holdings data
   const holdingsData = useMemo((): HoldingData[] => {
@@ -69,7 +119,10 @@ export function usePortfolioData() {
     return Object.entries(holdings)
       .filter(([_, quantity]) => quantity > 0)
       .map(([asset, quantity]) => {
-        const currentPrice = latestPrices[asset] || 0;
+        // Use EUR/USD rate for EURC
+        const currentPrice = asset.toUpperCase() === 'EURC' && eurUsdRate !== null
+          ? eurUsdRate
+          : (latestPricesWithEURC[asset] || 0);
         const currentValue = quantity * currentPrice;
         const btcValue = btcPrice > 0 ? currentValue / btcPrice : 0;
         
@@ -103,7 +156,7 @@ export function usePortfolioData() {
         };
       })
       .sort((a, b) => b.currentValue - a.currentValue);
-  }, [txs, latestPrices, loadingTxs, loadingPrices, hasData, historicalPrices, pnlData.assetPnL]);
+  }, [txs, latestPricesWithEURC, eurUsdRate, loadingTxs, loadingPrices, hasData, historicalPrices, pnlData.assetPnL]);
 
   // Calculate portfolio summary using shared P&L data
   const portfolioSummary = useMemo((): PortfolioSummary => {

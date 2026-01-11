@@ -8,6 +8,7 @@ export function DashboardOverview() {
   const {
     holdings,
     latestPrices,
+    fxRateMap,
     pnlData,
     loadingCurr,
   } = useDashboardData();
@@ -23,11 +24,30 @@ export function DashboardOverview() {
     let stablecoinValue = 0;
     let cryptoValue = 0;
 
+    // Helper to get EURC price (EUR/USD rate)
+    const getEURCPrice = (): number => {
+      if (fxRateMap.size > 0) {
+        // Try to get latest EUR/USD rate from any date in fxRateMap
+        const dates = Array.from(fxRateMap.keys()).sort().reverse();
+        for (const d of dates) {
+          const rates = fxRateMap.get(d);
+          if (rates && rates['EUR']) {
+            return rates['EUR']; // EUR/USD rate
+          }
+        }
+      }
+      // Fallback to approximate rate if no FX data available
+      return 1.08; // Approximate EUR/USD rate
+    };
+
     for (const [asset, units] of Object.entries(holdings)) {
       const qty = Number(units) || 0;
       if (qty <= 0) continue;
 
-      const price = latestPrices[asset] || 0;
+      // Use EUR/USD rate for EURC
+      const price = asset.toUpperCase() === 'EURC' 
+        ? getEURCPrice()
+        : (latestPrices[asset] || 0);
       const value = qty * price;
       totalValue += value;
 
@@ -56,7 +76,7 @@ export function DashboardOverview() {
       cryptoValue,
       allocation: cryptoValue > 0 ? (cryptoValue / totalValue) * 100 : 0,
     };
-  }, [holdings, latestPrices, pnlData, loadingCurr]);
+  }, [holdings, latestPrices, fxRateMap, pnlData, loadingCurr]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
