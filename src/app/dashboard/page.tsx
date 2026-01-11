@@ -278,27 +278,31 @@ function DashboardPageContent() {
         }
         
         // Get price from priceIndex (O(1) lookup)
+        // For stablecoins, always use fixed prices (1.0 for USD-pegged, EUR/USD rate for EURC)
         let price = 0;
-        const ai = priceIndex.assetIndex[asset];
-        const di = priceIndex.dateIndex[date];
-        if (ai !== undefined && di !== undefined && priceIndex.prices[ai] && priceIndex.prices[ai][di] !== undefined) {
-          price = priceIndex.prices[ai][di];
-        } else if (asset === 'EURC') {
+        if (asset === 'EURC') {
           price = getEURCPrice(date);
         } else if (isStablecoin(asset)) {
           price = 1.0;
         } else {
-          // Fallback: try to find price from historicalPrices for this date or closest before it
-          const assetPrices = hist.prices.filter(p => p.asset === asset && p.date <= date && p.price_usd != null && p.price_usd > 0);
-          if (assetPrices.length > 0) {
-            // Sort by date descending and take the most recent price on or before this date
-            assetPrices.sort((a, b) => b.date.localeCompare(a.date));
-            price = assetPrices[0]!.price_usd || 0;
-          } else if (latestPrices[asset]) {
-            // Last resort: use latest price if available
-            price = latestPrices[asset];
+          // For crypto assets, try priceIndex first
+          const ai = priceIndex.assetIndex[asset];
+          const di = priceIndex.dateIndex[date];
+          if (ai !== undefined && di !== undefined && priceIndex.prices[ai] && priceIndex.prices[ai][di] !== undefined) {
+            price = priceIndex.prices[ai][di];
           } else {
-            price = 0;
+            // Fallback: try to find price from historicalPrices for this date or closest before it
+            const assetPrices = hist.prices.filter(p => p.asset === asset && p.date <= date && p.price_usd != null && p.price_usd > 0);
+            if (assetPrices.length > 0) {
+              // Sort by date descending and take the most recent price on or before this date
+              assetPrices.sort((a, b) => b.date.localeCompare(a.date));
+              price = assetPrices[0]!.price_usd || 0;
+            } else if (latestPrices[asset]) {
+              // Last resort: use latest price if available
+              price = latestPrices[asset];
+            } else {
+              price = 0;
+            }
           }
         }
         
@@ -441,28 +445,31 @@ function DashboardPageContent() {
         }
 
         // Calculate portfolio value using position and price
+        // For stablecoins, always use fixed prices (1.0 for USD-pegged, EUR/USD rate for EURC)
         let px = 0;
-        // Try priceIndex first
-        const ai = priceIndex.assetIndex[asset];
-        const di = priceIndex.dateIndex[date];
-        if (ai !== undefined && di !== undefined && priceIndex.prices[ai] && priceIndex.prices[ai][di] !== undefined) {
-          px = priceIndex.prices[ai][di];
-        } else if (asset === 'EURC') {
+        if (asset === 'EURC') {
           px = getEURCPrice(date);
         } else if (isStablecoin(asset)) {
           px = 1.0;
         } else {
-          // Fallback: try to find price from historicalPrices for this date or closest before it
-          const assetPrices = hist.prices.filter(p => p.asset === asset && p.date <= date && p.price_usd != null && p.price_usd > 0);
-          if (assetPrices.length > 0) {
-            // Sort by date descending and take the most recent price on or before this date
-            assetPrices.sort((a, b) => b.date.localeCompare(a.date));
-            px = assetPrices[0]!.price_usd || 0;
-          } else if (latestPrices[asset]) {
-            // Last resort: use latest price if available
-            px = latestPrices[asset];
+          // For crypto assets, try priceIndex first
+          const ai = priceIndex.assetIndex[asset];
+          const di = priceIndex.dateIndex[date];
+          if (ai !== undefined && di !== undefined && priceIndex.prices[ai] && priceIndex.prices[ai][di] !== undefined) {
+            px = priceIndex.prices[ai][di];
           } else {
-            px = 0;
+            // Fallback: try to find price from historicalPrices for this date or closest before it
+            const assetPrices = hist.prices.filter(p => p.asset === asset && p.date <= date && p.price_usd != null && p.price_usd > 0);
+            if (assetPrices.length > 0) {
+              // Sort by date descending and take the most recent price on or before this date
+              assetPrices.sort((a, b) => b.date.localeCompare(a.date));
+              px = assetPrices[0]!.price_usd || 0;
+            } else if (latestPrices[asset]) {
+              // Last resort: use latest price if available
+              px = latestPrices[asset];
+            } else {
+              px = 0;
+            }
           }
         }
         
