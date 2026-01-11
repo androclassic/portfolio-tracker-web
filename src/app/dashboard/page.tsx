@@ -1,6 +1,6 @@
 'use client';
 import React, { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
-import { getAssetColor, isStablecoin, getFiatCurrencies } from '@/lib/assets';
+import { getAssetColor, isStablecoin, getFiatCurrencies, isFiatCurrency } from '@/lib/assets';
 import { usePortfolio } from '../PortfolioProvider';
 import AllocationPieChart from '@/components/AllocationPieChart';
 import AuthGuard from '@/components/AuthGuard';
@@ -494,7 +494,10 @@ function DashboardPageContent() {
     const usd: Data[] = [];
     const percent: Data[] = [];
 
-    for (const a of assets) {
+    // Filter out fiat currencies from the stacked chart (only show crypto and stablecoins)
+    const cryptoAssets = assets.filter(a => !isFiatCurrency(a));
+
+    for (const a of cryptoAssets) {
       const yUsd: number[] = stacked.perAssetUsd.get(a) || new Array(dates.length).fill(0);
       const lc = colorFor(a);
       const visible = hiddenStackedAssets.has(a) ? 'legendonly' : true;
@@ -562,9 +565,10 @@ function DashboardPageContent() {
     const total = stacked.totals[di] || 0;
     if (total <= 0) return null;
 
-    // Only show assets with holdings > 0 at this timestamp
+    // Only show assets with holdings > 0 at this timestamp (exclude fiat currencies)
     const items: Array<{ asset: string; value: number }> = [];
-    for (const a of assets) {
+    const cryptoAssets = assets.filter(a => !isFiatCurrency(a));
+    for (const a of cryptoAssets) {
       if (hiddenStackedAssets.has(a)) continue;
       const yUsd = stacked.perAssetUsd.get(a);
       const v = yUsd ? (yUsd[di] || 0) : 0;
@@ -1494,7 +1498,9 @@ function DashboardPageContent() {
             const maxPoints = expanded ? 200 : 100;
             const sampledDates = sampleDataWithDates(dates, dates, maxPoints).dates;
 
-            const traces = Array.from(stacked.perAssetUsd.keys()).map(asset => {
+            // Filter out fiat currencies from the stacked chart
+            const cryptoAssets = Array.from(stacked.perAssetUsd.keys()).filter(asset => !isFiatCurrency(asset));
+            const traces = cryptoAssets.map(asset => {
               const usdValues = stacked.perAssetUsd.get(asset) || [];
               const yData = stackedMode === 'usd'
                 ? usdValues.slice(idx)
