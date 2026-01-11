@@ -1100,6 +1100,7 @@ function SankeyExplorer({ event, transactions, onTransactionClick }: { event: Ta
   const [visibleSaleIds, setVisibleSaleIds] = useState<number[]>(rootSaleIds);
   const [visibleBuyIds, setVisibleBuyIds] = useState<number[]>(rootBuyIds);
   // Separate state for transaction tree expansion (starts collapsed)
+  const [withdrawalExpanded, setWithdrawalExpanded] = useState<boolean>(false);
   const [treeVisibleSaleIds, setTreeVisibleSaleIds] = useState<number[]>([]);
   const [treeVisibleBuyIds, setTreeVisibleBuyIds] = useState<number[]>([]);
   const [showDepositTxs, setShowDepositTxs] = useState<boolean>(false);
@@ -1235,6 +1236,7 @@ function SankeyExplorer({ event, transactions, onTransactionClick }: { event: Ta
     const withdrawalTx = transactions?.find(t => t.id === event.transactionId);
     if (withdrawalTx) {
       const withdrawalAmount = event.fiatAmountUsd || (withdrawalTx.toQuantity || 0);
+      const hasChildren = deepSales.length > 0;
       tree.push({
         id: `withdrawal-${withdrawalTx.id}`,
         type: 'withdrawal',
@@ -1244,7 +1246,8 @@ function SankeyExplorer({ event, transactions, onTransactionClick }: { event: Ta
         quantity: withdrawalTx.toQuantity || 0,
         datetime: withdrawalTx.datetime,
         children: [],
-        expanded: true,
+        expanded: withdrawalExpanded, // Use state for expansion
+        hasChildren: hasChildren,
       });
     }
 
@@ -1337,26 +1340,40 @@ function SankeyExplorer({ event, transactions, onTransactionClick }: { event: Ta
                     hasChildren: false,
                   });
                 }
+                // Sort funding sells by cost contribution (highest to lowest)
+                buyNode.children.sort((a, b) => (b.costBasis || b.amount || 0) - (a.costBasis || a.amount || 0));
               }
 
               saleNode.children.push(buyNode);
             }
           }
+          // Sort buy lots by cost contribution (highest to lowest)
+          if (saleNode.children.length > 0) {
+            saleNode.children.sort((a, b) => (b.costBasis || b.amount || 0) - (a.costBasis || a.amount || 0));
+          }
         }
         // hasChildren is already set above when creating saleNode
 
-        if (tree[0]) {
+        // Only add sale nodes as children if withdrawal is expanded
+        if (tree[0] && withdrawalExpanded) {
           tree[0].children.push(saleNode);
         }
       }
     }
+    
+    // Sort sale nodes by cost contribution (highest to lowest) for the withdrawal
+    if (tree[0] && tree[0].children.length > 0) {
+      tree[0].children.sort((a, b) => (b.costBasis || b.amount || 0) - (a.costBasis || a.amount || 0));
+    }
 
     return tree;
-  }, [event, transactions, deepSales, treeVisibleSaleIds, treeVisibleBuyIds]);
+  }, [event, transactions, deepSales, treeVisibleSaleIds, treeVisibleBuyIds, withdrawalExpanded]);
 
   const toggleNode = useCallback((nodeId: string) => {
     // Toggle transaction tree expansion (separate from Sankey diagram)
-    if (nodeId.startsWith('sell-')) {
+    if (nodeId.startsWith('withdrawal-')) {
+      setWithdrawalExpanded(!withdrawalExpanded);
+    } else if (nodeId.startsWith('sell-')) {
       const saleId = Number(nodeId.slice('sell-'.length));
       if (treeVisibleSaleIds.includes(saleId)) {
         setTreeVisibleSaleIds(treeVisibleSaleIds.filter(id => id !== saleId));
@@ -1371,7 +1388,7 @@ function SankeyExplorer({ event, transactions, onTransactionClick }: { event: Ta
         setTreeVisibleBuyIds([...treeVisibleBuyIds, buyId]);
       }
     }
-  }, [treeVisibleSaleIds, treeVisibleBuyIds]);
+  }, [treeVisibleSaleIds, treeVisibleBuyIds, withdrawalExpanded]);
 
   const [selectedTransactionId, setSelectedTransactionId] = useState<number | null>(null);
 
