@@ -70,8 +70,11 @@ export async function GET(req: NextRequest) {
 
     // Get USD to RON exchange rate for the year
     // Use the average rate for the year, or the rate at year-end
+    // If the year hasn't ended yet, use today's date instead
+    const today = new Date();
     const yearEndDate = `${year}-12-31`;
-    const usdToRonRate = await getHistoricalExchangeRate('USD', 'RON', yearEndDate);
+    const targetDate = new Date(yearEndDate) > today ? today.toISOString().slice(0, 10) : yearEndDate;
+    const usdToRonRate = await getHistoricalExchangeRate('USD', 'RON', targetDate);
 
     // Calculate tax report
     const taxReport = calculateRomaniaTax(txs, year, usdToRonRate, { assetStrategy, cashStrategy });
