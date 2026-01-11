@@ -204,14 +204,22 @@ function DashboardPageContent() {
           } else if (isStablecoin(asset)) {
             price = 1.0;
           } else {
-            price = 0;
+            // Fallback: try to get from historicalPrices (most recent)
+            const assetPrices = hist.prices.filter(p => p.asset === asset);
+            if (assetPrices.length > 0) {
+              // Sort by date descending and take the most recent price
+              assetPrices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+              price = assetPrices[0]!.price_usd;
+            } else {
+              price = 0;
+            }
           }
         }
         return { asset, units, value: price * units };
       })
       .filter(p => p.value > 0)
       .sort((a, b) => b.value - a.value);
-  }, [holdings, latestPrices, getEURCPrice]);
+  }, [holdings, latestPrices, getEURCPrice, hist]);
 
   // Net worth over time - OPTIMIZED: Use dailyPos with efficient forward-fill
   const netWorthOverTime = useMemo(() => {

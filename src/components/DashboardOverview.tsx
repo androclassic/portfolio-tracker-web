@@ -8,6 +8,7 @@ export function DashboardOverview() {
   const {
     holdings,
     latestPrices,
+    historicalPrices,
     fxRateMap,
     pnlData,
     loadingCurr,
@@ -45,9 +46,22 @@ export function DashboardOverview() {
       if (qty <= 0) continue;
 
       // Use EUR/USD rate for EURC
-      const price = asset.toUpperCase() === 'EURC' 
+      let price = asset.toUpperCase() === 'EURC' 
         ? getEURCPrice()
-        : (latestPrices[asset] || 0);
+        : (latestPrices[asset]);
+      
+      // Fallback: if price is missing or 0, try to get from historicalPrices (most recent)
+      if ((price === undefined || price === 0) && asset.toUpperCase() !== 'EURC') {
+        const assetPrices = historicalPrices.filter(p => p.asset === asset);
+        if (assetPrices.length > 0) {
+          // Sort by date descending and take the most recent price
+          assetPrices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          price = assetPrices[0]!.price_usd;
+        } else {
+          price = 0;
+        }
+      }
+      
       const value = qty * price;
       totalValue += value;
 
@@ -76,7 +90,7 @@ export function DashboardOverview() {
       cryptoValue,
       allocation: cryptoValue > 0 ? (cryptoValue / totalValue) * 100 : 0,
     };
-  }, [holdings, latestPrices, fxRateMap, pnlData, loadingCurr]);
+  }, [holdings, latestPrices, historicalPrices, fxRateMap, pnlData, loadingCurr]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-US', {
