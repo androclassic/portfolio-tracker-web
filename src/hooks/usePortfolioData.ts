@@ -126,14 +126,19 @@ export function usePortfolioData() {
         
         // Fallback: if price is missing or 0, try to get from historicalPrices (most recent)
         if ((currentPrice === undefined || currentPrice === 0) && asset.toUpperCase() !== 'EURC') {
-          const assetPrices = historicalPrices.filter(p => p.asset === asset);
+          const assetPrices = historicalPrices.filter(p => p.asset === asset && p.price_usd != null && p.price_usd > 0);
           if (assetPrices.length > 0) {
             // Sort by date descending and take the most recent price
             assetPrices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-            currentPrice = assetPrices[0]!.price_usd;
+            currentPrice = assetPrices[0]!.price_usd || 0;
           } else {
             currentPrice = 0;
           }
+        }
+        
+        // Ensure currentPrice is always a valid number
+        if (currentPrice === undefined || currentPrice === null || isNaN(currentPrice)) {
+          currentPrice = 0;
         }
         
         const currentValue = quantity * currentPrice;

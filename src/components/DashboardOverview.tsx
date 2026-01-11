@@ -52,14 +52,19 @@ export function DashboardOverview() {
       
       // Fallback: if price is missing or 0, try to get from historicalPrices (most recent)
       if ((price === undefined || price === 0) && asset.toUpperCase() !== 'EURC') {
-        const assetPrices = historicalPrices.filter(p => p.asset === asset);
+        const assetPrices = historicalPrices.filter(p => p.asset === asset && p.price_usd != null && p.price_usd > 0);
         if (assetPrices.length > 0) {
           // Sort by date descending and take the most recent price
           assetPrices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-          price = assetPrices[0]!.price_usd;
+          price = assetPrices[0]!.price_usd || 0;
         } else {
           price = 0;
         }
+      }
+      
+      // Ensure price is always a valid number
+      if (price === undefined || price === null || isNaN(price)) {
+        price = 0;
       }
       
       const value = qty * price;
