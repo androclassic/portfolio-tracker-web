@@ -1,15 +1,15 @@
 import axios from 'axios';
 
 const SYMBOL_TO_COINGECKO: Record<string, string> = {
-  BTC: 'bitcoin', ETH: 'ethereum', ADA: 'cardano', SOL: 'solana', DOT: 'polkadot', XRP: 'ripple', LINK: 'chainlink', AVAX: 'avalanche-2', USDT: 'tether', USDC: 'usd-coin', SUI: 'sui', MATIC: 'matic-network', BNB: 'binancecoin', DOGE: 'dogecoin', SHIB: 'shiba-inu', TRX: 'tron', ICP: 'internet-computer', UNI: 'uniswap', LTC: 'litecoin', ATOM: 'cosmos', NIGHT: 'midnight-3',
+  BTC: 'bitcoin', ETH: 'ethereum', ADA: 'cardano', SOL: 'solana', DOT: 'polkadot', XRP: 'ripple', LINK: 'chainlink', AVAX: 'avalanche-2', USDT: 'tether', USDC: 'usd-coin', SUI: 'sui', MATIC: 'matic-network', BNB: 'binancecoin', DOGE: 'dogecoin', SHIB: 'shiba-inu', TRX: 'tron', ICP: 'internet-computer', UNI: 'uniswap', LTC: 'litecoin', ATOM: 'cosmos', NIGHT: 'midnight-3', ALGO: 'algorand', CRO: 'crypto-com-chain', EGLD: 'elrond-erd-2', PEPE: 'pepe',
 };
 
 const SYMBOL_TO_COINCAP: Record<string, string> = {
-  BTC: 'bitcoin', ETH: 'ethereum', ADA: 'cardano', SOL: 'solana', DOT: 'polkadot', XRP: 'xrp', LINK: 'chainlink', AVAX: 'avalanche', USDT: 'tether', USDC: 'usd-coin', SUI: 'sui', MATIC: 'matic-network', BNB: 'binance-coin', DOGE: 'dogecoin', SHIB: 'shiba-inu', TRX: 'tron', ICP: 'internet-computer', UNI: 'uniswap', LTC: 'litecoin', ATOM: 'cosmos',
+  BTC: 'bitcoin', ETH: 'ethereum', ADA: 'cardano', SOL: 'solana', DOT: 'polkadot', XRP: 'xrp', LINK: 'chainlink', AVAX: 'avalanche', USDT: 'tether', USDC: 'usd-coin', SUI: 'sui', MATIC: 'matic-network', BNB: 'binance-coin', DOGE: 'dogecoin', SHIB: 'shiba-inu', TRX: 'tron', ICP: 'internet-computer', UNI: 'uniswap', LTC: 'litecoin', ATOM: 'cosmos', ALGO: 'algorand', CRO: 'crypto-com-chain', EGLD: 'elrond', PEPE: 'pepe',
 };
 
 const SYMBOL_TO_BINANCE_PAIR: Record<string, string> = {
-  BTC: 'BTCUSDT', ETH: 'ETHUSDT', ADA: 'ADAUSDT', SOL: 'SOLUSDT', DOT: 'DOTUSDT', XRP: 'XRPUSDT', LINK: 'LINKUSDT', AVAX: 'AVAXUSDT', SUI: 'SUIUSDT', BNB: 'BNBUSDT', DOGE: 'DOGEUSDT', USDC: 'USDCUSDT', MATIC: 'MATICUSDT', SHIB: 'SHIBUSDT', TRX: 'TRXUSDT', UNI: 'UNIUSDT', LTC: 'LTCUSDT', ATOM: 'ATOMUSDT',
+  BTC: 'BTCUSDT', ETH: 'ETHUSDT', ADA: 'ADAUSDT', SOL: 'SOLUSDT', DOT: 'DOTUSDT', XRP: 'XRPUSDT', LINK: 'LINKUSDT', AVAX: 'AVAXUSDT', SUI: 'SUIUSDT', BNB: 'BNBUSDT', DOGE: 'DOGEUSDT', USDC: 'USDCUSDT', MATIC: 'MATICUSDT', SHIB: 'SHIBUSDT', TRX: 'TRXUSDT', UNI: 'UNIUSDT', LTC: 'LTCUSDT', ATOM: 'ATOMUSDT', ALGO: 'ALGOUSDT', CRO: 'CROUSDT', EGLD: 'EGLDUSDT', PEPE: 'PEPEUSDT',
 };
 
 export type CurrentPrices = Record<string, number>;
