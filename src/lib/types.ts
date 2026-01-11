@@ -1,5 +1,5 @@
 // Stablecoins are treated as crypto (not fiat) but used as the base currency for swaps
-export const STABLECOINS = ['USDC', 'USDT', 'DAI', 'BUSD'] as const;
+export const STABLECOINS = ['USDC', 'USDT', 'DAI', 'BUSD', 'EURC'] as const;
 
 // Helper to check if an asset is a stablecoin
 export function isStablecoin(asset: string): boolean {
