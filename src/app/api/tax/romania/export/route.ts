@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerAuth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { calculateRomaniaTax } from '@/lib/tax/romania-v2';
-import { getHistoricalExchangeRate, getHistoricalExchangeRateSyncStrict, preloadExchangeRates } from '@/lib/exchange-rates';
+import { getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/exchange-rates';
 import type { TaxableEvent } from '@/lib/tax/romania-v2';
 import type { LotStrategy } from '@/lib/tax/lot-strategy';
 
@@ -105,6 +105,12 @@ export async function GET(req: NextRequest) {
       eventsToExport = [event];
     }
 
+    // Create a map of transaction ID -> transaction for quick lookup
+    const txMap = new Map<number, typeof transactions[0]>();
+    transactions.forEach(tx => {
+      txMap.set(tx.id, tx);
+    });
+
     // Generate CSV
     const lines: string[] = [];
     
@@ -148,192 +154,186 @@ export async function GET(req: NextRequest) {
         event.gainLossRon.toFixed(2),
       ].join(','));
     });
-    
-    lines.push('');
-    lines.push('=== ASSET ACQUISITION CHAIN ===');
-    lines.push('This section shows how assets were acquired, including crypto-to-crypto swaps.');
-    lines.push('');
-    lines.push('Asset Acquisition Trace:');
-    lines.push('Event ID,Transaction ID,Transaction Type,Asset,Quantity,Cost Basis (USD),Cost Basis (RON),Date,Price per Unit (USD),Swapped From Asset,Swapped From Quantity,Swapped From Transaction ID');
-    
+
+    // For each event, collect all implicated transactions and build hierarchy
     eventsToExport.forEach(event => {
-      const eventDateISO = new Date(event.datetime).toISOString().split('T')[0];
-      const usdRonAtEvent = getHistoricalExchangeRateSyncStrict('USD', 'RON', eventDateISO);
-      event.sourceTrace.forEach(trace => {
-        const buyDate = new Date(trace.datetime).toISOString().split('T')[0];
-        const pricePerUnit = trace.pricePerUnitUsd || (trace.quantity > 0 ? trace.costBasisUsd / trace.quantity : 0);
-        const costBasisRon = trace.costBasisUsd * usdRonAtEvent;
-        const txType = trace.type === 'CryptoSwap' ? 'Crypto Swap' : trace.type === 'Swap' ? 'Buy' : trace.type;
+      // Collect all unique transaction IDs involved in this event
+      const implicatedTxIds = new Set<number>();
+      const hierarchyRelations: Array<{
+        parentId: number;
+        childId: number;
+        relationshipType: string;
+        level: number;
+        amountAllocatedUsd?: number;
+        costBasisAllocatedUsd?: number;
+        quantity?: number;
+      }> = [];
+
+      // Add withdrawal transaction
+      implicatedTxIds.add(event.transactionId);
+
+      // Use saleTraceDeep for full hierarchy, fallback to saleTrace
+      const sales = (event.saleTraceDeep && event.saleTraceDeep.length ? event.saleTraceDeep : (event.saleTrace || []));
+      
+      // Track which sales have been added to hierarchy (to avoid duplicate parent-child entries)
+      const salesInHierarchy = new Set<number>();
+      
+      // Recursively collect all transactions and build hierarchy
+      const processSale = (sale: typeof sales[0], parentId: number, level: number, addToHierarchy: boolean = true) => {
+        implicatedTxIds.add(sale.saleTransactionId);
         
-        lines.push([
-          event.transactionId,
-          trace.transactionId,
-          txType,
-          trace.asset,
-          trace.quantity.toFixed(8),
-          trace.costBasisUsd.toFixed(2),
-          costBasisRon.toFixed(2),
-          buyDate,
-          pricePerUnit.toFixed(6),
-          trace.swappedFromAsset || '',
-          trace.swappedFromQuantity ? trace.swappedFromQuantity.toFixed(8) : '',
-          trace.swappedFromTransactionId || '',
-        ].join(','));
-      });
-    });
+        // Add to hierarchy only if requested (first time we encounter this sale)
+        if (addToHierarchy && !salesInHierarchy.has(sale.saleTransactionId)) {
+          salesInHierarchy.add(sale.saleTransactionId);
+          hierarchyRelations.push({
+            parentId,
+            childId: sale.saleTransactionId,
+            relationshipType: level === 1 ? 'Withdrawal→Sale' : 'BuyLot→FundingSale',
+            level,
+            amountAllocatedUsd: sale.proceedsUsd,
+            costBasisAllocatedUsd: sale.costBasisUsd,
+          });
+        }
 
-    lines.push('');
-    lines.push('=== SALE TRANSACTIONS ===');
-    lines.push('This section shows the sales that generated the cash for this withdrawal.');
-    lines.push('');
-    lines.push('Sales Contributing to Withdrawal:');
-    lines.push('Event ID,Sell Transaction ID,Sell Date,Asset,Proceeds (USD),Cost Basis (USD),Gain/Loss (USD)');
-    eventsToExport.forEach(event => {
-      const sales = (event.saleTraceDeep && event.saleTraceDeep.length ? event.saleTraceDeep : (event.saleTrace || []));
-      sales.forEach(sale => {
-        const sellDate = new Date(sale.saleDatetime).toISOString().split('T')[0];
-        lines.push([
-          event.transactionId,
-          sale.saleTransactionId,
-          sellDate,
-          sale.asset,
-          sale.proceedsUsd.toFixed(2),
-          sale.costBasisUsd.toFixed(2),
-          sale.gainLossUsd.toFixed(2),
-        ].join(','));
-      });
-    });
-
-    lines.push('');
-    lines.push('Buy Lots Sold (What was sold in each sale):');
-    lines.push('Event ID,Sell Transaction ID,Buy Transaction ID,Buy Date,Asset,Quantity Sold,Cost Basis (USD),Swapped From Asset,Swapped From Transaction ID,Original Buy Transaction ID (if swapped from crypto),Original Buy Asset (if swapped from crypto),Original Buy Quantity (if swapped from crypto),Original Buy Cost Basis (if swapped from crypto)');
-    eventsToExport.forEach(event => {
-      const sales = (event.saleTraceDeep && event.saleTraceDeep.length ? event.saleTraceDeep : (event.saleTrace || []));
-      sales.forEach(sale => {
         sale.buyLots.forEach(lot => {
-          const buyDate = new Date(lot.buyDatetime).toISOString().split('T')[0];
-          
-          // If this buy lot came from a crypto-to-crypto swap with original buy lots, show them
-          if (lot.swappedFromBuyLots && lot.swappedFromBuyLots.length > 0) {
-            // Show each original buy lot that was swapped
-            lot.swappedFromBuyLots.forEach((originalLot, idx) => {
-              lines.push([
-                event.transactionId,
-                sale.saleTransactionId,
-                lot.buyTransactionId,
-                buyDate,
-                lot.asset,
-                lot.quantity.toFixed(8),
-                lot.costBasisUsd.toFixed(2),
-                lot.swappedFromAsset || '',
-                lot.swappedFromTransactionId || '',
-                originalLot.buyTransactionId,
-                originalLot.asset,
-                originalLot.quantity.toFixed(8),
-                originalLot.costBasisUsd.toFixed(2),
-              ].join(','));
+          implicatedTxIds.add(lot.buyTransactionId);
+          hierarchyRelations.push({
+            parentId: sale.saleTransactionId,
+            childId: lot.buyTransactionId,
+            relationshipType: 'Sale→BuyLot',
+            level: level + 1,
+            costBasisAllocatedUsd: lot.costBasisUsd,
+            quantity: lot.quantity,
+          });
+
+          // Handle funding deposits
+          (lot.fundingDeposits || []).forEach(dep => {
+            implicatedTxIds.add(dep.transactionId);
+            hierarchyRelations.push({
+              parentId: lot.buyTransactionId,
+              childId: dep.transactionId,
+              relationshipType: 'BuyLot→Deposit',
+              level: level + 2,
+              amountAllocatedUsd: dep.costBasisUsd,
+              costBasisAllocatedUsd: dep.costBasisUsd,
             });
-          } else {
-            // Regular buy lot or swap from stablecoin (no original buy lots)
-            lines.push([
-              event.transactionId,
-              sale.saleTransactionId,
-              lot.buyTransactionId,
-              buyDate,
-              lot.asset,
-              lot.quantity.toFixed(8),
-              lot.costBasisUsd.toFixed(2),
-              lot.swappedFromAsset || '',
-              lot.swappedFromTransactionId || '',
-              '', // No original buy transaction ID
-              '', // No original buy asset
-              '', // No original buy quantity
-              '', // No original buy cost basis
-            ].join(','));
-          }
-        });
-      });
-    });
+          });
 
-    lines.push('');
-    lines.push('Funding Sells (Previous sales that funded buys):');
-    lines.push('Event ID,Sell Transaction ID,Buy Transaction ID,Buy Asset,Funding Sell Tx,Funding Sell Date,Funding Sell Asset,Amount Used (USD),Cost Basis Used (USD)');
-    eventsToExport.forEach(event => {
-      const sales = (event.saleTraceDeep && event.saleTraceDeep.length ? event.saleTraceDeep : (event.saleTrace || []));
-      sales.forEach(sale => {
-        sale.buyLots.forEach(lot => {
+          // Handle funding sells (recursive)
           const fundingSells = (lot as unknown as { fundingSells?: Array<{ saleTransactionId: number; saleDatetime: string; asset: string; amountUsd: number; costBasisUsd?: number }> }).fundingSells || [];
           fundingSells.forEach(fs => {
-            const fsDate = new Date(fs.saleDatetime).toISOString().split('T')[0];
-            lines.push([
-              event.transactionId,
-              sale.saleTransactionId,
-              lot.buyTransactionId,
-              lot.asset,
-              fs.saleTransactionId,
-              fsDate,
-              fs.asset,
-              (fs.amountUsd || 0).toFixed(2),
-              (fs.costBasisUsd || 0).toFixed(2),
-            ].join(','));
-          });
-        });
-      });
-    });
+            implicatedTxIds.add(fs.saleTransactionId);
+            hierarchyRelations.push({
+              parentId: lot.buyTransactionId,
+              childId: fs.saleTransactionId,
+              relationshipType: 'BuyLot→FundingSale',
+              level: level + 2,
+              amountAllocatedUsd: fs.amountUsd,
+              costBasisAllocatedUsd: fs.costBasisUsd || 0,
+            });
 
-    lines.push('');
-    lines.push('=== FUNDING SOURCES ===');
-    lines.push('This section shows how each buy was funded (deposits and previous sales).');
-    lines.push('');
-    lines.push('Deposits That Funded Buys:');
-    lines.push('Event ID,Sell Transaction ID,Buy Transaction ID,Deposit Transaction ID,Deposit Date,Deposit Currency,Deposit Amount (Original),Allocated Cost Basis (USD),Allocated Cost Basis (RON),FX Rate (USD per 1 unit)');
-    eventsToExport.forEach(event => {
-      const eventDateISO = new Date(event.datetime).toISOString().split('T')[0];
-      const usdRonAtEvent = getHistoricalExchangeRateSyncStrict('USD', 'RON', eventDateISO);
-      (event.saleTrace || []).forEach(sale => {
-        sale.buyLots.forEach(lot => {
-          (lot.fundingDeposits || []).forEach(dep => {
-            const depDate = new Date(dep.datetime).toISOString().split('T')[0];
-            const fx = dep.exchangeRateAtPurchase ?? dep.pricePerUnitUsd ?? 1;
-            const costBasisRon = dep.costBasisUsd * usdRonAtEvent;
-            lines.push([
-              event.transactionId,
-              sale.saleTransactionId,
-              lot.buyTransactionId,
-              dep.transactionId,
-              depDate,
-              dep.asset,
-              dep.quantity.toFixed(8),
-              dep.costBasisUsd.toFixed(2),
-              costBasisRon.toFixed(2),
-              Number(fx).toFixed(6),
-            ].join(','));
+            // Recursively process funding sell to add its buy lots
+            // Don't add the sale to hierarchy again (already added above)
+            const fundingSale = sales.find(s => s.saleTransactionId === fs.saleTransactionId);
+            if (fundingSale) {
+              processSale(fundingSale, fs.saleTransactionId, level + 2, false);
+            }
           });
-        });
-      });
-    });
 
-    // Optional: deposit trace at withdrawal level (can be huge)
-    lines.push('');
-    lines.push('=== DEPOSIT SUMMARY ===');
-    lines.push('Aggregated deposits that ultimately funded this withdrawal (may be large):');
-    lines.push('Event ID,Deposit Transaction ID,Deposit Date,Deposit Currency,Deposit Amount (Original),Allocated Cost Basis (USD),Allocated Cost Basis (RON),FX Rate (USD per 1 unit)');
-    eventsToExport.forEach(event => {
-      const eventDateISO = new Date(event.datetime).toISOString().split('T')[0];
-      const usdRonAtEvent = getHistoricalExchangeRateSyncStrict('USD', 'RON', eventDateISO);
+          // Handle crypto swaps (swappedFromTransactionId)
+          if (lot.swappedFromTransactionId) {
+            implicatedTxIds.add(lot.swappedFromTransactionId);
+            hierarchyRelations.push({
+              parentId: lot.buyTransactionId,
+              childId: lot.swappedFromTransactionId,
+              relationshipType: 'BuyLot→SwapFrom',
+              level: level + 2,
+              quantity: lot.swappedFromQuantity,
+            });
+          }
+
+          // Handle swapped from buy lots (for crypto-to-crypto swaps)
+          if (lot.swappedFromBuyLots && lot.swappedFromBuyLots.length > 0) {
+            lot.swappedFromBuyLots.forEach(originalLot => {
+              implicatedTxIds.add(originalLot.buyTransactionId);
+              hierarchyRelations.push({
+                parentId: lot.buyTransactionId,
+                childId: originalLot.buyTransactionId,
+                relationshipType: 'BuyLot→OriginalBuyLot',
+                level: level + 2,
+                costBasisAllocatedUsd: originalLot.costBasisUsd,
+                quantity: originalLot.quantity,
+              });
+            });
+          }
+        });
+      };
+
+      // Process all direct sales (those that directly fund the withdrawal)
+      sales.forEach(sale => {
+        processSale(sale, event.transactionId, 1, true);
+      });
+
+      // Add deposits from depositTrace
       (event.depositTrace || []).forEach(dep => {
-        const depDate = new Date(dep.datetime).toISOString().split('T')[0];
-        const fx = dep.exchangeRateAtPurchase ?? dep.pricePerUnitUsd ?? 1;
-        const costBasisRon = dep.costBasisUsd * usdRonAtEvent;
+        implicatedTxIds.add(dep.transactionId);
+      });
+
+      // === ALL IMPLICATED TRANSACTIONS ===
+      lines.push('');
+      lines.push(`=== ALL IMPLICATED TRANSACTIONS (Event ${event.transactionId}) ===`);
+      lines.push('This section lists all unique transactions involved in this tax event.');
+      lines.push('Each transaction appears once with complete details.');
+      lines.push('');
+      lines.push('Transaction ID,Type,Date,From Asset,From Quantity,From Price USD,To Asset,To Quantity,To Price USD,Fees USD,Notes');
+      
+      // Sort transaction IDs for consistent output
+      const sortedTxIds = Array.from(implicatedTxIds).sort((a, b) => a - b);
+      sortedTxIds.forEach(txId => {
+        const tx = txMap.get(txId);
+        if (tx) {
+          const date = new Date(tx.datetime).toISOString().split('T')[0];
+          const notes = (tx.notes || '').replace(/"/g, '""'); // Escape quotes for CSV
+          lines.push([
+            tx.id,
+            tx.type,
+            date,
+            tx.fromAsset || '',
+            tx.fromQuantity?.toFixed(8) || '',
+            tx.fromPriceUsd?.toFixed(6) || '',
+            tx.toAsset,
+            tx.toQuantity.toFixed(8),
+            tx.toPriceUsd?.toFixed(6) || '',
+            tx.feesUsd?.toFixed(2) || '',
+            `"${notes}"`,
+          ].join(','));
+        }
+      });
+
+      // === TRANSACTION HIERARCHY ===
+      lines.push('');
+      lines.push(`=== TRANSACTION HIERARCHY (Event ${event.transactionId}) ===`);
+      lines.push('This section shows the parent-child relationships between transactions.');
+      lines.push('Use this to trace how cost basis flows from deposits through buys and sales to the withdrawal.');
+      lines.push('');
+      lines.push('Parent Transaction ID,Child Transaction ID,Relationship Type,Level,Amount Allocated (USD),Cost Basis Allocated (USD),Quantity');
+      
+      // Sort hierarchy by level, then by parent ID
+      hierarchyRelations.sort((a, b) => {
+        if (a.level !== b.level) return a.level - b.level;
+        if (a.parentId !== b.parentId) return a.parentId - b.parentId;
+        return a.childId - b.childId;
+      });
+
+      hierarchyRelations.forEach(rel => {
         lines.push([
-          event.transactionId,
-          dep.transactionId,
-          depDate,
-          dep.asset,
-          dep.quantity.toFixed(8),
-          dep.costBasisUsd.toFixed(2),
-          costBasisRon.toFixed(2),
-          Number(fx).toFixed(6),
+          rel.parentId,
+          rel.childId,
+          rel.relationshipType,
+          rel.level,
+          rel.amountAllocatedUsd?.toFixed(2) || '',
+          rel.costBasisAllocatedUsd?.toFixed(2) || '',
+          rel.quantity?.toFixed(8) || '',
         ].join(','));
       });
     });
