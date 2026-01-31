@@ -118,7 +118,10 @@ export default function DynamicHeader() {
                       <div className="user-email">{session?.user?.email}</div>
                     </div>
                     <div className="dropdown-divider"></div>
-                    <button 
+                    <Link href="/settings" className="dropdown-item">
+                      Settings
+                    </Link>
+                    <button
                       className="dropdown-item logout-item"
                       onClick={handleLogout}
                       disabled={loggingOut}

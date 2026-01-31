@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentPrices } from '@/lib/prices/service';
-import { getAssetColor, STABLECOINS } from '@/lib/assets';
+import { getAssetColor, isStablecoin } from '@/lib/assets';
+import crypto from 'crypto';
 
 /**
  * Ticker API - Returns portfolio data for external display devices (e-ink ticker, etc.)
  *
  * Authentication: API Key via X-API-Key header
- * Set TICKER_API_KEY in your .env file
+ * Generate API keys from your account settings page
  *
  * Query params:
  *   - portfolioId: number (default: 1)
- *   - userId: string (required - the user ID whose portfolio to fetch)
  *
  * Returns:
  *   - holdings: array of { asset, quantity, currentPrice, currentValue, costBasis, pnl, pnlPercent, color }
@@ -20,25 +20,63 @@ import { getAssetColor, STABLECOINS } from '@/lib/assets';
  *   - summary: { totalValue, totalCost, totalPnl, totalPnlPercent, btcPrice }
  */
 
-function isStablecoin(asset: string): boolean {
-  return STABLECOINS.includes(asset.toUpperCase());
+function hashApiKey(key: string): string {
+  return crypto.createHash('sha256').update(key).digest('hex');
+}
+
+async function validateApiKey(apiKey: string): Promise<{ valid: boolean; userId?: string }> {
+  if (!apiKey) {
+    return { valid: false };
+  }
+
+  const hashedKey = hashApiKey(apiKey);
+
+  // Find the API key in database
+  const keyRecord = await prisma.apiKey.findFirst({
+    where: {
+      key: hashedKey,
+      revokedAt: null, // Not revoked
+      OR: [
+        { expiresAt: null }, // No expiration
+        { expiresAt: { gt: new Date() } }, // Not expired
+      ],
+    },
+    select: {
+      id: true,
+      userId: true,
+    },
+  });
+
+  if (!keyRecord) {
+    return { valid: false };
+  }
+
+  // Update last used timestamp (fire and forget)
+  prisma.apiKey.update({
+    where: { id: keyRecord.id },
+    data: { lastUsedAt: new Date() },
+  }).catch(() => {}); // Ignore errors
+
+  return { valid: true, userId: keyRecord.userId };
 }
 
 export async function GET(req: NextRequest) {
   // Check API key
   const apiKey = req.headers.get('x-api-key');
-  const expectedKey = process.env.TICKER_API_KEY;
 
-  if (!expectedKey) {
+  if (!apiKey) {
     return NextResponse.json(
-      { error: 'Ticker API not configured. Set TICKER_API_KEY in environment.' },
-      { status: 500 }
+      { error: 'Unauthorized. Missing API key. Generate one from your account settings.' },
+      { status: 401 }
     );
   }
 
-  if (!apiKey || apiKey !== expectedKey) {
+  // Validate API key and get user ID
+  const { valid, userId } = await validateApiKey(apiKey);
+
+  if (!valid || !userId) {
     return NextResponse.json(
-      { error: 'Unauthorized. Invalid or missing API key.' },
+      { error: 'Unauthorized. Invalid or expired API key.' },
       { status: 401 }
     );
   }
@@ -46,16 +84,8 @@ export async function GET(req: NextRequest) {
   // Get query params
   const url = new URL(req.url);
   const portfolioId = Number(url.searchParams.get('portfolioId') || '1');
-  const userId = url.searchParams.get('userId');
 
-  if (!userId) {
-    return NextResponse.json(
-      { error: 'userId query parameter is required' },
-      { status: 400 }
-    );
-  }
-
-  // Fetch portfolio and verify ownership
+  // Fetch portfolio and verify ownership (userId comes from the validated API key)
   const portfolio = await prisma.portfolio.findFirst({
     where: { id: portfolioId, userId },
   });
@@ -88,25 +118,44 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Calculate holdings from transactions
+  // Calculate holdings from transactions using new schema
+  // New schema uses: type (Deposit/Withdrawal/Swap), fromAsset/fromQuantity/fromPriceUsd, toAsset/toQuantity/toPriceUsd
   const holdingsMap: Record<string, { quantity: number; costBasis: number }> = {};
 
   for (const tx of transactions) {
-    const asset = tx.asset.toUpperCase();
-    if (!holdingsMap[asset]) {
-      holdingsMap[asset] = { quantity: 0, costBasis: 0 };
-    }
+    // Handle "to" side (receiving assets)
+    if (tx.toAsset && tx.toQuantity) {
+      const asset = tx.toAsset.toUpperCase();
+      if (!holdingsMap[asset]) {
+        holdingsMap[asset] = { quantity: 0, costBasis: 0 };
+      }
 
-    const quantity = Number(tx.quantity) || 0;
-    const costUsd = Number(tx.costUsd) || 0;
+      const quantity = Number(tx.toQuantity) || 0;
+      // Cost basis: use toPriceUsd * toQuantity, or for swaps use fromPriceUsd * fromQuantity
+      let costUsd = 0;
+      if (tx.toPriceUsd) {
+        costUsd = quantity * Number(tx.toPriceUsd);
+      } else if (tx.fromPriceUsd && tx.fromQuantity) {
+        // For swaps without toPriceUsd, derive from source side
+        costUsd = Number(tx.fromQuantity) * Number(tx.fromPriceUsd);
+      }
 
-    if (tx.type === 'Buy' || tx.type === 'Deposit') {
       holdingsMap[asset].quantity += quantity;
       holdingsMap[asset].costBasis += costUsd;
-    } else if (tx.type === 'Sell' || tx.type === 'Withdrawal') {
+    }
+
+    // Handle "from" side (sending assets) - reduces holdings
+    if (tx.fromAsset && tx.fromQuantity) {
+      const asset = tx.fromAsset.toUpperCase();
+      if (!holdingsMap[asset]) {
+        holdingsMap[asset] = { quantity: 0, costBasis: 0 };
+      }
+
+      const quantity = Number(tx.fromQuantity) || 0;
+
       // Proportionally reduce cost basis
       if (holdingsMap[asset].quantity > 0) {
-        const ratio = quantity / holdingsMap[asset].quantity;
+        const ratio = Math.min(quantity / holdingsMap[asset].quantity, 1);
         holdingsMap[asset].costBasis -= holdingsMap[asset].costBasis * ratio;
       }
       holdingsMap[asset].quantity -= quantity;
@@ -115,7 +164,7 @@ export async function GET(req: NextRequest) {
 
   // Filter out assets with zero or negative holdings
   const assetsWithHoldings = Object.entries(holdingsMap)
-    .filter(([_, data]) => data.quantity > 0)
+    .filter(([_, data]) => data.quantity > 0.0001) // Small threshold for floating point
     .map(([asset]) => asset);
 
   if (assetsWithHoldings.length === 0) {

@@ -20,6 +20,20 @@ model User {
   accounts      Account[]
   sessions      Session[]
   portfolios    Portfolio[]
+  apiKeys       ApiKey[]
+}
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  name        String    // User-friendly name for the key
+  key         String    @unique // The actual API key (hashed for storage)
+  keyPrefix   String    // First 8 chars of key for display (e.g., "tk_abc123...")
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime? // Optional expiration
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime? // Null if active, set when revoked
 }
 
 model Account {
