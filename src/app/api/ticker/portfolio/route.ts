@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getCurrentPrices } from '@/lib/prices/service';
+import { getCurrentPrices, getHistoricalPrices } from '@/lib/prices/service';
 import { getAssetColor, isStablecoin } from '@/lib/assets';
 import crypto from 'crypto';
 
@@ -186,13 +186,32 @@ export async function GET(req: NextRequest) {
   const prices = await getCurrentPrices(assetsWithHoldings);
   const btcPrice = prices['BTC'] || 0;
 
-  // Calculate holdings with current values
+  // Fetch prices from 7 days ago for performance calculation
+  const now = Math.floor(Date.now() / 1000);
+  const sevenDaysAgo = now - 7 * 24 * 60 * 60;
+  const historicalPrices = await getHistoricalPrices(assetsWithHoldings, sevenDaysAgo, sevenDaysAgo);
+
+  // Create map of 7-day-ago prices
+  const prices7dAgo: Record<string, number> = {};
+  for (const hp of historicalPrices) {
+    prices7dAgo[hp.asset.toUpperCase()] = hp.price_usd;
+  }
+
+  // Calculate holdings with current values and 7-day performance
   const holdings = assetsWithHoldings.map(asset => {
     const data = holdingsMap[asset];
     const currentPrice = isStablecoin(asset) ? 1 : (prices[asset] || 0);
     const currentValue = data.quantity * currentPrice;
     const pnl = currentValue - data.costBasis;
     const pnlPercent = data.costBasis > 0 ? (pnl / data.costBasis) * 100 : 0;
+
+    // Calculate 7-day price change
+    const price7dAgo = isStablecoin(asset) ? 1 : (prices7dAgo[asset] || currentPrice);
+    const change7d = currentPrice - price7dAgo;
+    const change7dPercent = price7dAgo > 0 ? (change7d / price7dAgo) * 100 : 0;
+    // Value change based on current holdings
+    const value7dAgo = data.quantity * price7dAgo;
+    const valueChange7d = currentValue - value7dAgo;
 
     return {
       asset,
@@ -202,6 +221,8 @@ export async function GET(req: NextRequest) {
       costBasis: data.costBasis,
       pnl,
       pnlPercent,
+      change7dPercent,
+      valueChange7d,
       color: getAssetColor(asset),
     };
   }).sort((a, b) => b.currentValue - a.currentValue);
@@ -233,15 +254,34 @@ export async function GET(req: NextRequest) {
     }))
     .sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
 
+  // 7-day performance data (for treemap showing recent performance)
+  const performance7d = holdings
+    .filter(h => !isStablecoin(h.asset) && h.valueChange7d !== 0)
+    .map(h => ({
+      asset: h.asset,
+      change: h.valueChange7d,
+      changePercent: h.change7dPercent,
+      color: h.valueChange7d >= 0 ? '#16a34a' : '#dc2626',
+    }))
+    .sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+
+  // Calculate total 7-day change
+  const totalChange7d = holdings.reduce((sum, h) => sum + h.valueChange7d, 0);
+  const totalValue7dAgo = totalValue - totalChange7d;
+  const totalChange7dPercent = totalValue7dAgo > 0 ? (totalChange7d / totalValue7dAgo) * 100 : 0;
+
   return NextResponse.json({
     holdings,
     allocation,
     pnlData,
+    performance7d,
     summary: {
       totalValue,
       totalCost,
       totalPnl,
       totalPnlPercent,
+      totalChange7d,
+      totalChange7dPercent,
       btcPrice,
     },
   }, {
