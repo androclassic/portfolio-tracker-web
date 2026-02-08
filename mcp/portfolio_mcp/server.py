@@ -14,10 +14,9 @@ Environment variables:
 
 import json
 import os
-from contextlib import asynccontextmanager
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -39,68 +38,48 @@ API_BASE_URL = os.environ.get("PORTFOLIO_API_URL", "http://localhost:3000")
 API_KEY = os.environ.get("PORTFOLIO_API_KEY", "")
 DEFAULT_TIMEOUT = 30.0
 
-
-# ---------------------------------------------------------------------------
-# Lifespan: shared httpx client
-# ---------------------------------------------------------------------------
-
-@asynccontextmanager
-async def app_lifespan(server):
-    """Manage a shared httpx client across tool calls."""
-    client = httpx.AsyncClient(
-        base_url=API_BASE_URL,
-        timeout=DEFAULT_TIMEOUT,
-        headers={"X-API-Key": API_KEY},
-    )
-    try:
-        yield {"http": client}
-    finally:
-        await client.aclose()
-
-
-mcp = FastMCP("portfolio_mcp", lifespan=app_lifespan)
+mcp = FastMCP("portfolio_mcp")
 
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-def _get_client(ctx) -> httpx.AsyncClient:
-    """Retrieve the shared httpx client from lifespan state."""
-    return ctx.request_context.lifespan_state["http"]
-
-
-async def _api_get(ctx, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _api_get(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Make a GET request to the Portfolio Tracker API."""
-    client = _get_client(ctx)
-    resp = await client.get(path, params=params)
-    resp.raise_for_status()
-    return resp.json()
+    async with httpx.AsyncClient(
+        base_url=API_BASE_URL,
+        timeout=DEFAULT_TIMEOUT,
+        headers={"X-API-Key": API_KEY},
+    ) as client:
+        resp = await client.get(path, params=params)
+        resp.raise_for_status()
+        return resp.json()
 
 
-async def _api_post(ctx, path: str, json_body: Optional[Dict[str, Any]] = None,
+async def _api_post(path: str, json_body: Optional[Dict[str, Any]] = None,
                     params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Make a POST request to the Portfolio Tracker API."""
-    client = _get_client(ctx)
-    resp = await client.post(path, json=json_body, params=params)
-    resp.raise_for_status()
-    return resp.json()
+    async with httpx.AsyncClient(
+        base_url=API_BASE_URL,
+        timeout=DEFAULT_TIMEOUT,
+        headers={"X-API-Key": API_KEY},
+    ) as client:
+        resp = await client.post(path, json=json_body, params=params)
+        resp.raise_for_status()
+        return resp.json()
 
 
-async def _api_put(ctx, path: str, json_body: Dict[str, Any]) -> Dict[str, Any]:
-    """Make a PUT request to the Portfolio Tracker API."""
-    client = _get_client(ctx)
-    resp = await client.put(path, json=json_body)
-    resp.raise_for_status()
-    return resp.json()
-
-
-async def _api_delete(ctx, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def _api_delete(path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Make a DELETE request to the Portfolio Tracker API."""
-    client = _get_client(ctx)
-    resp = await client.delete(path, params=params)
-    resp.raise_for_status()
-    return resp.json()
+    async with httpx.AsyncClient(
+        base_url=API_BASE_URL,
+        timeout=DEFAULT_TIMEOUT,
+        headers={"X-API-Key": API_KEY},
+    ) as client:
+        resp = await client.delete(path, params=params)
+        resp.raise_for_status()
+        return resp.json()
 
 
 def _handle_error(e: Exception) -> str:
@@ -313,7 +292,7 @@ class ListPortfoliosInput(BaseModel):
         "openWorldHint": True,
     },
 )
-async def portfolio_get_holdings(params: GetHoldingsInput, ctx=None) -> str:
+async def portfolio_get_holdings(params: GetHoldingsInput) -> str:
     """Get current portfolio holdings with P&L, allocation, and 7-day performance.
 
     Returns a comprehensive view of the portfolio including per-asset holdings,
@@ -332,7 +311,7 @@ async def portfolio_get_holdings(params: GetHoldingsInput, ctx=None) -> str:
             - summary: totalValue, totalCost, totalPnl, totalPnlPercent, btcPrice
     """
     try:
-        data = await _api_get(ctx, "/api/ticker/portfolio", {"portfolioId": params.portfolio_id})
+        data = await _api_get("/api/ticker/portfolio", {"portfolioId": params.portfolio_id})
 
         if params.response_format == ResponseFormat.JSON:
             return json.dumps(data, indent=2)
@@ -357,13 +336,13 @@ async def portfolio_get_holdings(params: GetHoldingsInput, ctx=None) -> str:
         ]
 
         for h in holdings:
-            pnl_emoji = "+" if h.get("pnl", 0) >= 0 else ""
+            pnl_sign = "+" if h.get("pnl", 0) >= 0 else ""
             lines.append(f"### {h['asset']}")
             lines.append(f"- Quantity: {_fmt_qty(h['quantity'])}")
             lines.append(f"- Price: {_fmt_usd(h['currentPrice'])}")
             lines.append(f"- Value: {_fmt_usd(h['currentValue'])}")
             lines.append(f"- Cost Basis: {_fmt_usd(h['costBasis'])}")
-            lines.append(f"- P&L: {pnl_emoji}{_fmt_usd(h['pnl'])} ({_fmt_pct(h['pnlPercent'])})")
+            lines.append(f"- P&L: {pnl_sign}{_fmt_usd(h['pnl'])} ({_fmt_pct(h['pnlPercent'])})")
             lines.append(f"- 7d Change: {_fmt_pct(h.get('change7dPercent', 0))}")
             lines.append("")
 
@@ -394,7 +373,7 @@ async def portfolio_get_holdings(params: GetHoldingsInput, ctx=None) -> str:
         "openWorldHint": True,
     },
 )
-async def portfolio_get_history(params: GetHistoryInput, ctx=None) -> str:
+async def portfolio_get_history(params: GetHistoryInput) -> str:
     """Get daily portfolio value history for charting trends over time.
 
     Returns the total portfolio value for each day over the requested period.
@@ -407,7 +386,7 @@ async def portfolio_get_history(params: GetHistoryInput, ctx=None) -> str:
         str: Daily portfolio values as a time series.
     """
     try:
-        data = await _api_get(ctx, "/api/ticker/portfolio/history", {
+        data = await _api_get("/api/ticker/portfolio/history", {
             "portfolioId": params.portfolio_id,
             "days": params.days,
         })
@@ -452,7 +431,7 @@ async def portfolio_get_history(params: GetHistoryInput, ctx=None) -> str:
         "openWorldHint": True,
     },
 )
-async def portfolio_list_portfolios(params: ListPortfoliosInput, ctx=None) -> str:
+async def portfolio_list_portfolios(params: ListPortfoliosInput) -> str:
     """List all portfolios belonging to the authenticated user.
 
     Returns portfolio names and IDs. Use this to discover available portfolios
@@ -465,7 +444,7 @@ async def portfolio_list_portfolios(params: ListPortfoliosInput, ctx=None) -> st
         str: List of portfolios with id, name, and creation date.
     """
     try:
-        data = await _api_get(ctx, "/api/portfolios")
+        data = await _api_get("/api/portfolios")
 
         if params.response_format == ResponseFormat.JSON:
             return json.dumps(data, indent=2)
@@ -495,7 +474,7 @@ async def portfolio_list_portfolios(params: ListPortfoliosInput, ctx=None) -> st
         "openWorldHint": True,
     },
 )
-async def portfolio_list_transactions(params: ListTransactionsInput, ctx=None) -> str:
+async def portfolio_list_transactions(params: ListTransactionsInput) -> str:
     """List all transactions for a portfolio, ordered by date.
 
     Shows deposits, withdrawals, and swaps with full details including
@@ -512,7 +491,7 @@ async def portfolio_list_transactions(params: ListTransactionsInput, ctx=None) -
         if params.portfolio_id is not None:
             query_params["portfolioId"] = params.portfolio_id
 
-        data = await _api_get(ctx, "/api/transactions", query_params)
+        data = await _api_get("/api/transactions", query_params)
 
         if params.response_format == ResponseFormat.JSON:
             return json.dumps(data, indent=2)
@@ -562,7 +541,7 @@ async def portfolio_list_transactions(params: ListTransactionsInput, ctx=None) -
         "openWorldHint": True,
     },
 )
-async def portfolio_add_transaction(params: AddTransactionInput, ctx=None) -> str:
+async def portfolio_add_transaction(params: AddTransactionInput) -> str:
     """Add a new transaction (deposit, withdrawal, or swap) to a portfolio.
 
     Use this to log trades, deposits, or withdrawals. For swaps, you must
@@ -600,7 +579,7 @@ async def portfolio_add_transaction(params: AddTransactionInput, ctx=None) -> st
         if params.notes is not None:
             body["notes"] = params.notes
 
-        result = await _api_post(ctx, "/api/transactions", json_body=body)
+        result = await _api_post("/api/transactions", json_body=body)
 
         tx_id = result.get("id", "?")
         return (
@@ -624,7 +603,7 @@ async def portfolio_add_transaction(params: AddTransactionInput, ctx=None) -> st
         "openWorldHint": True,
     },
 )
-async def portfolio_delete_transaction(params: DeleteTransactionInput, ctx=None) -> str:
+async def portfolio_delete_transaction(params: DeleteTransactionInput) -> str:
     """Delete a transaction by its ID. This is irreversible.
 
     Args:
@@ -634,7 +613,7 @@ async def portfolio_delete_transaction(params: DeleteTransactionInput, ctx=None)
         str: Confirmation that the transaction was deleted.
     """
     try:
-        await _api_delete(ctx, "/api/transactions", {"id": params.transaction_id})
+        await _api_delete("/api/transactions", {"id": params.transaction_id})
         return f"Transaction {params.transaction_id} deleted successfully."
     except Exception as e:
         return _handle_error(e)
@@ -652,7 +631,7 @@ async def portfolio_delete_transaction(params: DeleteTransactionInput, ctx=None)
         "openWorldHint": True,
     },
 )
-async def portfolio_get_cashflow(params: GetCashflowInput, ctx=None) -> str:
+async def portfolio_get_cashflow(params: GetCashflowInput) -> str:
     """Analyze money flow: deposits, withdrawals, trading volume, and net flow.
 
     Provides a comprehensive cash flow breakdown including total money in/out,
@@ -666,7 +645,7 @@ async def portfolio_get_cashflow(params: GetCashflowInput, ctx=None) -> str:
         str: Cash flow summary with deposits, withdrawals, net flow, and yearly breakdown.
     """
     try:
-        data = await _api_get(ctx, "/api/cashflow", {"portfolioId": params.portfolio_id})
+        data = await _api_get("/api/cashflow", {"portfolioId": params.portfolio_id})
 
         if params.response_format == ResponseFormat.JSON:
             return json.dumps(data, indent=2)
@@ -718,7 +697,7 @@ async def portfolio_get_cashflow(params: GetCashflowInput, ctx=None) -> str:
         "openWorldHint": True,
     },
 )
-async def portfolio_get_tax_report(params: GetTaxReportInput, ctx=None) -> str:
+async def portfolio_get_tax_report(params: GetTaxReportInput) -> str:
     """Generate a Romania crypto tax report for a specific year.
 
     Calculates taxable events (sales, swaps, withdrawals), cost basis tracing,
@@ -740,7 +719,7 @@ async def portfolio_get_tax_report(params: GetTaxReportInput, ctx=None) -> str:
         if params.portfolio_id is not None:
             query_params["portfolioId"] = str(params.portfolio_id)
 
-        data = await _api_get(ctx, "/api/tax/romania", query_params)
+        data = await _api_get("/api/tax/romania", query_params)
 
         if params.response_format == ResponseFormat.JSON:
             return json.dumps(data, indent=2)
@@ -767,10 +746,10 @@ async def portfolio_get_tax_report(params: GetTaxReportInput, ctx=None) -> str:
             dt = ev.get("datetime", "")[:10]
             gain_usd = ev.get("gainLossUsd", 0)
             gain_ron = ev.get("gainLossRon", 0)
-            emoji = "+" if gain_usd >= 0 else ""
+            sign = "+" if gain_usd >= 0 else ""
             lines.append(
                 f"- **{dt}** (TX #{ev.get('transactionId', '?')}): "
-                f"Gain/Loss {emoji}{_fmt_usd(gain_usd)} / {emoji}{gain_ron:,.2f} RON"
+                f"Gain/Loss {sign}{_fmt_usd(gain_usd)} / {sign}{gain_ron:,.2f} RON"
             )
 
         if len(events) > 30:
@@ -794,7 +773,7 @@ async def portfolio_get_tax_report(params: GetTaxReportInput, ctx=None) -> str:
         "openWorldHint": True,
     },
 )
-async def portfolio_get_prices(params: GetPricesInput, ctx=None) -> str:
+async def portfolio_get_prices(params: GetPricesInput) -> str:
     """Get current USD prices for one or more crypto assets.
 
     Fetches real-time prices from the Portfolio Tracker's price service.
@@ -807,7 +786,7 @@ async def portfolio_get_prices(params: GetPricesInput, ctx=None) -> str:
         str: Current prices per asset in USD.
     """
     try:
-        data = await _api_get(ctx, "/api/prices/current", {"symbols": params.symbols})
+        data = await _api_get("/api/prices/current", {"symbols": params.symbols})
         prices = data.get("prices", {})
 
         if not prices:
@@ -833,7 +812,7 @@ async def portfolio_get_prices(params: GetPricesInput, ctx=None) -> str:
         "openWorldHint": True,
     },
 )
-async def portfolio_get_price_history(params: GetPriceHistoryInput, ctx=None) -> str:
+async def portfolio_get_price_history(params: GetPriceHistoryInput) -> str:
     """Get historical USD prices for assets over a date range.
 
     Returns daily prices between start and end timestamps. Useful for
@@ -846,7 +825,7 @@ async def portfolio_get_price_history(params: GetPriceHistoryInput, ctx=None) ->
         str: JSON array of {asset, date, price_usd} entries.
     """
     try:
-        data = await _api_get(ctx, "/api/prices", {
+        data = await _api_get("/api/prices", {
             "symbols": params.symbols,
             "start": params.start_timestamp,
             "end": params.end_timestamp,
