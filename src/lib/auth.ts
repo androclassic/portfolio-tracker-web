@@ -5,9 +5,14 @@ import EmailProvider from "next-auth/providers/email"
 import CredentialsProvider from "next-auth/providers/credentials"
 import { PrismaClient } from "@prisma/client"
 import bcrypt from "bcryptjs"
+import crypto from "crypto"
 import { NextRequest } from "next/server"
 
 const prisma = new PrismaClient()
+
+function hashApiKey(key: string): string {
+  return crypto.createHash('sha256').update(key).digest('hex');
+}
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
@@ -122,14 +127,49 @@ export const authOptions: NextAuthOptions = {
   }
 }
 
-// Helper function to get session in API routes
+// Helper function to get session in API routes.
+// Supports both NextAuth session cookies AND API key authentication (X-API-Key header).
+// API key auth enables external integrations (MCP servers, CardanoTicker, etc.)
+// to access all endpoints without a browser session.
 export async function getServerAuth(req: NextRequest) {
+  // First try NextAuth session
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return null;
+  if (session?.user?.id) {
+    return {
+      userId: session.user.id,
+      user: session.user
+    };
   }
-  return {
-    userId: session.user.id,
-    user: session.user
-  };
+
+  // Fallback: check for API key in header
+  const apiKey = req.headers.get('x-api-key');
+  if (apiKey) {
+    const hashedKey = hashApiKey(apiKey);
+    const keyRecord = await prisma.apiKey.findFirst({
+      where: {
+        key: hashedKey,
+        revokedAt: null,
+        OR: [
+          { expiresAt: null },
+          { expiresAt: { gt: new Date() } },
+        ],
+      },
+      select: { id: true, userId: true },
+    });
+
+    if (keyRecord) {
+      // Update last used (fire and forget)
+      prisma.apiKey.update({
+        where: { id: keyRecord.id },
+        data: { lastUsedAt: new Date() },
+      }).catch(() => {});
+
+      return {
+        userId: keyRecord.userId,
+        user: { id: keyRecord.userId } as any
+      };
+    }
+  }
+
+  return null;
 }
