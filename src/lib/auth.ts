@@ -164,9 +164,24 @@ export async function getServerAuth(req: NextRequest) {
         data: { lastUsedAt: new Date() },
       }).catch(() => {});
 
+      // Fetch user to match session user type
+      const user = await prisma.user.findUnique({
+        where: { id: keyRecord.userId },
+        select: { id: true, name: true, email: true, image: true }
+      });
+
+      if (!user) {
+        return null;
+      }
+
       return {
         userId: keyRecord.userId,
-        user: { id: keyRecord.userId } as any
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          image: user.image,
+        }
       };
     }
   }
