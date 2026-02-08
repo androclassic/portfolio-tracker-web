@@ -45,7 +45,7 @@ DEFAULT_TIMEOUT = 30.0
 # ---------------------------------------------------------------------------
 
 @asynccontextmanager
-async def app_lifespan():
+async def app_lifespan(server):
     """Manage a shared httpx client across tool calls."""
     client = httpx.AsyncClient(
         base_url=API_BASE_URL,
