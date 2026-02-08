@@ -82,6 +82,18 @@ async def _api_delete(path: str, params: Optional[Dict[str, Any]] = None) -> Dic
         return resp.json()
 
 
+async def _api_post_text(path: str, params: Optional[Dict[str, Any]] = None) -> str:
+    """Make a POST request to the Portfolio Tracker API and return text response."""
+    async with httpx.AsyncClient(
+        base_url=API_BASE_URL,
+        timeout=DEFAULT_TIMEOUT,
+        headers={"X-API-Key": API_KEY},
+    ) as client:
+        resp = await client.post(path, params=params)
+        resp.raise_for_status()
+        return resp.text
+
+
 def _handle_error(e: Exception) -> str:
     """Consistent error formatting across all tools."""
     if isinstance(e, httpx.HTTPStatusError):
@@ -274,6 +286,13 @@ class ListPortfoliosInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     response_format: ResponseFormat = Field(default=ResponseFormat.MARKDOWN)
+
+
+class ExportPortfolioInput(BaseModel):
+    """Input for exporting portfolio transactions."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    portfolio_id: int = Field(default=1, description="Portfolio ID (default: 1)", ge=1)
 
 
 # ---------------------------------------------------------------------------
@@ -837,6 +856,49 @@ async def portfolio_get_price_history(params: GetPriceHistoryInput) -> str:
 
         # Always return JSON for historical data since it can be large
         return json.dumps({"count": len(prices), "prices": prices}, indent=2)
+
+    except Exception as e:
+        return _handle_error(e)
+
+
+# ---- Portfolio Export ----
+
+@mcp.tool(
+    name="portfolio_export_transactions",
+    annotations={
+        "title": "Export Portfolio Transactions",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def portfolio_export_transactions(params: ExportPortfolioInput) -> str:
+    """Export all transactions for a portfolio as CSV.
+
+    Returns a CSV file containing all transactions (deposits, withdrawals, swaps)
+    for the specified portfolio. The CSV includes all transaction fields:
+    id, type, datetime, from_asset, from_quantity, from_price_usd, to_asset,
+    to_quantity, to_price_usd, fees_usd, and notes.
+
+    Useful for backing up transaction data, importing into spreadsheets, or
+    sharing with tax professionals.
+
+    Args:
+        params: ExportPortfolioInput with portfolio_id.
+
+    Returns:
+        str: CSV content with all transaction data for the portfolio.
+    """
+    try:
+        csv_data = await _api_post_text("/api/transactions/export", {
+            "portfolioId": params.portfolio_id,
+        })
+
+        if not csv_data:
+            return "No transactions found to export."
+
+        return csv_data
 
     except Exception as e:
         return _handle_error(e)
