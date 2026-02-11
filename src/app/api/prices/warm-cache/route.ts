@@ -1,20 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { warmHistoricalPricesCache } from '@/lib/prices/warm-cache';
+import { getServerAuth } from '@/lib/auth';
 
 /**
  * API route to warm the historical prices cache
  * Can be called manually or via a cron job
- * 
+ *
+ * Requires authentication to prevent abuse (DoS vector).
+ *
  * Usage:
- * - GET /api/prices/warm-cache - Warm cache for all assets in transactions
+ * - GET /api/prices/warm-cache - Warm cache in background (returns immediately)
+ * - POST /api/prices/warm-cache - Warm cache synchronously (waits for completion)
  */
 export async function GET(req: NextRequest) {
-  // Optional: Add authentication/authorization here if needed
-  // For now, allow anyone to trigger cache warming (it's a read-only operation)
-  
+  const auth = await getServerAuth(req);
+  if (!auth) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
-    // Run cache warming in background (don't wait for completion)
-    // This allows the API to return immediately while cache warming happens
     warmHistoricalPricesCache().catch(error => {
       console.error('[Cache Warm API] Background warming failed:', error);
     });
@@ -26,10 +30,7 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     console.error('[Cache Warm API] Error starting cache warm:', error);
     return NextResponse.json(
-      {
-        error: 'Failed to start cache warming',
-        message: error instanceof Error ? error.message : String(error),
-      },
+      { error: 'Failed to start cache warming' },
       { status: 500 }
     );
   }
@@ -40,9 +41,14 @@ export async function GET(req: NextRequest) {
  * Useful for testing or when you want to wait for results
  */
 export async function POST(req: NextRequest) {
+  const auth = await getServerAuth(req);
+  if (!auth) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const result = await warmHistoricalPricesCache();
-    
+
     return NextResponse.json({
       message: 'Cache warming completed',
       status: 'completed',
@@ -51,12 +57,8 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     console.error('[Cache Warm API] Error during cache warm:', error);
     return NextResponse.json(
-      {
-        error: 'Cache warming failed',
-        message: error instanceof Error ? error.message : String(error),
-      },
+      { error: 'Cache warming failed' },
       { status: 500 }
     );
   }
 }
-

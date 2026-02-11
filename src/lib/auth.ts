@@ -3,12 +3,10 @@ import { PrismaAdapter } from "@next-auth/prisma-adapter"
 import GoogleProvider from "next-auth/providers/google"
 import EmailProvider from "next-auth/providers/email"
 import CredentialsProvider from "next-auth/providers/credentials"
-import { PrismaClient } from "@prisma/client"
+import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 import crypto from "crypto"
 import { NextRequest } from "next/server"
-
-const prisma = new PrismaClient()
 
 function hashApiKey(key: string): string {
   return crypto.createHash('sha256').update(key).digest('hex');

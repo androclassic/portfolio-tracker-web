@@ -49,13 +49,13 @@ export async function GET(req: NextRequest) {
   const key = `transactions:list:${String(portfolioId)}`;
   const cached = txCache.get(key);
   if (cached) {
-    return NextResponse.json(cached, { headers: { 'Cache-Control': 'public, max-age=5, s-maxage=5, stale-while-revalidate=15' } });
+    return NextResponse.json(cached, { headers: { 'Cache-Control': 'private, max-age=5, stale-while-revalidate=15' } });
   }
   const whereBase = { portfolio: { userId: auth.userId } };
   const where = typeof portfolioId === 'number' && Number.isFinite(portfolioId) ? { ...whereBase, portfolioId } : whereBase;
   const rows = await prisma.transaction.findMany({ where, orderBy: { datetime: 'asc' } });
   txCache.set(key, rows);
-  return NextResponse.json(rows, { headers: { 'Cache-Control': 'public, max-age=5, s-maxage=5, stale-while-revalidate=15' } });
+  return NextResponse.json(rows, { headers: { 'Cache-Control': 'private, max-age=5, stale-while-revalidate=15' } });
 }
 
 export async function POST(req: NextRequest) {

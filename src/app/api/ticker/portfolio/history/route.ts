@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentPrices, getHistoricalPrices } from '@/lib/prices/service';
 import { isStablecoin } from '@/lib/assets';
-import crypto from 'crypto';
+import { validateApiKey } from '@/lib/api-key';
 
 /**
  * Ticker API - Returns historical daily portfolio values for chart display
@@ -16,44 +16,6 @@ import crypto from 'crypto';
  * Returns:
  *   - history: array of { date: "YYYY-MM-DD", totalValue: number }
  */
-
-function hashApiKey(key: string): string {
-  return crypto.createHash('sha256').update(key).digest('hex');
-}
-
-async function validateApiKey(apiKey: string): Promise<{ valid: boolean; userId?: string }> {
-  if (!apiKey) {
-    return { valid: false };
-  }
-
-  const hashedKey = hashApiKey(apiKey);
-
-  const keyRecord = await prisma.apiKey.findFirst({
-    where: {
-      key: hashedKey,
-      revokedAt: null,
-      OR: [
-        { expiresAt: null },
-        { expiresAt: { gt: new Date() } },
-      ],
-    },
-    select: {
-      id: true,
-      userId: true,
-    },
-  });
-
-  if (!keyRecord) {
-    return { valid: false };
-  }
-
-  prisma.apiKey.update({
-    where: { id: keyRecord.id },
-    data: { lastUsedAt: new Date() },
-  }).catch(() => {});
-
-  return { valid: true, userId: keyRecord.userId };
-}
 
 export async function GET(req: NextRequest) {
   const apiKey = req.headers.get('x-api-key');
@@ -197,7 +159,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({ history }, {
     headers: {
-      'Cache-Control': 'public, max-age=60, s-maxage=60, stale-while-revalidate=120',
+      'Cache-Control': 'private, max-age=60, stale-while-revalidate=120',
     },
   });
 }

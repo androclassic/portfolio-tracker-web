@@ -1,46 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@prisma/client';
-import crypto from 'crypto';
+import { validateApiKey } from '@/lib/api-key';
 
-function hashApiKey(key: string): string {
-  return crypto.createHash('sha256').update(key).digest('hex');
-}
-
-async function validateApiKey(apiKey: string): Promise<{ valid: boolean; userId?: string }> {
-  if (!apiKey) {
-    return { valid: false };
+/** Prevent CSV injection by prefixing formula-starting characters with a single quote */
+function sanitizeCsvCell(value: string): string {
+  if (/^[=+\-@\t\r]/.test(value)) {
+    return "'" + value;
   }
-
-  const hashedKey = hashApiKey(apiKey);
-
-  // Find the API key in database
-  const keyRecord = await prisma.apiKey.findFirst({
-    where: {
-      key: hashedKey,
-      revokedAt: null, // Not revoked
-      OR: [
-        { expiresAt: null }, // No expiration
-        { expiresAt: { gt: new Date() } }, // Not expired
-      ],
-    },
-    select: {
-      id: true,
-      userId: true,
-    },
-  });
-
-  if (!keyRecord) {
-    return { valid: false };
-  }
-
-  // Update last used timestamp (fire and forget)
-  prisma.apiKey.update({
-    where: { id: keyRecord.id },
-    data: { lastUsedAt: new Date() },
-  }).catch(() => {}); // Ignore errors
-
-  return { valid: true, userId: keyRecord.userId };
+  return value;
 }
 
 export async function POST(req: NextRequest) {
@@ -97,7 +65,7 @@ export async function POST(req: NextRequest) {
       r.toQuantity,
       r.toPriceUsd ?? '',
       r.feesUsd ?? '',
-      (r.notes || '').replace(/\"/g,'\"\"'),
+      sanitizeCsvCell((r.notes || '').replace(/"/g,'""')),
     ];
     const line = vals.map(v => typeof v === 'string' ? `"${v}"` : String(v)).join(',');
     lines.push(line);

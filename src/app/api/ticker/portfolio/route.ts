@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentPrices, getHistoricalPrices } from '@/lib/prices/service';
 import { getAssetColor, isStablecoin } from '@/lib/assets';
-import crypto from 'crypto';
+import { validateApiKey } from '@/lib/api-key';
 
 /**
  * Ticker API - Returns portfolio data for external display devices (e-ink ticker, etc.)
@@ -19,46 +19,6 @@ import crypto from 'crypto';
  *   - pnlData: array of { asset, pnl, color } sorted by absolute P&L
  *   - summary: { totalValue, totalCost, totalPnl, totalPnlPercent, btcPrice }
  */
-
-function hashApiKey(key: string): string {
-  return crypto.createHash('sha256').update(key).digest('hex');
-}
-
-async function validateApiKey(apiKey: string): Promise<{ valid: boolean; userId?: string }> {
-  if (!apiKey) {
-    return { valid: false };
-  }
-
-  const hashedKey = hashApiKey(apiKey);
-
-  // Find the API key in database
-  const keyRecord = await prisma.apiKey.findFirst({
-    where: {
-      key: hashedKey,
-      revokedAt: null, // Not revoked
-      OR: [
-        { expiresAt: null }, // No expiration
-        { expiresAt: { gt: new Date() } }, // Not expired
-      ],
-    },
-    select: {
-      id: true,
-      userId: true,
-    },
-  });
-
-  if (!keyRecord) {
-    return { valid: false };
-  }
-
-  // Update last used timestamp (fire and forget)
-  prisma.apiKey.update({
-    where: { id: keyRecord.id },
-    data: { lastUsedAt: new Date() },
-  }).catch(() => {}); // Ignore errors
-
-  return { valid: true, userId: keyRecord.userId };
-}
 
 export async function GET(req: NextRequest) {
   // Check API key
@@ -286,7 +246,7 @@ export async function GET(req: NextRequest) {
     },
   }, {
     headers: {
-      'Cache-Control': 'public, max-age=60, s-maxage=60, stale-while-revalidate=120',
+      'Cache-Control': 'private, max-age=60, stale-while-revalidate=120',
     },
   });
 }

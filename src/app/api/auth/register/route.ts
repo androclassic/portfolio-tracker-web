@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
-
-const prisma = new PrismaClient();
 
 export async function POST(request: NextRequest) {
   try {
@@ -46,18 +44,11 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Send verification email using NextAuth.js email provider (same as resend verification)
-    console.log('=== STARTING EMAIL SEND PROCESS ===');
-    console.log('Target email:', email);
+    // Send verification email using NextAuth.js email provider
     try {
-      // Trigger NextAuth.js email provider from server-side (same as resend verification)
-      console.log('Calling NextAuth.js email provider endpoint...');
-      
-      // Get CSRF token first
       const csrfResponse = await fetch(`${process.env.NEXTAUTH_URL}/api/auth/csrf`);
       const csrfData = await csrfResponse.json();
-      
-      // Call NextAuth.js email signin endpoint (same as resend verification)
+
       const response = await fetch(`${process.env.NEXTAUTH_URL}/api/auth/signin/email`, {
         method: 'POST',
         headers: {
@@ -70,22 +61,11 @@ export async function POST(request: NextRequest) {
         }),
       });
 
-      if (response.ok) {
-        console.log('NextAuth.js email provider call successful');
-        console.log('Verification email sent successfully to:', email);
-      } else {
-        const errorText = await response.text();
-        console.error('NextAuth.js email provider failed:', response.status, errorText);
-        throw new Error(`NextAuth.js email provider failed: ${response.status} ${errorText}`);
+      if (!response.ok) {
+        console.error('Verification email failed:', response.status);
       }
     } catch (emailError: unknown) {
-      console.error('=== EMAIL SENDING FAILED ===');
-      const error = emailError as Error & { code?: string };
-      console.error('Error type:', error?.constructor?.name);
-      console.error('Error message:', error?.message);
-      console.error('Error code:', error?.code);
-      console.error('Full error:', emailError);
-      console.error('=== END EMAIL ERROR ===');
+      console.error('Verification email error:', (emailError as Error)?.message);
       // Don't fail the registration if email sending fails
     }
 

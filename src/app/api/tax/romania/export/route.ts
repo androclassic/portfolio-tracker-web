@@ -6,6 +6,14 @@ import { getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/exchange-
 import type { TaxableEvent } from '@/lib/tax/romania-v2';
 import type { LotStrategy } from '@/lib/tax/lot-strategy';
 
+/** Prevent CSV injection by prefixing formula-starting characters with a single quote */
+function sanitizeCsvCell(value: string): string {
+  if (/^[=+\-@\t\r]/.test(value)) {
+    return "'" + value;
+  }
+  return value;
+}
+
 export async function GET(req: NextRequest) {
   try {
     // Authenticate user
@@ -301,7 +309,7 @@ export async function GET(req: NextRequest) {
         const tx = txMap.get(txId);
         if (tx) {
           const date = new Date(tx.datetime).toISOString().split('T')[0];
-          const notes = (tx.notes || '').replace(/"/g, '""'); // Escape quotes for CSV
+          const notes = sanitizeCsvCell((tx.notes || '').replace(/"/g, '""'));
           lines.push([
             tx.id,
             tx.type,
