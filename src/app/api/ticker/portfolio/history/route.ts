@@ -108,31 +108,33 @@ export async function GET(req: NextRequest) {
     dates.push(d.toISOString().slice(0, 10));
   }
 
-  // For each date, compute cumulative holdings by replaying transactions
-  // Pre-compute: sort transactions by datetime, then for each date find holdings
+  // Single-pass: walk transactions and dates together (both sorted ascending)
+  // to build cumulative holdings per day in O(dates + transactions) time
   const dailyHoldings: Record<string, Record<string, number>> = {};
+  const holdings: Record<string, number> = {};
+  let txIdx = 0;
 
   for (const date of dates) {
     const endOfDay = new Date(date + 'T23:59:59.999Z');
-    const holdings: Record<string, number> = {};
 
-    for (const tx of transactions) {
-      if (new Date(tx.datetime) > endOfDay) break;
+    // Apply all transactions up to this date
+    while (txIdx < transactions.length && new Date(transactions[txIdx].datetime) <= endOfDay) {
+      const tx = transactions[txIdx];
 
-      // Handle "to" side (receiving assets)
       if (tx.toAsset && tx.toQuantity) {
         const asset = tx.toAsset.toUpperCase();
         holdings[asset] = (holdings[asset] || 0) + Number(tx.toQuantity);
       }
 
-      // Handle "from" side (sending assets)
       if (tx.fromAsset && tx.fromQuantity) {
         const asset = tx.fromAsset.toUpperCase();
         holdings[asset] = (holdings[asset] || 0) - Number(tx.fromQuantity);
       }
+
+      txIdx++;
     }
 
-    // Filter out zero/negative holdings
+    // Snapshot current holdings, filtering out zero/negative
     const filtered: Record<string, number> = {};
     for (const [asset, qty] of Object.entries(holdings)) {
       if (qty > 0.0001) {
