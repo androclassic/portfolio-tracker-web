@@ -2,7 +2,7 @@
 import useSWR, { useSWRConfig } from 'swr';
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
-import { getAssetColor, SUPPORTED_ASSETS, isStablecoin } from '@/lib/assets';
+import { getAssetColor, SUPPORTED_ASSETS, isFiatCurrency, isStablecoin } from '@/lib/assets';
 import AssetInput from '../components/AssetInput';
 import CryptoIcon from '../components/CryptoIcon';
 import { SupportedAsset } from '../../lib/assets';
@@ -321,25 +321,40 @@ export default function TransactionsPage(){
           }
         }
         // For Swap (crypto to crypto): Calculate based on historical price at transaction date
-        else if (swapMode === 'swap' && newTx.fromAsset && newTx.fromQuantity && !isStablecoin(newTx.fromAsset)) {
+        else if (swapMode === 'swap' && newTx.fromAsset && newTx.fromQuantity && !isFiatCurrency(newTx.fromAsset)) {
           const quantity = Number(newTx.fromQuantity);
           if (quantity > 0) {
-            const dateStr = newTx.datetime.split('T')[0]; // Get date part
-            const historicalPrice = await getHistoricalPriceForDate(newTx.fromAsset, dateStr);
-            
-            if (historicalPrice && historicalPrice > 0) {
-              const calculatedUsdValue = (quantity * historicalPrice).toFixed(2);
+            // Stablecoins are $1
+            if (isStablecoin(newTx.fromAsset)) {
+              const calculatedUsdValue = quantity.toFixed(2);
               const currentUsdValue = Number(newTx.swapUsdValue) || 0;
-              const calculatedValueNum = Number(calculatedUsdValue);
-              
-              // Only auto-fill if empty or very close (user hasn't manually changed it)
-              if (!newTx.swapUsdValue || Math.abs(currentUsdValue - calculatedValueNum) / calculatedValueNum < 0.01) {
+              if (!newTx.swapUsdValue || Math.abs(currentUsdValue - quantity) < 0.01) {
                 const inputElement = document.activeElement as HTMLInputElement;
                 if (!inputElement || inputElement.name !== 'swapUsdValue') {
                   setNewTx(prev => ({
                     ...prev,
                     swapUsdValue: calculatedUsdValue
                   }));
+                }
+              }
+            } else {
+              const dateStr = newTx.datetime.split('T')[0]; // Get date part
+              const historicalPrice = await getHistoricalPriceForDate(newTx.fromAsset, dateStr);
+              
+              if (historicalPrice && historicalPrice > 0) {
+                const calculatedUsdValue = (quantity * historicalPrice).toFixed(2);
+                const currentUsdValue = Number(newTx.swapUsdValue) || 0;
+                const calculatedValueNum = Number(calculatedUsdValue);
+                
+                // Only auto-fill if empty or very close (user hasn't manually changed it)
+                if (!newTx.swapUsdValue || Math.abs(currentUsdValue - calculatedValueNum) / calculatedValueNum < 0.01) {
+                  const inputElement = document.activeElement as HTMLInputElement;
+                  if (!inputElement || inputElement.name !== 'swapUsdValue') {
+                    setNewTx(prev => ({
+                      ...prev,
+                      swapUsdValue: calculatedUsdValue
+                    }));
+                  }
                 }
               }
             }
@@ -1707,15 +1722,15 @@ Withdrawal,2024-02-28T11:00:00Z,BTC,0.05,55000,USD,2750,1,12,Withdrew some BTC t
                               ? "Select crypto (e.g., BTC)" 
                               : swapMode === 'buy'
                               ? "Select stablecoin (e.g., USDC)"
-                              : "Select crypto (e.g., BTC)"
+                              : "Select crypto (incl. stablecoins, e.g., BTC, USDC)"
                           }
                           disabled={isLoadingPrice}
                           filter={
                             swapMode === 'sell'
-                              ? (asset) => !isStablecoin(asset.symbol) // Sell: from must be crypto
+                              ? (asset) => !isFiatCurrency(asset.symbol) && !isStablecoin(asset.symbol) // Sell: from must be crypto
                               : swapMode === 'buy'
                               ? (asset) => isStablecoin(asset.symbol) // Buy: from must be stablecoin
-                              : (asset) => !isStablecoin(asset.symbol) // Swap: from must be crypto
+                              : (asset) => !isFiatCurrency(asset.symbol) // Swap: from must be crypto (incl stablecoins)
                           }
                         />
                         {newTx.fromAsset && currentHoldings[newTx.fromAsset.toUpperCase()] !== undefined && (
@@ -1787,15 +1802,15 @@ Withdrawal,2024-02-28T11:00:00Z,BTC,0.05,55000,USD,2750,1,12,Withdrew some BTC t
                               ? "Select crypto (e.g., BTC)"
                               : swapMode === 'sell'
                               ? "Select stablecoin (e.g., USDC)"
-                              : "Select crypto (e.g., ETH)"
+                              : "Select crypto (incl. stablecoins, e.g., ETH, USDT)"
                           }
                           disabled={isLoadingPrice}
                           filter={
                             swapMode === 'buy'
-                              ? (asset) => !isStablecoin(asset.symbol) // Buy: to must be crypto
+                              ? (asset) => !isFiatCurrency(asset.symbol) && !isStablecoin(asset.symbol) // Buy: to must be crypto
                               : swapMode === 'sell'
                               ? (asset) => isStablecoin(asset.symbol) // Sell: to must be stablecoin
-                              : (asset) => !isStablecoin(asset.symbol) // Swap: to must be crypto
+                              : (asset) => !isFiatCurrency(asset.symbol) // Swap: to must be crypto (incl stablecoins)
                           }
                         />
                         {newTx.toAsset && currentHoldings[newTx.toAsset.toUpperCase()] !== undefined && (
