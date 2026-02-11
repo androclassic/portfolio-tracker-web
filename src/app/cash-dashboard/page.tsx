@@ -1,6 +1,6 @@
 'use client';
 import useSWR from 'swr';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
 import { getAssetColor, getFiatCurrencies, convertFiat } from '@/lib/assets';
 import AuthGuard from '@/components/AuthGuard';
@@ -1720,6 +1720,7 @@ export default function CashDashboardPage(){
   const [selectedAssetLotStrategy, setSelectedAssetLotStrategy] = useState<'FIFO' | 'LIFO' | 'HIFO' | 'LOFO'>('FIFO');
   const [selectedCashLotStrategy, setSelectedCashLotStrategy] = useState<'FIFO' | 'LIFO' | 'HIFO' | 'LOFO'>('FIFO');
   const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
+  const exportGuardsRef = useRef<Set<string>>(new Set());
   
   // Fetch Romania tax report for selected year
   const taxReportKey = selectedTaxYear !== 'all' 
@@ -1776,6 +1777,37 @@ export default function CashDashboardPage(){
     
     return ['all', ...Array.from(years).sort((a, b) => b.localeCompare(a))];
   }, [txs]);
+
+  // Default Tax Year: last full calendar year (e.g. in Feb 2026 default to 2025).
+  // If you don't have fiat transactions in that year, pick the most recent available year <= last full year.
+  useEffect(() => {
+    if (selectedTaxYear !== 'all') return;
+    const yearsOnly = availableTaxYears.filter((y) => y !== 'all');
+    if (!yearsOnly.length) return;
+
+    const lastFullYear = new Date().getFullYear() - 1;
+    const best = yearsOnly
+      .map((y) => parseInt(y, 10))
+      .filter((y) => Number.isFinite(y) && y <= lastFullYear)
+      .sort((a, b) => b - a)[0];
+
+    if (best !== undefined) setSelectedTaxYear(String(best));
+  }, [availableTaxYears, selectedTaxYear]);
+
+  const triggerDownloadOnce = useCallback((key: string, url: string) => {
+    // Prevent accidental double downloads (double-click, touch events, slow browser, etc.)
+    if (exportGuardsRef.current.has(key)) return;
+    exportGuardsRef.current.add(key);
+    setTimeout(() => exportGuardsRef.current.delete(key), 1500);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }, []);
 
   // Calculate cash flow data
   const cashFlowData = useMemo(() => {
@@ -2475,21 +2507,13 @@ export default function CashDashboardPage(){
                   </div>
                   <div className="card-actions">
                     <button
-                      onClick={async () => {
+                      type="button"
+                      onClick={(e) => {
                         try {
+                          e.preventDefault();
+                          e.stopPropagation();
                           const url = `/api/tax/romania/export?year=${selectedTaxYear}&assetStrategy=${selectedAssetLotStrategy}&cashStrategy=${selectedCashLotStrategy}${selectedId && selectedId !== 'all' ? `&portfolioId=${selectedId}` : ''}`;
-                          const response = await fetch(url);
-                          if (response.ok) {
-                            const blob = await response.blob();
-                            const downloadUrl = window.URL.createObjectURL(blob);
-                            const a = document.createElement('a');
-                            a.href = downloadUrl;
-                            a.download = `romania_tax_report_${selectedTaxYear}.csv`;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            window.URL.revokeObjectURL(downloadUrl);
-                          }
+                          triggerDownloadOnce(`tax-export-full-${selectedTaxYear}-${selectedId || 'none'}`, url);
                         } catch (error) {
                           console.error('Export failed:', error);
                         }
@@ -2549,21 +2573,13 @@ export default function CashDashboardPage(){
                               </td>
                               <td style={{ textAlign: 'center' }}>
                                 <button
-                                  onClick={async () => {
+                                  type="button"
+                                  onClick={(e) => {
                                     try {
+                                      e.preventDefault();
+                                      e.stopPropagation();
                                       const url = `/api/tax/romania/export?year=${selectedTaxYear}&assetStrategy=${selectedAssetLotStrategy}&cashStrategy=${selectedCashLotStrategy}&eventId=${event.transactionId}${selectedId && selectedId !== 'all' ? `&portfolioId=${selectedId}` : ''}`;
-                                      const response = await fetch(url);
-                                      if (response.ok) {
-                                        const blob = await response.blob();
-                                        const downloadUrl = window.URL.createObjectURL(blob);
-                                        const a = document.createElement('a');
-                                        a.href = downloadUrl;
-                                        a.download = `romania_tax_event_${event.transactionId}_${selectedTaxYear}.csv`;
-                                        document.body.appendChild(a);
-                                        a.click();
-                                        document.body.removeChild(a);
-                                        window.URL.revokeObjectURL(downloadUrl);
-                                      }
+                                      triggerDownloadOnce(`tax-export-event-${event.transactionId}-${selectedTaxYear}-${selectedId || 'none'}`, url);
                                     } catch (error) {
                                       console.error('Export failed:', error);
                                     }

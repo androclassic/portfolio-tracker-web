@@ -19,6 +19,12 @@ export async function GET(req: NextRequest) {
     const year = searchParams.get('year') || new Date().getFullYear().toString();
     const portfolioId = searchParams.get('portfolioId');
     const eventId = searchParams.get('eventId'); // Optional: export specific event
+    // Optional: include deep trace/hierarchy sections (can be very large).
+    // Default is false to keep the "full report" export fast and reliable.
+    const includeTrace = (() => {
+      const v = (searchParams.get('includeTrace') || '').toLowerCase();
+      return v === '1' || v === 'true' || v === 'yes';
+    })();
     const parseStrategy = (value: string | null, fallback: LotStrategy): LotStrategy => {
       const s = (value || '').toUpperCase();
       return s === 'FIFO' || s === 'LIFO' || s === 'HIFO' || s === 'LOFO' ? (s as LotStrategy) : fallback;
@@ -155,8 +161,10 @@ export async function GET(req: NextRequest) {
       ].join(','));
     });
 
-    // For each event, collect all implicated transactions and build hierarchy
-    eventsToExport.forEach(event => {
+    // For each event, collect all implicated transactions and build hierarchy.
+    // This is intentionally gated because it can explode output size and CPU.
+    const shouldIncludeTrace = Boolean(eventId) || includeTrace;
+    if (shouldIncludeTrace) eventsToExport.forEach(event => {
       // Collect all unique transaction IDs involved in this event
       const implicatedTxIds = new Set<number>();
       const hierarchyRelations: Array<{
