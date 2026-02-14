@@ -5,12 +5,8 @@ import EmailProvider from "next-auth/providers/email"
 import CredentialsProvider from "next-auth/providers/credentials"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
-import crypto from "crypto"
+import { hashApiKey } from "@/lib/api-key"
 import { NextRequest } from "next/server"
-
-function hashApiKey(key: string): string {
-  return crypto.createHash('sha256').update(key).digest('hex');
-}
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
