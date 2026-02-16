@@ -14,6 +14,7 @@ import { AltcoinVsBtcChart } from './components/AltcoinVsBtcChart';
 import { ProfitOpportunitiesChart } from './components/ProfitOpportunitiesChart';
 import { CostVsPriceChart } from './components/CostVsPriceChart';
 import { PositionsChart } from './components/PositionsChart';
+import { TradingVolumeChart } from './components/TradingVolumeChart';
 
 function DashboardPageContent() {
   return (
@@ -35,6 +36,7 @@ function DashboardPageContent() {
           <CostVsValuationChart />
           <StackedCompositionChart />
           <PnLChart />
+          <TradingVolumeChart />
           <BtcRatioChart />
           <AltcoinVsBtcChart />
           <ProfitOpportunitiesChart />
