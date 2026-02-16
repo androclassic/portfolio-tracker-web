@@ -35,8 +35,8 @@ function DashboardPageContent() {
           <NetWorthChart />
           <CostVsValuationChart />
           <StackedCompositionChart />
-          <PnLChart />
           <TradingVolumeChart />
+          <PnLChart />
           <BtcRatioChart />
           <AltcoinVsBtcChart />
           <ProfitOpportunitiesChart />

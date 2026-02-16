@@ -1,5 +1,5 @@
 'use client';
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { getAssetColor, isStablecoin } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
 import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
@@ -10,7 +10,9 @@ import type { Data } from 'plotly.js';
 export function TradingVolumeChart() {
   const { txs, loadingTxs } = useDashboardData();
 
-  // Compute per-asset USD volume from all transactions
+  const [sideFilter, setSideFilter] = useState<'all' | 'buys' | 'sells'>('all');
+
+  // Compute per-asset USD volume from transactions, optionally filtered by side.
   const volumeByAsset = useMemo(() => {
     if (!txs || txs.length === 0) return new Map<string, { total: number; byDate: Map<string, number> }>();
 
@@ -29,21 +31,35 @@ export function TradingVolumeChart() {
 
     for (const tx of txs) {
       const date = tx.datetime.slice(0, 10);
+
       // To-side volume (deposits, withdrawals, swap destination)
-      if (tx.toAsset && tx.toQuantity && tx.toPriceUsd) {
-        addVolume(tx.toAsset.toUpperCase(), tx.toQuantity * tx.toPriceUsd, date);
+      if (sideFilter !== 'sells' && tx.toAsset && tx.toQuantity && tx.toPriceUsd) {
+        addVolume(tx.toAsset.toUpperCase(), Math.abs(tx.toQuantity) * tx.toPriceUsd, date);
       }
-      // From-side volume (swaps source)
-      if (tx.fromAsset && tx.fromQuantity && tx.fromPriceUsd) {
-        addVolume(tx.fromAsset.toUpperCase(), tx.fromQuantity * tx.fromPriceUsd, date);
+      // From-side volume (swaps source / withdrawals source)
+      if (sideFilter !== 'buys' && tx.fromAsset && tx.fromQuantity && tx.fromPriceUsd) {
+        addVolume(tx.fromAsset.toUpperCase(), Math.abs(tx.fromQuantity) * tx.fromPriceUsd, date);
       }
     }
 
     return result;
-  }, [txs]);
+  }, [txs, sideFilter]);
 
   return (
-    <ChartCard title="Trading Volume by Asset" defaultTimeframe="all">
+    <ChartCard
+      title="Trading Volume by Asset"
+      defaultTimeframe="6m"
+      headerActions={() => (
+        <label className="chart-control">
+          Side
+          <select value={sideFilter} onChange={e => setSideFilter(e.target.value as typeof sideFilter)}>
+            <option value="all">All</option>
+            <option value="buys">Buys only</option>
+            <option value="sells">Sells only</option>
+          </select>
+        </label>
+      )}
+    >
       {({ timeframe, expanded }) => {
         if (loadingTxs) {
           return <div className="chart-loading">Loading volume data...</div>;
