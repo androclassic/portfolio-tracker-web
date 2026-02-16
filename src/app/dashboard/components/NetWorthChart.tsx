@@ -2,11 +2,11 @@
 import React, { useCallback, useMemo } from 'react';
 import { isStablecoin } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
-import { LineChart } from '@/components/charts/LineChart';
-import { buildNetWorthLineChartModel } from '@/lib/chart-models/net-worth';
+import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
 import { sliceStartIndexForIsoDates, sampleDataPoints } from '@/lib/timeframe';
 import { useDashboardData } from '../../DashboardDataProvider';
 import { getEURCPrice } from '../lib/chart-helpers';
+import type { Data } from 'plotly.js';
 
 export function NetWorthChart() {
   const { assets, dailyPos, priceIndex, fxRateMap, latestPrices, historicalPrices, loadingTxs, loadingCurr, loadingHist } = useDashboardData();
@@ -103,10 +103,6 @@ export function NetWorthChart() {
     return { dates, cryptoExStableValue: cryptoExStableValues, stableValue: stableValues, totalValue: totalValues };
   }, [hist, assets, dailyPos, priceIndex, getEURCPriceFn, latestPrices]);
 
-  const netWorthChartModel = useMemo(() => {
-    return buildNetWorthLineChartModel(netWorthOverTime);
-  }, [netWorthOverTime]);
-
   return (
     <ChartCard title="Net Worth Over Time" defaultTimeframe="1y">
       {({ timeframe, expanded }) => {
@@ -119,93 +115,60 @@ export function NetWorthChart() {
 
         const idx = sliceStartIndexForIsoDates(netWorthOverTime.dates, timeframe);
         const startIdx = timeframe === 'all' ? 0 : Math.max(0, Math.min(idx, netWorthOverTime.dates.length));
-        const slicedDates = netWorthOverTime.dates.slice(startIdx);
-        const slicedSeries = netWorthChartModel.series.map(s => ({
-          ...s,
-          y: s.y.slice(startIdx),
-        }));
+        let dates = netWorthOverTime.dates.slice(startIdx);
+        let totalY = netWorthOverTime.totalValue.slice(startIdx);
+        let cryptoY = netWorthOverTime.cryptoExStableValue.slice(startIdx);
+        let stableY = netWorthOverTime.stableValue.slice(startIdx);
 
-        if (slicedDates.length === 0 || !slicedSeries[0] || slicedSeries[0].y.length === 0) {
+        if (dates.length === 0) {
           return <div className="chart-empty">No data available for the selected timeframe</div>;
         }
-
-        const minLength = Math.min(slicedDates.length, ...slicedSeries.map(s => s.y.length));
-        if (minLength === 0) {
-          return <div className="chart-empty">No data available for the selected timeframe</div>;
-        }
-
-        const finalDates = slicedDates.slice(0, minLength);
-        const finalSeries = slicedSeries.map(s => ({
-          ...s,
-          y: s.y.slice(0, minLength),
-        }));
 
         const maxPoints = expanded ? Infinity : 100;
-        let chartModel;
-
-        if (finalDates.length > maxPoints) {
-          const dataArrays = finalSeries.map(s => s.y);
-          const sampled = sampleDataPoints(finalDates, dataArrays, maxPoints);
-
-          if (sampled.dates.length === 0 || sampled.dataArrays.length === 0 || sampled.dataArrays[0]!.length === 0) {
-            return <div className="chart-empty">No data available for the selected timeframe</div>;
-          }
-
-          chartModel = {
-            title: netWorthChartModel.title,
-            xAxisTitle: netWorthChartModel.xAxisTitle,
-            yAxisTitle: netWorthChartModel.yAxisTitle,
-            height: netWorthChartModel.height,
-            hovermode: netWorthChartModel.hovermode,
-            x: [...sampled.dates],
-            series: sampled.dataArrays.map((yData, i) => ({
-              ...finalSeries[i]!,
-              y: [...yData],
-            })),
-          };
-        } else {
-          chartModel = {
-            title: netWorthChartModel.title,
-            xAxisTitle: netWorthChartModel.xAxisTitle,
-            yAxisTitle: netWorthChartModel.yAxisTitle,
-            height: netWorthChartModel.height,
-            hovermode: netWorthChartModel.hovermode,
-            x: [...finalDates],
-            series: finalSeries.map(s => ({
-              ...s,
-              y: [...s.y],
-            })),
-          };
+        if (dates.length > maxPoints) {
+          const sampled = sampleDataPoints(dates, [totalY, cryptoY, stableY], maxPoints);
+          dates = sampled.dates;
+          totalY = sampled.dataArrays[0]!;
+          cryptoY = sampled.dataArrays[1]!;
+          stableY = sampled.dataArrays[2]!;
         }
 
-        if (!chartModel.x || chartModel.x.length === 0 || !chartModel.series || chartModel.series.length === 0) {
-          return <div className="chart-empty">No data available for the selected timeframe</div>;
-        }
-
-        const xLength = chartModel.x.length;
-        const validSeries = chartModel.series.map(s => {
-          if (s.y.length !== xLength) {
-            return { ...s, y: s.y.slice(0, xLength) };
-          }
-          return s;
-        }).filter(s => s.y.length > 0);
-
-        if (validSeries.length === 0) {
-          return <div className="chart-empty">No data available for the selected timeframe</div>;
-        }
-
-        const finalModel = {
-          ...chartModel,
-          series: validSeries.map(s => ({ ...s, y: [...s.y] })),
-          x: [...chartModel.x],
-        };
-
-        const dataKey = `${netWorthOverTime.dates.length}-${netWorthOverTime.dates[netWorthOverTime.dates.length - 1] || ''}-${netWorthOverTime.dates[0] || ''}-${finalModel.x.length}`;
+        const traces: Data[] = [
+          {
+            type: 'scatter',
+            mode: 'lines',
+            name: 'Total Net Worth',
+            x: dates,
+            y: totalY,
+            line: { color: '#3b82f6', width: 3 },
+          },
+          {
+            type: 'scatter',
+            mode: 'lines',
+            name: 'Crypto (ex Stablecoins)',
+            x: dates,
+            y: cryptoY,
+            line: { color: '#f59e0b', width: 2 },
+          },
+          {
+            type: 'scatter',
+            mode: 'lines',
+            name: 'Stablecoin Balance',
+            x: dates,
+            y: stableY,
+            line: { color: '#22c55e', width: 2 },
+          },
+        ];
 
         return (
-          <LineChart
-            key={`net-worth-${timeframe}-${expanded}-${dataKey}`}
-            model={finalModel}
+          <Plot
+            data={traces}
+            layout={{
+              xaxis: { title: { text: 'Date' } },
+              yaxis: { title: { text: 'Value (USD)' } },
+              hovermode: 'x unified' as const,
+              showlegend: true,
+            }}
           />
         );
       }}
