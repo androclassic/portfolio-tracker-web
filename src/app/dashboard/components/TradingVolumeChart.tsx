@@ -1,6 +1,6 @@
 'use client';
 import React, { useMemo } from 'react';
-import { getAssetColor } from '@/lib/assets';
+import { getAssetColor, isStablecoin } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
 import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
 import { startIsoForTimeframe } from '@/lib/timeframe';
@@ -17,7 +17,7 @@ export function TradingVolumeChart() {
     const result = new Map<string, { total: number; byDate: Map<string, number> }>();
 
     const addVolume = (asset: string, usd: number, date: string) => {
-      if (!asset || usd <= 0 || isNaN(usd)) return;
+      if (!asset || usd <= 0 || isNaN(usd) || isStablecoin(asset)) return;
       let entry = result.get(asset);
       if (!entry) {
         entry = { total: 0, byDate: new Map() };
