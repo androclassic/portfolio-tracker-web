@@ -28,7 +28,7 @@ function DashboardPageContent() {
 
         <SummaryCards />
 
-        <div className="chart-grid">
+        <div className="dashboard-grid">
           <HeatmapChart />
           <AllocationChart />
           <NetWorthChart />
