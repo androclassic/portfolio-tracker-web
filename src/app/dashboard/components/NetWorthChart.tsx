@@ -168,7 +168,9 @@ export function NetWorthChart() {
               yaxis: { title: { text: 'Value (USD)' } },
               hovermode: 'x unified' as const,
               showlegend: true,
+              height: expanded ? undefined : 400,
             }}
+            style={{ width: '100%', height: expanded ? '100%' : undefined }}
           />
         );
       }}
