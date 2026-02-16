@@ -707,7 +707,7 @@ select option{background:var(--surface);color:var(--text)}
 /* Chart cards + maximize modal */
 .chart-card{transition:all 0.2s ease;overflow:visible}
 .chart-card-collapsed{opacity:0.85}
-.chart-card-body{min-height:0;overflow:hidden;position:relative;width:100%}
+.chart-card-body{min-height:250px;overflow:hidden;position:relative;width:100%}
 .chart-card-body > *{max-width:100%}
 .chart-card-body .js-plotly-plot{max-width:100%!important;overflow:hidden!important}
 .chart-card-body .plotly{max-width:100%!important;overflow:hidden!important}
