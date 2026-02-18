@@ -11,10 +11,12 @@ services:
       - "3033:3033"
     env_file:
       - .env.production
+    environment:
+      # SQLite DB lives in the persistent volume
+      DATABASE_URL: "file:/data/portfolio.db"
     volumes:
-      - ./prisma:/data
-    # Environment variables loaded from .env file
+      # Named volume for persistent database storage
+      - db-data:/data
 
- 
-
-
+volumes:
+  db-data:

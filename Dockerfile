@@ -18,8 +18,6 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3033
-# The SQLite database will live in /data (mounted as a volume)
-ENV DATABASE_URL=file:/data/dev.db
 
 # Copy runtime files
 COPY --from=builder /app/node_modules ./node_modules
@@ -34,8 +32,8 @@ COPY --from=builder /app/tsconfig.json ./tsconfig.json
 
 EXPOSE 3033
 
-# Apply any pending migrations on start, warm caches in background, then run the app
-# Cache warming runs in background so server can start immediately
-CMD ["sh", "-c", "npx prisma db push && (npx tsx --tsconfig tsconfig.json prisma/warm-all-caches.ts > /tmp/cache-warm.log 2>&1 &) && npm run start"]
+# Create data directory for SQLite
+RUN mkdir -p /data
 
-
+# Apply migrations safely (not db push), warm caches in background, then start
+CMD ["sh", "-c", "npx prisma migrate deploy && (npx tsx --tsconfig tsconfig.json prisma/warm-all-caches.ts > /tmp/cache-warm.log 2>&1 &) && npm run start"]

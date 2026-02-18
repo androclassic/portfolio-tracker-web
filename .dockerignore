@@ -7,5 +7,16 @@ npm-debug.log
 **/*.DS_Store
 **/*.swp
 **/*.log
-prisma/dev.db
 
+# Database files — never include in build context
+*.db
+*.sqlite
+*.sqlite3
+data/
+prisma/prisma/
+
+# Backups
+backups/
+
+# MCP config
+mcp/
