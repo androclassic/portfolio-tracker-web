@@ -12,11 +12,7 @@ services:
     env_file:
       - .env.production
     environment:
-      # SQLite DB lives in the persistent volume
       DATABASE_URL: "file:/data/portfolio.db"
     volumes:
-      # Named volume for persistent database storage
-      - db-data:/data
+      - ./data:/data
 
-volumes:
-  db-data:
