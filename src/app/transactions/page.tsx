@@ -170,12 +170,6 @@ export default function TransactionsPage() {
                 style={{ minWidth: '140px' }}
               />
             </label>
-            <label>From
-              <input type="date" value={filters.state.dateFrom} onChange={e => filters.setDateFrom(e.target.value)} />
-            </label>
-            <label>To
-              <input type="date" value={filters.state.dateTo} onChange={e => filters.setDateTo(e.target.value)} />
-            </label>
           </div>
           <div className="transaction-toolbar-actions">
             <button
@@ -311,6 +305,15 @@ Withdrawal,2024-02-28T11:00:00Z,BTC,0.05,55000,USD,2750,1,12,Withdrew some BTC t
         )}
 
         <section className="card">
+          <TransactionPagination
+            page={filters.state.page}
+            totalPages={filters.totalPages}
+            totalFiltered={filters.totalFiltered}
+            pageSize={filters.state.pageSize}
+            onPage={filters.setPage}
+            onPageSize={filters.setPageSize}
+          />
+
           <div className="table-wrapper">
             <table className="table">
               <thead>
