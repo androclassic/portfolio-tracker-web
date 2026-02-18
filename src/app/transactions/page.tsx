@@ -6,12 +6,22 @@ import { getAssetColor } from '@/lib/assets';
 import CryptoIcon from '../components/CryptoIcon';
 import { jsonFetcher } from '@/lib/swr-fetcher';
 import type { Transaction as Tx } from '@/lib/types';
+import { TransactionHelpers } from '@/lib/types';
 import { calculateHoldings } from '@/lib/portfolio-utils';
 import AuthGuard from '@/components/AuthGuard';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 import TransactionModal from './TransactionModal';
+import { useTransactionFilters } from './useTransactionFilters';
+import TransactionPagination from './TransactionPagination';
 
 const fetcher = jsonFetcher;
+
+// Hoisted formatters — created once at module load, not every render
+const nf = new Intl.NumberFormat(undefined, { maximumFractionDigits: 8 });
+const usdFmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+const df = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+const dfDate = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+const dfTime = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
 
 export default function TransactionsPage() {
   const { selectedId } = usePortfolio();
@@ -68,12 +78,11 @@ export default function TransactionsPage() {
     await new Promise(resolve => setTimeout(resolve, 150));
   };
 
-  const [assetFilter, setAssetFilter] = useState<string>('All');
-  const [typeFilter, setTypeFilter] = useState<string>('All');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [isOpen, setIsOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<Tx | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const filters = useTransactionFilters(txs);
 
   const assets = useMemo(() => {
     const s = new Set<string>();
@@ -89,24 +98,10 @@ export default function TransactionsPage() {
     return calculateHoldings(txs);
   }, [txs]);
 
-  const filtered = useMemo(() => {
-    const list = (txs || []).filter(t => {
-      if (assetFilter !== 'All') {
-        const asset = assetFilter.toUpperCase();
-        if (t.toAsset.toUpperCase() !== asset && (!t.fromAsset || t.fromAsset.toUpperCase() !== asset)) {
-          return false;
-        }
-      }
-      if (typeFilter !== 'All') {
-        if (t.type !== typeFilter) return false;
-      }
-      return true;
-    });
-    return list.sort((a, b) => sortDir === 'asc'
-      ? new Date(a.datetime).getTime() - new Date(b.datetime).getTime()
-      : new Date(b.datetime).getTime() - new Date(a.datetime).getTime()
-    );
-  }, [txs, assetFilter, typeFilter, sortDir]);
+  // Show fees column only if any transaction has fees
+  const showFeesCol = useMemo(() => {
+    return (txs || []).some(t => t.feesUsd && t.feesUsd > 0);
+  }, [txs]);
 
   async function removeTx(id: number) {
     if (!confirm('Delete this transaction?')) return;
@@ -130,12 +125,8 @@ export default function TransactionsPage() {
   }
 
   const isMobile = useIsMobile();
-  const nf = new Intl.NumberFormat(undefined, { maximumFractionDigits: 8 });
-  const df = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-  const dfDate = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
-  const dfTime = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
-
   const portfolioId = (typeof selectedId === 'number' ? selectedId : null) ?? 1;
+  const colCount = 6 + (isMobile ? 0 : 1) + (showFeesCol && !isMobile ? 1 : 0);
 
   return (
     <AuthGuard redirectTo="/transactions">
@@ -152,12 +143,12 @@ export default function TransactionsPage() {
         <div className="toolbar">
           <div className="filters">
             <label>Asset
-              <select value={assetFilter} onChange={e => setAssetFilter(e.target.value)}>
+              <select value={filters.state.assetFilter} onChange={e => filters.setAssetFilter(e.target.value)}>
                 {assets.map(a => <option key={a} value={a}>{a}</option>)}
               </select>
             </label>
             <label>Type
-              <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+              <select value={filters.state.typeFilter} onChange={e => filters.setTypeFilter(e.target.value)}>
                 <option value="All">All</option>
                 <option value="Deposit">Deposit</option>
                 <option value="Withdrawal">Withdrawal</option>
@@ -165,10 +156,25 @@ export default function TransactionsPage() {
               </select>
             </label>
             <label>Sort by date
-              <select value={sortDir} onChange={e => setSortDir(e.target.value as 'asc' | 'desc')}>
+              <select value={filters.state.sortDir} onChange={e => filters.setSortDir(e.target.value as 'asc' | 'desc')}>
                 <option value="desc">Newest first</option>
                 <option value="asc">Oldest first</option>
               </select>
+            </label>
+            <label>Search
+              <input
+                type="text"
+                placeholder="Asset or note..."
+                value={filters.state.search}
+                onChange={e => filters.setSearch(e.target.value)}
+                style={{ minWidth: '140px' }}
+              />
+            </label>
+            <label>From
+              <input type="date" value={filters.state.dateFrom} onChange={e => filters.setDateFrom(e.target.value)} />
+            </label>
+            <label>To
+              <input type="date" value={filters.state.dateTo} onChange={e => filters.setDateTo(e.target.value)} />
             </label>
           </div>
           <div className="transaction-toolbar-actions">
@@ -270,6 +276,22 @@ Withdrawal,2024-02-28T11:00:00Z,BTC,0.05,55000,USD,2750,1,12,Withdrew some BTC t
           </div>
         </div>
 
+        {/* Active filters summary */}
+        {filters.hasActiveFilters && (
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
+              {filters.totalFiltered} of {txs?.length ?? 0} transactions
+            </span>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={filters.clearAllFilters}
+              style={{ fontSize: '0.8rem', padding: '2px 10px' }}
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
+
         {isSaving && (
           <div style={{
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -293,83 +315,103 @@ Withdrawal,2024-02-28T11:00:00Z,BTC,0.05,55000,USD,2750,1,12,Withdrew some BTC t
             <table className="table">
               <thead>
                 <tr>
-                  <th>Date</th><th>Type</th><th>From</th><th>To</th><th>Notes</th><th></th>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>From</th>
+                  <th>To</th>
+                  {!isMobile && <th>Value</th>}
+                  {showFeesCol && !isMobile && <th>Fees</th>}
+                  <th>Notes</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(t => (
-                  <tr key={t.id}>
-                    <td style={{ color: 'var(--muted)', fontSize: '0.9rem', ...(isMobile ? {} : { whiteSpace: 'nowrap' }) }}>
-                      {isMobile ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.4' }}>
-                          <span>{dfDate.format(new Date(t.datetime))}</span>
-                          <span style={{ fontSize: '0.85em', opacity: 0.8 }}>{dfTime.format(new Date(t.datetime))}</span>
-                        </div>
-                      ) : (
-                        df.format(new Date(t.datetime))
-                      )}
-                    </td>
-                    <td>
-                      <span className={`transaction-type-badge ${t.type.toLowerCase()}`}>
-                        {t.type}
-                      </span>
-                    </td>
-                    <td>
-                      {t.fromAsset ? (
+                {filters.rows.map(t => {
+                  const toValue = TransactionHelpers.getToValueUsd(t);
+                  return (
+                    <tr key={t.id}>
+                      <td style={{ color: 'var(--muted)', fontSize: '0.9rem', ...(isMobile ? {} : { whiteSpace: 'nowrap' }) }}>
+                        {isMobile ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: '1.4' }}>
+                            <span>{dfDate.format(new Date(t.datetime))}</span>
+                            <span style={{ fontSize: '0.85em', opacity: 0.8 }}>{dfTime.format(new Date(t.datetime))}</span>
+                          </div>
+                        ) : (
+                          df.format(new Date(t.datetime))
+                        )}
+                      </td>
+                      <td>
+                        <span className={`transaction-type-badge ${t.type.toLowerCase()}`}>
+                          {t.type}
+                        </span>
+                      </td>
+                      <td>
+                        {t.fromAsset ? (
+                          <span style={{ display: 'inline-flex', gap: 6, flexDirection: 'column', alignItems: 'flex-start' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <CryptoIcon symbol={t.fromAsset} size={18} alt={`${t.fromAsset} logo`} />
+                              <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 12, background: `${getAssetColor(t.fromAsset)}22`, color: getAssetColor(t.fromAsset), fontWeight: 600 }}>
+                                {t.fromAsset.toUpperCase()}
+                              </span>
+                            </span>
+                            <span style={{ fontSize: '0.9em', color: 'var(--muted)' }}>{t.fromQuantity ? nf.format(t.fromQuantity) : ''} @ ${t.fromPriceUsd ? nf.format(t.fromPriceUsd) : ''}</span>
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td>
                         <span style={{ display: 'inline-flex', gap: 6, flexDirection: 'column', alignItems: 'flex-start' }}>
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                            <CryptoIcon symbol={t.fromAsset} size={18} alt={`${t.fromAsset} logo`} />
-                            <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 12, background: `${getAssetColor(t.fromAsset)}22`, color: getAssetColor(t.fromAsset), fontWeight: 600 }}>
-                              {t.fromAsset.toUpperCase()}
+                            <CryptoIcon symbol={t.toAsset} size={18} alt={`${t.toAsset} logo`} />
+                            <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 12, background: `${getAssetColor(t.toAsset)}22`, color: getAssetColor(t.toAsset), fontWeight: 600 }}>
+                              {t.toAsset.toUpperCase()}
                             </span>
                           </span>
-                          <span style={{ fontSize: '0.9em', color: 'var(--muted)' }}>{t.fromQuantity ? nf.format(t.fromQuantity) : ''} @ ${t.fromPriceUsd ? nf.format(t.fromPriceUsd) : ''}</span>
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td>
-                      <span style={{ display: 'inline-flex', gap: 6, flexDirection: 'column', alignItems: 'flex-start' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <CryptoIcon symbol={t.toAsset} size={18} alt={`${t.toAsset} logo`} />
-                          <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 12, background: `${getAssetColor(t.toAsset)}22`, color: getAssetColor(t.toAsset), fontWeight: 600 }}>
-                            {t.toAsset.toUpperCase()}
+                          <span style={{ fontSize: '0.85em', color: 'var(--muted)', marginTop: '2px' }}>
+                            {nf.format(t.toQuantity)} {t.toPriceUsd ? `@ $${nf.format(t.toPriceUsd)}` : ''}
                           </span>
                         </span>
-                        <span style={{ fontSize: '0.85em', color: 'var(--muted)', marginTop: '2px' }}>
-                          {nf.format(t.toQuantity)} {t.toPriceUsd ? `@ $${nf.format(t.toPriceUsd)}` : ''}
-                        </span>
-                      </span>
-                    </td>
-                    <td style={{ color: 'var(--muted)', fontSize: '0.9rem', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {t.notes || <span style={{ fontStyle: 'italic', opacity: 0.5 }}>—</span>}
-                    </td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                        <button
-                          className="btn btn-secondary btn-sm"
-                          onClick={() => setEditingTx(t)}
-                          disabled={isSaving}
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '6px 12px' }}
-                          title="Edit transaction"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          className="btn btn-danger btn-sm"
-                          onClick={() => removeTx(t.id)}
-                          disabled={isSaving}
-                          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '6px 12px' }}
-                          title="Delete transaction"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {filtered.length === 0 && (
+                      </td>
+                      {!isMobile && (
+                        <td style={{ whiteSpace: 'nowrap', fontWeight: 500 }}>
+                          {toValue > 0 ? usdFmt.format(toValue) : <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{'\u2014'}</span>}
+                        </td>
+                      )}
+                      {showFeesCol && !isMobile && (
+                        <td style={{ whiteSpace: 'nowrap', color: 'var(--muted)', fontSize: '0.9rem' }}>
+                          {t.feesUsd && t.feesUsd > 0 ? usdFmt.format(t.feesUsd) : <span style={{ fontStyle: 'italic', opacity: 0.5 }}>{'\u2014'}</span>}
+                        </td>
+                      )}
+                      <td style={{ color: 'var(--muted)', fontSize: '0.9rem', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {t.notes || <span style={{ fontStyle: 'italic', opacity: 0.5 }}>{'\u2014'}</span>}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                          <button
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setEditingTx(t)}
+                            disabled={isSaving}
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '6px 12px' }}
+                            title="Edit transaction"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={() => removeTx(t.id)}
+                            disabled={isSaving}
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '6px 12px' }}
+                            title="Delete transaction"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filters.rows.length === 0 && (
                   <tr>
-                    <td colSpan={6} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--muted)' }}>
+                    <td colSpan={colCount} style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--muted)' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
                         <div style={{ fontSize: '1.1rem', fontWeight: 600 }}>No transactions found</div>
                         <div style={{ fontSize: '0.9rem', opacity: 0.8 }}>Try adjusting your filters or add a new transaction</div>
@@ -380,6 +422,15 @@ Withdrawal,2024-02-28T11:00:00Z,BTC,0.05,55000,USD,2750,1,12,Withdrew some BTC t
               </tbody>
             </table>
           </div>
+
+          <TransactionPagination
+            page={filters.state.page}
+            totalPages={filters.totalPages}
+            totalFiltered={filters.totalFiltered}
+            pageSize={filters.state.pageSize}
+            onPage={filters.setPage}
+            onPageSize={filters.setPageSize}
+          />
         </section>
 
         {/* Add Transaction Modal */}
