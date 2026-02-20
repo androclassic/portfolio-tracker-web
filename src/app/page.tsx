@@ -178,7 +178,7 @@ export default function LandingPage() {
             Powerful Analytics Dashboard
           </h2>
           <p className="landing-section-subtitle">
-            12+ interactive charts built with Plotly.js, designed for both
+            12+ interactive charts designed for both
             desktop and mobile.
           </p>
           <div className="landing-preview-frame">
@@ -223,9 +223,9 @@ export default function LandingPage() {
                 <Image
                   src="/ticker-showcase.jpeg"
                   alt="Cardano Ticker hardware display showing portfolio data, allocation chart, and 7-day performance"
-                  width={480}
-                  height={480}
-                  style={{ width: '100%', height: 'auto', borderRadius: 'var(--radius)' }}
+                  fill
+                  sizes="(max-width: 1024px) 100vw, 360px"
+                  style={{ objectFit: 'cover', objectPosition: 'center' }}
                   priority={false}
                 />
               </div>
@@ -306,14 +306,14 @@ export default function LandingPage() {
       <footer className="landing-footer">
         <div className="landing-inner">
           <p>
-            Built with Next.js, Prisma, and Plotly.js &mdash; by{' '}
+            Built by{' '}
             <a
               className="landing-inline-link"
               href="https://www.e7d.tech/"
               target="_blank"
               rel="noopener noreferrer"
             >
-              e7d.tech
+              the e7d.tech team
             </a>
           </p>
           {!isAuthenticated && (
