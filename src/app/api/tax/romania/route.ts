@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { calculateRomaniaTax } from '@/lib/tax/romania-v2';
 import { getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/exchange-rates';
 import type { LotStrategy } from '@/lib/tax/lot-strategy';
+import { rateLimitStandard } from '@/lib/rate-limit';
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,6 +13,8 @@ export async function GET(req: NextRequest) {
     if (!auth?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const rl = rateLimitStandard(auth.user.id);
+    if (rl) return rl;
 
     // Get query parameters
     const { searchParams } = new URL(req.url);

@@ -5,6 +5,7 @@ import { parse as parseDateFns, isValid as isValidDate } from 'date-fns';
 import type { Prisma } from '@prisma/client';
 import { validateAssetList, isFiatCurrency, isStablecoin } from '@/lib/assets';
 import { getServerAuth } from '@/lib/auth';
+import { rateLimitStandard } from '@/lib/rate-limit';
 import { getHistoricalExchangeRateSyncStrict } from '@/lib/exchange-rates';
 import { getHistoricalPrices } from '@/lib/prices/service';
 
@@ -71,6 +72,8 @@ export async function POST(req: NextRequest) {
   // Authenticate user
   const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const rl = rateLimitStandard(auth.userId);
+  if (rl) return rl;
 
   const url = new URL(req.url);
   const portfolioId = Number(url.searchParams.get('portfolioId') || '1');

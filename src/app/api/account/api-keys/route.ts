@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerAuth } from '@/lib/auth';
+import { rateLimitStandard } from '@/lib/rate-limit';
 import crypto from 'crypto';
 
 /**
@@ -28,6 +29,8 @@ export async function GET(req: NextRequest) {
   if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const rl = rateLimitStandard(auth.userId);
+  if (rl) return rl;
 
   const apiKeys = await prisma.apiKey.findMany({
     where: {
@@ -58,6 +61,8 @@ export async function POST(req: NextRequest) {
   if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const rl2 = rateLimitStandard(auth.userId);
+  if (rl2) return rl2;
 
   const body = await req.json();
   const name = body?.name?.trim() || 'API Key';
@@ -121,6 +126,8 @@ export async function DELETE(req: NextRequest) {
   if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const rl3 = rateLimitStandard(auth.userId);
+  if (rl3) return rl3;
 
   const url = new URL(req.url);
   const keyId = url.searchParams.get('id');

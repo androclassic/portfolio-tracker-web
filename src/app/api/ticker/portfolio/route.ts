@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getCurrentPrices, getHistoricalPrices } from '@/lib/prices/service';
 import { getAssetColor, isStablecoin } from '@/lib/assets';
 import { validateApiKey } from '@/lib/api-key';
+import { rateLimitTicker } from '@/lib/rate-limit';
 
 /**
  * Ticker API - Returns portfolio data for external display devices (e-ink ticker, etc.)
@@ -21,6 +22,8 @@ import { validateApiKey } from '@/lib/api-key';
  */
 
 export async function GET(req: NextRequest) {
+  const limited = rateLimitTicker(req);
+  if (limited) return limited;
   // Check API key
   const apiKey = req.headers.get('x-api-key');
 

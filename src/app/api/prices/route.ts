@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getHistoricalPrices } from '@/lib/prices/service';
+import { rateLimitStandard } from '@/lib/rate-limit';
 
 /**
  * API endpoint for historical prices
@@ -7,6 +8,10 @@ import { getHistoricalPrices } from '@/lib/prices/service';
  * Returns data as fast as possible using cached data
  */
 export async function GET(req: NextRequest) {
+  // Use IP-based rate limiting for this unauthenticated endpoint
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'unknown';
+  const rl = rateLimitStandard(ip);
+  if (rl) return rl;
   const startTime = performance.now();
   const url = new URL(req.url);
   const symbols = (url.searchParams.get('symbols')||'').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);

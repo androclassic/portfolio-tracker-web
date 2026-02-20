@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@prisma/client';
 import { getServerAuth } from '@/lib/auth';
+import { rateLimitStandard } from '@/lib/rate-limit';
 
 export async function GET(req: NextRequest) {
   // Authenticate user
@@ -9,6 +10,8 @@ export async function GET(req: NextRequest) {
   if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const rl = rateLimitStandard(auth.userId);
+  if (rl) return rl;
 
   const url = new URL(req.url);
   const portfolioId = Number(url.searchParams.get('portfolioId') || '1');

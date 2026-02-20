@@ -5,6 +5,7 @@ import { calculateRomaniaTax } from '@/lib/tax/romania-v2';
 import { getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/exchange-rates';
 import type { TaxableEvent } from '@/lib/tax/romania-v2';
 import type { LotStrategy } from '@/lib/tax/lot-strategy';
+import { rateLimitStandard } from '@/lib/rate-limit';
 
 /** Prevent CSV injection by prefixing formula-starting characters with a single quote */
 function sanitizeCsvCell(value: string): string {
@@ -21,6 +22,8 @@ export async function GET(req: NextRequest) {
     if (!auth?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const rl = rateLimitStandard(auth.user.id);
+    if (rl) return rl;
 
     // Get query parameters
     const { searchParams } = new URL(req.url);

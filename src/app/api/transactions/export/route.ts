@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@prisma/client';
 import { validateApiKey } from '@/lib/api-key';
+import { rateLimitStandard } from '@/lib/rate-limit';
 
 /** Prevent CSV injection by prefixing formula-starting characters with a single quote */
 function sanitizeCsvCell(value: string): string {
@@ -34,6 +35,9 @@ export async function POST(req: NextRequest) {
     }
     userId = auth.user.id;
   }
+
+  const rl = rateLimitStandard(userId);
+  if (rl) return rl;
 
   const url = new URL(req.url);
   const portfolioId = Number(url.searchParams.get('portfolioId') || '1');

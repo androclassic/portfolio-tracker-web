@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getCurrentPrices, getHistoricalPrices } from '@/lib/prices/service';
 import { isStablecoin } from '@/lib/assets';
 import { validateApiKey } from '@/lib/api-key';
+import { rateLimitTicker } from '@/lib/rate-limit';
 
 /**
  * Ticker API - Returns historical daily portfolio values for chart display
@@ -18,6 +19,8 @@ import { validateApiKey } from '@/lib/api-key';
  */
 
 export async function GET(req: NextRequest) {
+  const limited = rateLimitTicker(req);
+  if (limited) return limited;
   const apiKey = req.headers.get('x-api-key');
 
   if (!apiKey) {

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { TtlCache } from '@/lib/cache';
 import type { Transaction } from '@prisma/client';
 import { getServerAuth } from '@/lib/auth';
+import { rateLimitStandard } from '@/lib/rate-limit';
 
 const TxSchema = z.object({
   type: z.enum(['Deposit','Withdrawal','Swap']),
@@ -46,6 +47,8 @@ export async function GET(req: NextRequest) {
   const portfolioId = param === null ? 'all' : Number(param);
   const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const rl = rateLimitStandard(auth.userId);
+  if (rl) return rl;
   const key = `transactions:list:${String(portfolioId)}`;
   const cached = txCache.get(key);
   if (cached) {
@@ -61,6 +64,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const rl = rateLimitStandard(auth.userId);
+  if (rl) return rl;
   const json = await req.json();
 
   // Support both single and batch creation (used for paired stablecoin transactions).
@@ -121,6 +126,8 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const rl = rateLimitStandard(auth.userId);
+  if (rl) return rl;
   const json = await req.json();
   const id = Number(json?.id);
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
@@ -147,6 +154,8 @@ export async function DELETE(req: NextRequest) {
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const rl = rateLimitStandard(auth.userId);
+  if (rl) return rl;
   const existing = await prisma.transaction.findFirst({ where: { id, portfolio: { userId: auth.userId } } });
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   await prisma.transaction.delete({ where: { id } });

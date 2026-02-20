@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getServerAuth } from '@/lib/auth';
+import { rateLimitStandard } from '@/lib/rate-limit';
 
 export async function GET(req: NextRequest) {
   const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const rl = rateLimitStandard(auth.userId);
+  if (rl) return rl;
   
   // Get only portfolios belonging to the authenticated user
   const rows = await prisma.portfolio.findMany({ 
@@ -18,6 +21,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const rl2 = rateLimitStandard(auth.userId);
+  if (rl2) return rl2;
   
   const { name } = await req.json();
   if (!name || typeof name !== 'string') return NextResponse.json({ error: 'Invalid name' }, { status: 400 });
@@ -34,6 +39,8 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const rl3 = rateLimitStandard(auth.userId);
+  if (rl3) return rl3;
   
   const { id, name } = await req.json();
   const pid = Number(id);
@@ -50,6 +57,8 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const rl4 = rateLimitStandard(auth.userId);
+  if (rl4) return rl4;
   
   const url = new URL(req.url);
   const id = Number(url.searchParams.get('id'));

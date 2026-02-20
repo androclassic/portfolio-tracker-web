@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { warmHistoricalPricesCache } from '@/lib/prices/warm-cache';
 import { getServerAuth } from '@/lib/auth';
+import { rateLimitStandard } from '@/lib/rate-limit';
 
 /**
  * API route to warm the historical prices cache
@@ -17,6 +18,8 @@ export async function GET(req: NextRequest) {
   if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const rl = rateLimitStandard(auth.userId);
+  if (rl) return rl;
 
   try {
     warmHistoricalPricesCache().catch(error => {
@@ -45,6 +48,8 @@ export async function POST(req: NextRequest) {
   if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const rl2 = rateLimitStandard(auth.userId);
+  if (rl2) return rl2;
 
   try {
     const result = await warmHistoricalPricesCache();
