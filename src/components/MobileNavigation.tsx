@@ -20,6 +20,9 @@ const navItems: NavItem[] = [
 export function MobileNavigation() {
   const pathname = usePathname();
 
+  // Hide on the public landing page
+  if (pathname === '/') return null;
+
   return (
     <nav className="mobile-nav">
       {navItems.map((item) => {

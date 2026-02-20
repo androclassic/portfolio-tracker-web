@@ -42,6 +42,11 @@ export async function middleware(req: NextRequest) {
   ) {
     return NextResponse.next();
   }
+
+  // Allow the landing page to be public
+  if (pathname === '/') {
+    return NextResponse.next();
+  }
   
   const token = req.cookies.get('auth')?.value;
   const isValidToken = token ? verifyJWTInEdge(token) : false;
