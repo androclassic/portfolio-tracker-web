@@ -229,6 +229,17 @@ export default function LandingPage() {
                   priority={false}
                 />
               </div>
+              <p className="landing-muted-sm" style={{ marginBottom: 'var(--space-sm)' }}>
+                Open-source hardware project:{' '}
+                <a
+                  className="landing-inline-link"
+                  href="https://github.com/en7angled/CardanoTicker#"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  en7angled/CardanoTicker
+                </a>
+              </p>
               <div className="landing-endpoints">
                 <code>GET /api/ticker/portfolio</code>
                 <code>GET /api/ticker/portfolio/history</code>
@@ -294,7 +305,17 @@ export default function LandingPage() {
       {/* ── Footer ── */}
       <footer className="landing-footer">
         <div className="landing-inner">
-          <p>Built with Next.js, Prisma, and Plotly.js</p>
+          <p>
+            Built with Next.js, Prisma, and Plotly.js &mdash; by{' '}
+            <a
+              className="landing-inline-link"
+              href="https://www.e7d.tech/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              e7d.tech
+            </a>
+          </p>
           {!isAuthenticated && (
             <div className="landing-footer-links">
               <Link href="/login">Login</Link>

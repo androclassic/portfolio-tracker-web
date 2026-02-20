@@ -1769,6 +1769,17 @@ select option{background:var(--surface);color:var(--text)}
   filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.4));
 }
 
+.landing-inline-link {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in oklab, var(--primary) 55%, transparent);
+}
+
+.landing-inline-link:hover {
+  text-decoration-color: var(--primary);
+}
+
 .landing-endpoints {
   display: flex;
   flex-direction: column;

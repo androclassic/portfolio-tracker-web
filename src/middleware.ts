@@ -33,12 +33,15 @@ function verifyJWTInEdge(token: string): boolean {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   
-  // Allow public assets
+  // Allow public assets (Next serves `public/` at the site root, e.g. `/ticker-showcase.jpeg`)
+  // Also allow any request that looks like a static file (has an extension).
+  const isStaticFile = /\.[a-zA-Z0-9]+$/.test(pathname);
   if (
     pathname.startsWith('/api') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon') ||
-    pathname.startsWith('/public')
+    pathname.startsWith('/public') ||
+    isStaticFile
   ) {
     return NextResponse.next();
   }
@@ -74,7 +77,8 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!api|_next/static|_next/image|favicon.ico|login|register).*)',
+    // Exclude API, Next internals, auth pages, and all static files (e.g. `/image.png`, `/robots.txt`)
+    '/((?!api|_next/static|_next/image|favicon.ico|login|register|.*\\..*).*)',
   ],
 };
 
