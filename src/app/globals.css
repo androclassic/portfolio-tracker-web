@@ -1508,8 +1508,8 @@ select option{background:var(--surface);color:var(--text)}
   top: -40%;
   left: 50%;
   transform: translateX(-50%);
-  width: 700px;
-  height: 700px;
+  width: 400px;
+  height: 400px;
   background: radial-gradient(
     circle,
     color-mix(in oklab, var(--primary) 12%, transparent),
@@ -1731,7 +1731,7 @@ select option{background:var(--surface);color:var(--text)}
   gap: var(--space-lg);
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 768px) {
   .landing-integrations-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -1741,7 +1741,7 @@ select option{background:var(--surface);color:var(--text)}
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: var(--space-xl);
+  padding: var(--space-md);
 }
 
 .landing-integration-card h3 {
@@ -1827,10 +1827,11 @@ select option{background:var(--surface);color:var(--text)}
 
 .landing-code-block pre {
   margin: 0;
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   color: var(--text);
   line-height: 1.6;
-  white-space: pre;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* MCP examples */
@@ -1976,6 +1977,7 @@ select option{background:var(--surface);color:var(--text)}
   display: flex;
   gap: var(--space-lg);
   justify-content: center;
+  flex-wrap: wrap;
 }
 
 .landing-footer-links a {
@@ -2024,6 +2026,25 @@ select option{background:var(--surface);color:var(--text)}
 
 /* ── Responsive ── */
 
+/* 640px+ — restore desktop values for mobile-first overrides */
+@media (min-width: 640px) {
+  .landing-hero::before {
+    width: 700px;
+    height: 700px;
+  }
+
+  .landing-code-block pre {
+    font-size: var(--text-sm);
+    white-space: pre;
+    word-break: normal;
+  }
+
+  .landing-integration-card {
+    padding: var(--space-xl);
+  }
+}
+
+/* max-width: 640px — small screens */
 @media (max-width: 640px) {
   .landing-hero {
     padding: 60px var(--space-sm) 40px;
@@ -2031,6 +2052,11 @@ select option{background:var(--surface);color:var(--text)}
 
   .landing-section {
     padding: var(--space-xl) var(--space-sm);
+  }
+
+  .landing-step {
+    gap: var(--space-md);
+    padding-bottom: var(--space-lg);
   }
 
   .landing-step-number {
