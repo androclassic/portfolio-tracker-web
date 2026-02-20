@@ -1950,6 +1950,28 @@ select option{background:var(--surface);color:var(--text)}
   margin-bottom: var(--space-sm);
 }
 
+.landing-footer-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.landing-footer-built {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.landing-footer-logo-link {
+  display: inline-flex;
+  transition: opacity 0.2s ease;
+}
+
+.landing-footer-logo-link:hover {
+  opacity: 0.8;
+}
+
 .landing-footer-links {
   display: flex;
   gap: var(--space-lg);
@@ -1965,6 +1987,17 @@ select option{background:var(--surface);color:var(--text)}
 
 .landing-footer-links a:hover {
   text-decoration: underline;
+}
+
+/* Light theme: invert the white E7D text so it's visible */
+:root[data-theme="light"] .landing-footer-logo-link img {
+  filter: brightness(0.2);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .landing-footer-logo-link img {
+    filter: brightness(0.2);
+  }
 }
 
 /* ── Animation ── */

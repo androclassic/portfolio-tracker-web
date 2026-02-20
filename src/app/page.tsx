@@ -305,17 +305,23 @@ export default function LandingPage() {
       {/* ── Footer ── */}
       <footer className="landing-footer">
         <div className="landing-inner">
-          <p>
-            Built by{' '}
+          <div className="landing-footer-brand">
+            <span className="landing-footer-built">Built by</span>
             <a
-              className="landing-inline-link"
               href="https://www.e7d.tech/"
               target="_blank"
               rel="noopener noreferrer"
+              className="landing-footer-logo-link"
             >
-              the e7d.tech team
+              <Image
+                src="/e7d-logo.svg"
+                alt="ENTANGLED E7D"
+                width={160}
+                height={40}
+                style={{ height: 36, width: 'auto' }}
+              />
             </a>
-          </p>
+          </div>
           {!isAuthenticated && (
             <div className="landing-footer-links">
               <Link href="/login">Login</Link>
