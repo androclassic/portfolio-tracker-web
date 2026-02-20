@@ -243,6 +243,7 @@ export default function LandingPage() {
               <div className="landing-endpoints">
                 <code>GET /api/ticker/portfolio</code>
                 <code>GET /api/ticker/portfolio/history</code>
+                <code>GET /api/ticker/assets</code>
               </div>
               <p className="landing-muted-sm">
                 Authenticate with <code>X-API-Key</code> header. Generate keys
