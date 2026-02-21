@@ -192,7 +192,7 @@ export function CostVsValuationChart() {
             layout={{
               autosize: true,
               height: expanded ? undefined : 400,
-              margin: { t: 30, r: 10, l: 10, b: 10 },
+              margin: { t: 30, r: 10, l: 50, b: 30 },
               legend: { orientation: 'h' },
               yaxis: { title: { text: 'USD Value' } },
               hovermode: 'x unified',

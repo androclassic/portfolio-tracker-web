@@ -190,7 +190,7 @@ export function PnLChart() {
             layout={{
               autosize: true,
               height: expanded ? undefined : 400,
-              margin: { t: 30, r: 10, l: 10, b: 10 },
+              margin: { t: 30, r: 10, l: 50, b: 30 },
               hovermode: 'x unified',
               paper_bgcolor: 'transparent',
               plot_bgcolor: 'transparent',
