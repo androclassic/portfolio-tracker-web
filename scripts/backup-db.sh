@@ -7,7 +7,7 @@
 #   BACKUP_DIR=/custom/path ./scripts/backup-db.sh
 #
 # Cron example (daily at 3 AM):
-#   0 3 * * * /home/andrei/Develop/portfolio-tracker-web/scripts/backup-db.sh >> /var/log/portfolio-backup.log 2>&1
+#   0 3 * * * /home/andrei/Develop/portfolio-tracker-web/scripts/backup-db.sh >> /home/andrei/logs/portfolio-backup.log 2>&1
 # ──────────────────────────────────────────────────────────
 
 set -euo pipefail
