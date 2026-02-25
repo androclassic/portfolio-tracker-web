@@ -114,7 +114,7 @@ export function HeatmapChart() {
         <ShortTimeframeSelector value={heatmapTimeframe} onChange={setHeatmapTimeframe} />
       )}
     >
-      {() => {
+      {({ expanded }) => {
         if (isLoading) {
           return <div className="chart-loading">Loading heatmap data...</div>;
         }
