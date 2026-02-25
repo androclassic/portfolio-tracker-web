@@ -104,14 +104,16 @@ git push origin main:production
 
 | Secret | Description |
 |---|---|
-| `DEPLOY_HOST` | Production server hostname or IP |
-| `DEPLOY_USER` | SSH username on the server |
-| `DEPLOY_SSH_KEY` | Private SSH key for authentication |
-| `DEPLOY_PATH` | *(optional)* App directory on server (default: `/opt/portfolio-tracker`) |
+| `DEPLOY_WEBHOOK_URL` | URL of the webhook listener on your server (e.g. `http://your-server-ip:9000/deploy`) |
+| `DEPLOY_WEBHOOK_SECRET` | Shared secret to authenticate requests |
 
 > `GITHUB_TOKEN` is provided automatically by GitHub Actions — no manual setup needed for GHCR access.
+> The deploy step uses a **webhook** (not SSH), so it works even if your server has a dynamic IP or is behind Cloudflare.
 
-**Server prerequisites:** Docker and Docker Compose must be installed. The first deploy requires an `.env.production` file in the deploy path (see `env.production.example`).
+**Server setup:**
+1. Docker and Docker Compose must be installed.
+2. An `.env.production` file must exist in the app directory (see `env.production.example`).
+3. Run the webhook listener — see `scripts/deploy-webhook.sh` for setup instructions and an optional systemd service config.
 
 ## Configuration
 

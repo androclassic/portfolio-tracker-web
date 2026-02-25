@@ -84,26 +84,12 @@ jobs:
     if: github.event_name == 'push'
 
     steps:
-      - name: Deploy to production server
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: |
-            cd ${{ secrets.DEPLOY_PATH || '/opt/portfolio-tracker' }}
-            
-            # Log in to GHCR
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            
-            # Pull the new image
-            docker pull ghcr.io/${{ github.repository }}:${{ needs.docker-push.outputs.image-tag }}
-            
-            # Update the running container
-            docker compose pull
-            docker compose up -d
-            
-            # Show status
-            docker compose ps
-            
-            echo "✅ Deployed ghcr.io/${{ github.repository }}:${{ needs.docker-push.outputs.image-tag }}"
+      - name: Notify server to deploy via webhook
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.DEPLOY_WEBHOOK_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{"image":"ghcr.io/${{ github.repository }}:${{ needs.docker-push.outputs.image-tag }}"}' \
+            "${{ secrets.DEPLOY_WEBHOOK_URL }}" \
+          && echo "✅ Deploy webhook sent" \
+          || echo "⚠️ Webhook not configured — image pushed to GHCR, pull manually on server"
