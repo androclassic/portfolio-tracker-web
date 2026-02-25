@@ -346,7 +346,7 @@ Withdrawal,2024-02-28T11:00:00Z,BTC,0.05,55000,USD,2750,1,12,Withdrew some BTC t
                       <td>
                         {(() => {
                           let badgeClass = t.type.toLowerCase();
-                          let label = t.type;
+                          let label: string = t.type;
                           if (t.type === 'Swap' && t.fromAsset) {
                             const fromIsStable = isStablecoin(t.fromAsset) || isFiatCurrency(t.fromAsset);
                             const toIsStable = isStablecoin(t.toAsset) || isFiatCurrency(t.toAsset);
