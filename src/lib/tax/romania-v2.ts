@@ -846,7 +846,6 @@ export function calculateRomaniaTax(
       const { fxRateToUsd } = getFiatUsdAmount(tx);
       
       // Get withdrawal amount in RON
-      const date = new Date(Number(tx.datetime) || tx.datetime).toISOString().slice(0, 10);
       const fxUsdToRon = usdToRonRate;
       const fxFiatToRon = fxRateToUsd * fxUsdToRon;
       const amountRon = (tx.toQuantity || 0) * fxFiatToRon;

@@ -99,7 +99,7 @@ export async function fetchHistoricalWithLocalCache(
       }
       
       return arr;
-    } catch (error) {
+    } catch {
       return [];
     }
   });

@@ -110,11 +110,11 @@ export function HeatmapChart() {
     <ChartCard
       title="Portfolio Gains/Losses Heatmap"
       timeframeEnabled={false}
-      headerActions={({ expanded }) => (
+      headerActions={() => (
         <ShortTimeframeSelector value={heatmapTimeframe} onChange={setHeatmapTimeframe} />
       )}
     >
-      {({ timeframe, expanded }) => {
+      {({ expanded }) => {
         if (isLoading) {
           return <div className="chart-loading">Loading heatmap data...</div>;
         }

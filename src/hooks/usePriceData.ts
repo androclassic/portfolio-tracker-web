@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import useSWR from 'swr';
 import { jsonFetcher } from '@/lib/swr-fetcher';
 import { fetchHistoricalWithLocalCache } from '@/lib/prices-cache';
-import type { PricesResp, HistResp, PricePoint } from '@/lib/types';
+import type { PricesResp, HistResp } from '@/lib/types';
 
 interface UsePriceDataOptions {
   symbols: string[];

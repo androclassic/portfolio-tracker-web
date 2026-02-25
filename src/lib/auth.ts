@@ -11,7 +11,7 @@ import { NextRequest } from "next/server"
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   callbacks: {
-    async signIn({ user, account, profile, email, credentials }) {
+    async signIn({ user, account }) {
       // For credentials provider, check if email is verified
       if (account?.provider === "credentials") {
         const dbUser = await prisma.user.findUnique({
@@ -114,8 +114,8 @@ export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt"
   },
-  useSecureCookies: true,
-  debug: true,
+  useSecureCookies: process.env.NODE_ENV === 'production',
+  debug: process.env.NODE_ENV !== 'production',
   pages: {
     signIn: "/login",
   }

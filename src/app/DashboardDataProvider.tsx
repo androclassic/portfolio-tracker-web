@@ -111,9 +111,6 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
   // Get EUR/USD rate for EURC from fxRateMap (will be set when fxRateMap loads)
   const [eurUsdRate, setEurUsdRate] = useState<number | null>(null);
   
-  // Add stablecoins to latestPrices
-  const latestPricesStr = useMemo(() => JSON.stringify(latestPrices), [latestPrices]);
-  
   const latestPricesWithStables = useMemo(() => {
     const result = { ...latestPrices };
     for (const stable of stableAssets) {
@@ -419,6 +416,7 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
     
     // Set state immediately to update UI
     setComputedData(computed);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- historicalPricesKey is used as a proxy for historicalPrices to avoid reference-equality re-runs
   }, [txs, loadingTxs, assets, latestPrices, latestPricesWithStables, historicalPricesKey, loadingCurr, loadingHist, pnlData, portfolioKey, cacheKey]);
 
   // Compute FX rate map separately (async)
@@ -477,7 +475,7 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
       const end = dates[dates.length - 1];
       try {
         await preloadExchangeRates(start, end);
-      } catch (e) {
+      } catch {
         // Continue anyway - we'll use fallback rates
       }
       if (cancelled) return;
@@ -511,6 +509,7 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
     return () => {
       cancelled = true;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fxRateMap is the setter target; depending on its .size would cause loops
   }, [priceIndexDatesKey, computedData]);
 
   // Listen for transaction changes

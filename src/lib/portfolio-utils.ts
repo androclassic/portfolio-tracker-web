@@ -1,4 +1,4 @@
-import { Transaction as Tx, PricePoint, TransactionHelpers } from '@/lib/types';
+import { Transaction as Tx, TransactionHelpers } from '@/lib/types';
 import { SUPPORTED_ASSETS } from '@/lib/assets';
 
 export interface HoldingData {
@@ -81,12 +81,6 @@ export const calculateCostBasis = (asset: string, txs: Tx[]): { avgCost: number;
   return { avgCost, costBasis };
 };
 
-// Get market cap from historical data (placeholder - PricePoint doesn't include market cap)
-export const getMarketCap = (asset: string, histPrices: PricePoint[]): number => {
-  // Note: PricePoint type doesn't include market_cap, so we return 0 for now
-  // This could be enhanced to fetch market cap from a separate API
-  return 0;
-};
 
 // Calculate P&L for a holding
 export const calculatePnL = (currentValue: number, costBasis: number): { pnl: number; pnlPercent: number } => {

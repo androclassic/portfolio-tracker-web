@@ -30,8 +30,9 @@ export function ChartCard(props: {
    */
   style?: React.CSSProperties;
 }) {
-  const timeframeEnabled = props.timeframeEnabled ?? true;
-  const [timeframe, setTimeframe] = useState<DashboardTimeframe>(props.defaultTimeframe ?? 'all');
+  const { title, infoText, headerActions, timeframeEnabled: tfEnabled, defaultTimeframe, children, footer, style } = props;
+  const timeframeEnabled = tfEnabled ?? true;
+  const [timeframe, setTimeframe] = useState<DashboardTimeframe>(defaultTimeframe ?? 'all');
   const [expanded, setExpanded] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const isMobile = useIsMobile();
@@ -44,12 +45,12 @@ export function ChartCard(props: {
         style={{ cursor: isMobile ? 'pointer' : 'default' }}
       >
         <div className="card-title">
-          <h2>{props.title}</h2>
-          {props.infoText && !isMobile ? (
+          <h2>{title}</h2>
+          {infoText && !isMobile ? (
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                alert(props.infoText);
+                alert(infoText);
               }}
               className="icon-btn"
               title="Chart Information"
@@ -63,7 +64,7 @@ export function ChartCard(props: {
           {!collapsed && (
             <>
               {timeframeEnabled ? <TimeframeSelector value={timeframe} onChange={setTimeframe} /> : null}
-              {props.headerActions ? props.headerActions({ timeframe, setTimeframe, expanded: false }) : null}
+              {headerActions ? headerActions({ timeframe, setTimeframe, expanded: false }) : null}
             </>
           )}
           {/* Collapse/expand button */}
@@ -94,16 +95,16 @@ export function ChartCard(props: {
         </div>
       </div>
     );
-  }, [props.title, props.infoText, props.headerActions, timeframeEnabled, timeframe, expanded, collapsed, isMobile]);
+  }, [title, infoText, headerActions, timeframeEnabled, timeframe, collapsed, isMobile]);
 
   return (
     <>
-      <section className={`card chart-card ${collapsed ? 'chart-card-collapsed' : ''}`} style={props.style}>
+      <section className={`card chart-card ${collapsed ? 'chart-card-collapsed' : ''}`} style={style}>
         {header}
         {!collapsed && (
           <>
-            <div className="chart-card-body">{props.children({ timeframe, expanded: false })}</div>
-            {props.footer ? <div className="chart-card-footer">{props.footer}</div> : null}
+            <div className="chart-card-body">{children({ timeframe, expanded: false })}</div>
+            {footer ? <div className="chart-card-footer">{footer}</div> : null}
           </>
         )}
       </section>
@@ -118,15 +119,15 @@ export function ChartCard(props: {
           <div className="modal chart-modal" onClick={(e) => e.stopPropagation()}>
             <div className="chart-modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <div style={{ fontWeight: 800, fontSize: '1.1rem' }}>{props.title}</div>
+                <div style={{ fontWeight: 800, fontSize: '1.1rem' }}>{title}</div>
                 {timeframeEnabled ? <TimeframeSelector value={timeframe} onChange={setTimeframe} /> : null}
-                {props.headerActions ? props.headerActions({ timeframe, setTimeframe, expanded: true }) : null}
+                {headerActions ? headerActions({ timeframe, setTimeframe, expanded: true }) : null}
               </div>
               <button type="button" className="icon-btn" title="Close" onClick={() => setExpanded(false)}>
                 ✕
               </button>
             </div>
-            <div className="chart-modal-body">{props.children({ timeframe, expanded: true })}</div>
+            <div className="chart-modal-body">{children({ timeframe, expanded: true })}</div>
           </div>
         </div>
       ) : null}

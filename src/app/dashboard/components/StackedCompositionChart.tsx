@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 
 function formatUnits(v: number): string {
   if (v === 0) return '0';
@@ -16,7 +16,7 @@ import { useDashboardData } from '../../DashboardDataProvider';
 import type { Data } from 'plotly.js';
 
 export function StackedCompositionChart() {
-  const { assets, stacked, loadingTxs, loadingCurr, loadingHist } = useDashboardData();
+  const { stacked, loadingTxs, loadingCurr, loadingHist } = useDashboardData();
 
   const [stackedMode, setStackedMode] = useState<'usd' | 'percent'>('usd');
 

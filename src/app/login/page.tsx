@@ -50,7 +50,7 @@ function LoginForm() {
           router.push(redirect);
         }, 800);
       }
-    } catch (error) {
+    } catch {
       setError('Network error. Please try again.');
     } finally {
       setLoading(false);
@@ -63,7 +63,7 @@ function LoginForm() {
     
     try {
       await signIn(provider, { callbackUrl: redirect });
-    } catch (error) {
+    } catch {
       setError('OAuth sign-in failed. Please try again.');
       setLoading(false);
     }
@@ -109,7 +109,7 @@ function LoginForm() {
         setSuccess(true);
         setError('');
       }
-    } catch (error) {
+    } catch {
       setError('Failed to send magic link');
     } finally {
       setLoading(false);
@@ -164,7 +164,7 @@ function LoginForm() {
         setError('');
         setShowResendVerification(false);
       }
-    } catch (error) {
+    } catch {
       setError('Failed to resend verification email');
     } finally {
       setLoading(false);

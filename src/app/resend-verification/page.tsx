@@ -57,7 +57,7 @@ export default function ResendVerificationPage() {
         setSuccess(true);
         setError('');
       }
-    } catch (error) {
+    } catch {
       setError('Failed to send verification email. Please try again.');
     } finally {
       setLoading(false);

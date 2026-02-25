@@ -74,7 +74,7 @@ export default function SettingsPage() {
       setNewlyCreatedKey(data.apiKey.key);
       setNewKeyName('');
       await fetchApiKeys();
-    } catch (err) {
+    } catch {
       setError('Failed to create API key');
     } finally {
       setIsCreating(false);
@@ -136,6 +136,7 @@ export default function SettingsPage() {
           <div style={{ padding: '1rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
               {session?.user?.image && (
+                // eslint-disable-next-line @next/next/no-img-element -- dynamic OAuth profile URL from arbitrary providers
                 <img
                   src={session.user.image}
                   alt="Profile"

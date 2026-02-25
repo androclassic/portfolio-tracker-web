@@ -32,8 +32,6 @@ export function usePnLCalculation(
     });
 
     // Get the most recent date for current prices
-    const dates = Array.from(new Set(historicalPrices.map(p => p.date))).sort();
-
     // Calculate holdings and cost basis for each asset
     const holdings: Record<string, number> = {};
     const costBasis: Record<string, number> = {};

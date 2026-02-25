@@ -156,7 +156,7 @@ async function getExchangeRatesFromDB(
       map.set(r.date, r.rate);
     }
     return map;
-  } catch (error) {
+  } catch {
     return new Map();
   }
 }
@@ -203,7 +203,7 @@ async function storeExchangeRatesInDB(
         )
       );
     }
-  } catch (error) {
+  } catch {
     // Silently fail - cache is optional
   }
 }
@@ -301,7 +301,7 @@ export async function preloadExchangeRates(startDate: string, endDate: string): 
           if (part.length) allRates.push(...part);
           // Add a small delay between chunks to avoid rate limiting
           await new Promise(resolve => setTimeout(resolve, 100));
-        } catch (chunkError) {
+        } catch {
           // Continue with other chunks
         }
       }
@@ -344,7 +344,6 @@ export async function preloadExchangeRates(startDate: string, endDate: string): 
       ratesToStore.set('RON-EUR', new Map());
       ratesToStore.set('RON-USD', new Map());
 
-      let newlyFetchedCount = 0;
       for (const d of dateRangeInclusive(missingStartDate, missingEndDate)) {
         // Only process dates that are actually missing
         if (!missingDates.has(d)) continue;
@@ -378,7 +377,7 @@ export async function preloadExchangeRates(startDate: string, endDate: string): 
         ratesToStore.get('EUR-RON')!.set(d, eur_ron);
         ratesToStore.get('USD-RON')!.set(d, usd_ron);
 
-        newlyFetchedCount++;
+        // Rate fetched and stored
       }
 
       // Store in database (only on server-side, skip in browser)
@@ -523,7 +522,7 @@ export async function getHistoricalExchangeRate(
           return 1 / closestRate.eur_ron;
         }
       }
-    } catch (error) {
+    } catch {
       continue;
     }
   }
