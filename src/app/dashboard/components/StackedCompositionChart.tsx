@@ -66,27 +66,28 @@ export function StackedCompositionChart() {
           const sampled = sampleDataWithDates(dates, yData, maxPoints);
           const sampledY = sampled.data;
           const sampledUnits = sampleDataWithDates(dates, unitValues, maxPoints).data;
+          const hasValue = sampledY.some(v => v > 0);
 
-          // Per-point hovertemplate array: '<extra></extra>' alone hides the row in unified hover
-          const hovertemplate = sampledY.map((v, i) => {
-            if (v <= 0) return '<extra></extra>';
-            const units = formatUnits(sampledUnits[i] ?? 0);
-            const usd = v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            if (stackedMode === 'usd') {
-              return `${asset}: ${usd} USD (${units} ${asset})<extra></extra>`;
-            }
-            return `${asset}: ${v.toFixed(2)}% (${units} ${asset})<extra></extra>`;
-          });
+          // Null out zero values: in a stacked area chart null contributes 0 to the stack
+          // (visually identical) but is completely excluded from unified hover — no row, no swatch.
+          const sampledYNullified = sampledY.map(v => v > 0 ? v : null) as (number | null)[];
+          const sampledUnitText = sampledUnits.map(u => formatUnits(u));
+
+          const hovertemplate = stackedMode === 'usd'
+            ? `${asset}: %{y:,.2f} USD (%{text} ${asset})<extra></extra>`
+            : `${asset}: %{y:.2f}% (%{text} ${asset})<extra></extra>`;
 
           return {
             x: sampledDates,
-            y: sampledY,
+            y: sampledYNullified,
+            text: sampledUnitText,
             type: 'scatter' as const,
             mode: 'lines' as const,
             stackgroup: 'one',
             name: asset,
             line: { color: colorFor(asset) },
             hovertemplate,
+            ...(hasValue ? {} : { hoverinfo: 'skip' as const }),
           };
         });
 
