@@ -214,30 +214,20 @@ p{margin:0 0 var(--space-sm);line-height:1.6}
   .topnav-inner{
     gap:12px;
     padding:12px 16px;
-    flex-wrap: wrap;
-    min-height: 56px;
+    min-height: 48px;
   }
 
   .header-nav{
-    gap:4px;
-    order: 2;
-    flex: 1;
-    justify-content: center;
-    min-width: 0;
-  }
-
-  .header-nav a{
-    padding:6px 8px;
-    font-size:0.875rem;
-    flex-shrink: 0;
+    display:none;
   }
 
   .header-right{
     gap:8px;
-    flex-wrap: wrap;
-    order: 3;
     flex-shrink: 0;
-    justify-content: flex-end;
+  }
+
+  .header-right .user-name{
+    display:none;
   }
 
   .dropdown-trigger{
