@@ -73,6 +73,46 @@ Notes:
 - Docker runs the app on **port 3033** (mapped to `http://localhost:3033`).
 - The SQLite DB is stored at `/data/dev.db` in the container and persisted via the `./prisma` volume mount.
 
+## CI/CD
+
+The project uses GitHub Actions for continuous integration and deployment.
+
+### CI (automatic)
+
+Every push to `main` and every pull request runs **lint + build** checks. No setup required — this works out of the box.
+
+### CD (deploy on tag or branch push)
+
+Pushing a version tag or to the `production` branch triggers a full deployment pipeline:
+
+1. Lint + build check
+2. Docker image build and push to [GitHub Container Registry](https://ghcr.io)
+3. SSH into your production server to pull the new image and restart
+
+**Trigger a deploy:**
+
+```bash
+# Option A: tag a release
+git tag v1.0.0
+git push origin v1.0.0
+
+# Option B: push to production branch
+git push origin main:production
+```
+
+**Required GitHub Secrets** (set in repo Settings → Secrets and variables → Actions):
+
+| Secret | Description |
+|---|---|
+| `DEPLOY_HOST` | Production server hostname or IP |
+| `DEPLOY_USER` | SSH username on the server |
+| `DEPLOY_SSH_KEY` | Private SSH key for authentication |
+| `DEPLOY_PATH` | *(optional)* App directory on server (default: `/opt/portfolio-tracker`) |
+
+> `GITHUB_TOKEN` is provided automatically by GitHub Actions — no manual setup needed for GHCR access.
+
+**Server prerequisites:** Docker and Docker Compose must be installed. The first deploy requires an `.env.production` file in the deploy path (see `env.production.example`).
+
 ## Configuration
 
 See `env.production.example` for the expected environment variables (notably `NEXTAUTH_URL`, `NEXTAUTH_SECRET`, `DATABASE_URL`, and OAuth/email provider settings).
