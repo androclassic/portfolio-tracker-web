@@ -1,10 +1,11 @@
-version: '3.9'
 services:
   web:
+    # In CI/CD: pulls pre-built image from GHCR.
+    # Locally: falls back to building from Dockerfile.
+    image: ghcr.io/androclassic/portfolio-tracker-web:latest
     build:
       context: .
       dockerfile: Dockerfile
-    image: portfolio-tracker-web:latest
     container_name: portfolio-tracker-web
     restart: unless-stopped
     ports:
@@ -15,4 +16,3 @@ services:
       DATABASE_URL: "file:/data/portfolio.db"
     volumes:
       - ./data:/data
-
