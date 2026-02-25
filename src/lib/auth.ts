@@ -114,8 +114,8 @@ export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt"
   },
-  useSecureCookies: true,
-  debug: true,
+  useSecureCookies: process.env.NODE_ENV === 'production',
+  debug: process.env.NODE_ENV !== 'production',
   pages: {
     signIn: "/login",
   }
