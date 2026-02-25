@@ -23,7 +23,7 @@ export function BtcRatioChart() {
 
   const btcRatio = useMemo(() => {
     if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0) {
-      return { dates: [] as string[], btcValue: [] as number[], btcPercentage: [] as number[] };
+      return { dates: [] as string[], btcValue: [] as number[], btcPercentage: [] as number[], portfolioInBtc: [] as number[] };
     }
 
     const priceMap = new Map<string, number>();
@@ -67,6 +67,7 @@ export function BtcRatioChart() {
 
     const btcValue: number[] = [];
     const btcPercentage: number[] = [];
+    const portfolioInBtc: number[] = [];
 
     for (const date of dates) {
       const todays = txsByDate.get(date) || [];
@@ -100,21 +101,23 @@ export function BtcRatioChart() {
 
       btcValue.push(currentHoldings['BTC'] || 0);
       btcPercentage.push(totalValueUsd > 0 ? (btcValueUsd / totalValueUsd) * 100 : 0);
+      portfolioInBtc.push(btcPrice > 0 ? totalValueUsd / btcPrice : 0);
     }
 
-    const result = { dates, btcValue, btcPercentage };
+    const result = { dates, btcValue, btcPercentage, portfolioInBtc };
     return result;
   }, [hist, assets, txs, getEURCPriceFn]);
 
   return (
     <ChartCard
-      title="BTC Ratio & Accumulation"
+      title="Bitcoin Overview"
       headerActions={() => (
         <label className="chart-control">
           Chart Type
           <select value={selectedBtcChart} onChange={e => setSelectedBtcChart(e.target.value)}>
             <option value="accumulation">Accumulation</option>
             <option value="ratio">BTC Ratio</option>
+            <option value="portfolio-btc">Portfolio in BTC</option>
           </select>
         </label>
       )}
@@ -152,6 +155,34 @@ export function BtcRatioChart() {
                 height: expanded ? undefined : 320,
                 margin: { t: 30, r: 10, l: 40, b: 40 },
                 yaxis: { title: { text: 'BTC Ratio (%)' } },
+                hovermode: 'x unified',
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+              }}
+              style={{ width: '100%', height: expanded ? '100%' : undefined }}
+            />
+          );
+        } else if (selectedBtcChart === 'portfolio-btc') {
+          const portfolioData = btcRatio.portfolioInBtc.slice(idx);
+          const sampled = sampleDataWithDates(dates, portfolioData, maxPoints);
+          return (
+            <Plot
+              data={[
+                {
+                  x: sampled.dates,
+                  y: sampled.data,
+                  type: 'scatter',
+                  mode: 'lines',
+                  name: 'Portfolio Value',
+                  line: { color: '#f7931a', width: 2 },
+                  hovertemplate: '%{y:.4f} BTC<extra></extra>',
+                },
+              ] as Data[]}
+              layout={{
+                autosize: true,
+                height: expanded ? undefined : 320,
+                margin: { t: 30, r: 10, l: 50, b: 40 },
+                yaxis: { title: { text: 'Portfolio Value (BTC)' } },
                 hovermode: 'x unified',
                 paper_bgcolor: 'transparent',
                 plot_bgcolor: 'transparent',

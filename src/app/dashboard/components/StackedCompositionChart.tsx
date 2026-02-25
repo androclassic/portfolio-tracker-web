@@ -47,6 +47,7 @@ export function StackedCompositionChart() {
         const cryptoAssets = Array.from(stacked.perAssetUsd.keys()).filter(asset => !isFiatCurrency(asset));
         const traces = cryptoAssets.map(asset => {
           const usdValues = stacked.perAssetUsd.get(asset) || [];
+          const unitValues = (stacked.perAssetUnits.get(asset) || []).slice(idx);
           const yData = stackedMode === 'usd'
             ? usdValues.slice(idx)
             : usdValues.slice(idx).map((value, i) => {
@@ -54,17 +55,24 @@ export function StackedCompositionChart() {
                 return total > 0 ? (value / total) * 100 : 0;
               });
 
-          const sampledY = sampleDataWithDates(dates, yData, maxPoints).data;
+          const sampled = sampleDataWithDates(dates, yData, maxPoints);
+          const sampledY = sampled.data;
+          const sampledUnits = sampleDataWithDates(dates, unitValues, maxPoints).data;
+
+          const hovertemplate = stackedMode === 'usd'
+            ? `${asset}: %{y:,.2f} USD (%{customdata:.8g} ${asset})<extra></extra>`
+            : `${asset}: %{y:.2f}% (%{customdata:.8g} ${asset})<extra></extra>`;
 
           return {
             x: sampledDates,
             y: sampledY,
+            customdata: sampledUnits,
             type: 'scatter' as const,
             mode: 'lines' as const,
             stackgroup: 'one',
             name: asset,
             line: { color: colorFor(asset) },
-            hovertemplate: `${asset}: %{y:.2f}${stackedMode === 'usd' ? ' USD' : '%'}<extra></extra>`,
+            hovertemplate,
           };
         });
 
