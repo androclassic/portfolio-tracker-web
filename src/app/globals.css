@@ -1991,6 +1991,11 @@ select option{background:var(--surface);color:var(--text)}
   text-decoration: underline;
 }
 
+.landing-footer-version {
+  font-size: 0.75rem;
+  opacity: 0.4;
+}
+
 /* Light theme: invert the white E7D text so it's visible */
 :root[data-theme="light"] .landing-footer-logo-link img {
   filter: brightness(0.2);

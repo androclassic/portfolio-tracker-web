@@ -329,6 +329,7 @@ export default function LandingPage() {
               <Link href="/register">Register</Link>
             </div>
           )}
+          <span className="landing-footer-version">{process.env.NEXT_PUBLIC_APP_VERSION}</span>
         </div>
       </footer>
     </div>
