@@ -32,7 +32,7 @@ export function PnLChart() {
         }
         return false;
       })
-      .filter(t => {
+      .filter(() => {
         return ![...STABLECOINS, 'USD'].includes(selectedPnLAsset);
       });
 

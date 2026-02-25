@@ -38,7 +38,6 @@ export async function getAssetsAndDateRanges(): Promise<{
   // Calculate date range from all transactions
   const dates = transactions.map(tx => new Date(tx.datetime).getTime());
   const minDate = Math.min(...dates);
-  const maxDate = Math.max(...dates);
 
   // Add buffer: 30 days before first transaction, extend to today
   const startUnixSec = Math.floor((minDate - 30 * 24 * 60 * 60 * 1000) / 1000);

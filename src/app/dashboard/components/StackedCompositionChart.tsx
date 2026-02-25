@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { getAssetColor, isFiatCurrency } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
 import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
@@ -8,7 +8,7 @@ import { useDashboardData } from '../../DashboardDataProvider';
 import type { Data } from 'plotly.js';
 
 export function StackedCompositionChart() {
-  const { assets, stacked, loadingTxs, loadingCurr, loadingHist } = useDashboardData();
+  const { stacked, loadingTxs, loadingCurr, loadingHist } = useDashboardData();
 
   const [stackedMode, setStackedMode] = useState<'usd' | 'percent'>('usd');
 

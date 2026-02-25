@@ -117,7 +117,7 @@ export function usePortfolioData() {
     const btcPrice = latestPrices['BTC'] || 0;
 
     return Object.entries(holdings)
-      .filter(([_, quantity]) => quantity > 0)
+      .filter(([, quantity]) => quantity > 0)
       .map(([asset, quantity]) => {
         // Use EUR/USD rate for EURC
         let currentPrice = asset.toUpperCase() === 'EURC' && eurUsdRate !== null
@@ -148,15 +148,7 @@ export function usePortfolioData() {
         const assetPnL = pnlData.assetPnL[asset] || { pnl: 0, pnlPercent: 0, costBasis: 0, currentValue: 0 };
         
         // Get market cap from historical data (most recent)
-        let marketCap = 0;
-        if (historicalPrices.length > 0) {
-          const latestPrice = historicalPrices
-            .filter(p => p.asset === asset)
-            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-          // Note: Market cap would need to be added to PricePoint type or fetched separately
-          // For now, we'll use 0 as placeholder
-          marketCap = 0;
-        }
+        const marketCap = 0;
 
         return {
           asset,
@@ -174,7 +166,7 @@ export function usePortfolioData() {
         };
       })
       .sort((a, b) => b.currentValue - a.currentValue);
-  }, [txs, latestPricesWithEURC, eurUsdRate, loadingTxs, loadingPrices, hasData, historicalPrices, pnlData.assetPnL]);
+  }, [txs, latestPrices, latestPricesWithEURC, eurUsdRate, loadingTxs, loadingPrices, hasData, historicalPrices, pnlData.assetPnL]);
 
   // Calculate portfolio summary using shared P&L data
   const portfolioSummary = useMemo((): PortfolioSummary => {

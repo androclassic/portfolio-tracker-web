@@ -1,6 +1,6 @@
 'use client';
 import AssetInput from '../components/AssetInput';
-import { isFiatCurrency, isStablecoin } from '@/lib/assets';
+import { isFiatCurrency } from '@/lib/assets';
 import type { UseTransactionFormReturn } from './useTransactionForm';
 import type { TransactionType } from './useTransactionForm';
 

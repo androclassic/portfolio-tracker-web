@@ -261,7 +261,6 @@ export function useTransactionForm({ editingTransaction, currentHoldings }: UseT
     });
 
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.type, formData.datetime, formData.fromAsset, formData.fromQuantity]);
 
   const setField = useCallback((field: keyof TransactionFormData, value: string) => {

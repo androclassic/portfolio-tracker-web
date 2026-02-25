@@ -11,7 +11,7 @@ import { NextRequest } from "next/server"
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma),
   callbacks: {
-    async signIn({ user, account, profile, email, credentials }) {
+    async signIn({ user, account }) {
       // For credentials provider, check if email is verified
       if (account?.provider === "credentials") {
         const dbUser = await prisma.user.findUnique({

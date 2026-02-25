@@ -44,7 +44,7 @@ export function AllocationChart() {
 
   return (
     <ChartCard title="Portfolio Allocation" timeframeEnabled={false}>
-      {({ timeframe, expanded }) => {
+      {({ expanded }) => {
         if (isLoading) {
           return <div className="chart-loading">Loading allocation...</div>;
         }

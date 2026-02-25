@@ -67,12 +67,8 @@ export default function AssetInput({ value, onChange, placeholder = "Search cryp
     // Only call onChange with the symbol for typing, not the full async handler
     // This prevents the parent from triggering async operations on every keystroke
     // The parent will only get the full asset when user selects from dropdown
-    const results = searchAssets(newValue);
-    const matchingAsset = results.find(asset => 
-      asset.symbol.toLowerCase() === newValue.toLowerCase()
-    );
+    searchAssets(newValue);
     
-    // Only pass null for asset to avoid triggering async operations
     onChange(null, newValue);
     
     // Reset typing flag after a short delay

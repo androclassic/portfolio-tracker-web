@@ -61,7 +61,7 @@ export default function SetupPasswordPage() {
         console.error('Setup password failed:', result);
         setError(result.error || 'Failed to set password');
       }
-    } catch (err) {
+    } catch {
       setError('Network error. Please try again.');
     } finally {
       setLoading(false);

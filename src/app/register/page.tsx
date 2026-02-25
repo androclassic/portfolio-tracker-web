@@ -61,7 +61,7 @@ export default function RegisterPage() {
     
     try {
       await signIn(provider, { callbackUrl: '/overview' });
-    } catch (error) {
+    } catch {
       setError('OAuth sign-in failed. Please try again.');
       setLoading(false);
     }

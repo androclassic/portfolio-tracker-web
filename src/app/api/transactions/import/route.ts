@@ -309,7 +309,7 @@ export async function POST(req: NextRequest) {
       try {
         const eurUsdRate = getHistoricalExchangeRateSyncStrict('EUR', 'USD', dateStr);
         finalFromPriceUsd = eurUsdRate;
-      } catch (err) {
+      } catch {
         // If rate not available, leave as null (will be filled later)
       }
     }
@@ -318,7 +318,7 @@ export async function POST(req: NextRequest) {
       try {
         const eurUsdRate = getHistoricalExchangeRateSyncStrict('EUR', 'USD', dateStr);
         finalToPriceUsd = eurUsdRate;
-      } catch (err) {
+      } catch {
         // If rate not available, leave as null (will be filled later)
       }
     }
@@ -328,7 +328,7 @@ export async function POST(req: NextRequest) {
       try {
         const eurUsdRate = getHistoricalExchangeRateSyncStrict('EUR', 'USD', dateStr);
         finalFromPriceUsd = eurUsdRate;
-      } catch (err) {
+      } catch {
         // If rate not available, leave as null (will be filled later)
       }
     }
@@ -337,7 +337,7 @@ export async function POST(req: NextRequest) {
       try {
         const eurUsdRate = getHistoricalExchangeRateSyncStrict('EUR', 'USD', dateStr);
         finalToPriceUsd = eurUsdRate;
-      } catch (err) {
+      } catch {
         // If rate not available, leave as null (will be filled later)
       }
     }

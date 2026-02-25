@@ -1,5 +1,4 @@
 import { getHistoricalExchangeRate } from '@/lib/exchange-rates';
-import { isStablecoin } from '@/lib/assets';
 import type { TransactionFormData, TransactionType } from './useTransactionForm';
 
 export interface TransactionPayload {

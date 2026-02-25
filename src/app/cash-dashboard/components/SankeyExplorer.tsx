@@ -7,8 +7,8 @@ import { createSankeyExplorerData, type BuyLotTraceWithFundingSells } from '../l
 import type { TaxableEvent } from '@/lib/tax/romania-v2';
 import type { Transaction as Tx } from '@/lib/types';
 
-export function SankeyExplorer({ event, transactions, onTransactionClick }: { event: TaxableEvent; transactions?: Tx[]; onTransactionClick?: (txId: number) => void }) {
-  const directSales = event.saleTrace || [];
+export function SankeyExplorer({ event, transactions }: { event: TaxableEvent; transactions?: Tx[]; onTransactionClick?: (txId: number) => void }) {
+  const directSales = useMemo(() => event.saleTrace || [], [event.saleTrace]);
   const rootSaleIds = useMemo(() => directSales.map((s) => s.saleTransactionId), [directSales]);
   const rootBuyIds = useMemo(() => [] as number[], []);
 
@@ -22,7 +22,7 @@ export function SankeyExplorer({ event, transactions, onTransactionClick }: { ev
   const [nodeThickness, setNodeThickness] = useState<number>(10);
   const [nodePad, setNodePad] = useState<number>(10);
 
-  const deepSales = (event.saleTraceDeep && event.saleTraceDeep.length ? event.saleTraceDeep : directSales) || [];
+  const deepSales = useMemo(() => (event.saleTraceDeep && event.saleTraceDeep.length ? event.saleTraceDeep : directSales) || [], [event.saleTraceDeep, directSales]);
   const deepSaleById = useMemo(() => {
     const m = new Map<number, (typeof deepSales)[number]>();
     for (const s of deepSales) m.set(s.saleTransactionId, s);

@@ -127,7 +127,7 @@ export async function GET(req: NextRequest) {
 
   // Filter out assets with zero or negative holdings
   const assetsWithHoldings = Object.entries(holdingsMap)
-    .filter(([_, data]) => data.quantity > 0.0001) // Small threshold for floating point
+    .filter(([, data]) => data.quantity > 0.0001) // Small threshold for floating point
     .map(([asset]) => asset);
 
   if (assetsWithHoldings.length === 0) {

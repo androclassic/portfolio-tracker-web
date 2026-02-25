@@ -78,7 +78,6 @@ export function BtcRatioChart() {
           }
         }
 
-      const btcPrice = priceMap.get(date + '|BTC') || 0;
       let totalValueUsd = 0;
       let btcValueUsd = 0;
 

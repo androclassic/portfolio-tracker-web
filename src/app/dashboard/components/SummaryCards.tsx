@@ -26,26 +26,6 @@ export function SummaryCards() {
 
   const hist = useMemo(() => ({ prices: historicalPrices }), [historicalPrices]);
 
-  const stablecoinBalanceUsd = useMemo(() => {
-    let total = 0;
-    for (const [asset, units] of Object.entries(holdings)) {
-      const sym = asset.toUpperCase();
-      if (!isStablecoin(sym)) continue;
-      const qty = Number(units) || 0;
-      if (qty <= 0) continue;
-      let px = latestPrices[sym];
-      if (px === undefined || px === 0) {
-        if (sym === 'EURC') {
-          px = getEURCPriceFn();
-        } else {
-          px = 1;
-        }
-      }
-      total += qty * px;
-    }
-    return total;
-  }, [holdings, latestPrices, getEURCPriceFn]);
-
   const summary = useMemo(() => {
     const nf0 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
     const nf2 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
