@@ -58,10 +58,11 @@ export function StackedCompositionChart() {
           const sampled = sampleDataWithDates(dates, yData, maxPoints);
           const sampledY = sampled.data;
           const sampledUnits = sampleDataWithDates(dates, unitValues, maxPoints).data;
+          const hasValue = sampledY.some(v => v > 0);
 
           const hovertemplate = stackedMode === 'usd'
-            ? `${asset}: %{y:,.2f} USD (%{customdata:.8g} ${asset})<extra></extra>`
-            : `${asset}: %{y:.2f}% (%{customdata:.8g} ${asset})<extra></extra>`;
+            ? `${asset}: %{y:,.2f} USD (%{customdata:~.8g} ${asset})<extra></extra>`
+            : `${asset}: %{y:.2f}% (%{customdata:~.8g} ${asset})<extra></extra>`;
 
           return {
             x: sampledDates,
@@ -73,6 +74,7 @@ export function StackedCompositionChart() {
             name: asset,
             line: { color: colorFor(asset) },
             hovertemplate,
+            ...(hasValue ? {} : { hoverinfo: 'skip' as const }),
           };
         });
 
