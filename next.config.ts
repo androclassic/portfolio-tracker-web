@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 import { execSync } from 'child_process';
 
-const gitVersion = (() => {
+const gitVersion = process.env.NEXT_PUBLIC_APP_VERSION || (() => {
   try {
     return execSync('git describe --tags --always').toString().trim();
   } catch {

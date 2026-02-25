@@ -7,6 +7,8 @@ RUN npm ci
 
 FROM node:20-alpine AS builder
 WORKDIR /app
+ARG APP_VERSION=dev
+ENV NEXT_PUBLIC_APP_VERSION=$APP_VERSION
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
