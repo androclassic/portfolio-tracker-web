@@ -80,7 +80,7 @@ export function SummaryCards() {
       totalPLPct,
       formattedValue: nf0.format(currentValue),
       formattedChange: nf2.format(Math.abs(dayChange)),
-      formattedPL: nf0.format(totalPL),
+      formattedPL: `${totalPL >= 0 ? '' : '-'}$${nf0.format(Math.abs(totalPL))}`,
     };
   }, [holdings, latestPrices, hist, pnlData, getEURCPriceFn]);
 
@@ -133,7 +133,7 @@ export function SummaryCards() {
           {isLoading ? (
             <div className="skeleton-text" style={{ width: '100px', height: '28px' }} />
           ) : (
-            <>${summary.formattedPL}</>
+            <>{summary.formattedPL}</>
           )}
         </div>
         {!isLoading && summary.totalPLPct !== undefined && (

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Suspense } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import PortfolioSelector from './PortfolioSelector';
@@ -13,6 +14,7 @@ export default function DynamicHeader() {
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [portfolioDropdownOpen, setPortfolioDropdownOpen] = useState(false);
 
+  const pathname = usePathname();
   const isAuthenticated = !!session;
   const loading = status === 'loading';
 
@@ -70,10 +72,16 @@ export default function DynamicHeader() {
         {/* Center section: Navigation */}
         {isAuthenticated && (
           <nav className="header-nav">
-            <Link href="/overview">Overview</Link>
-            <Link href="/dashboard">Dashboard</Link>
-            <Link href="/cash-dashboard">Cash</Link>
-            <Link href="/transactions">Transactions</Link>
+            {[
+              { href: '/overview', label: 'Overview' },
+              { href: '/dashboard', label: 'Dashboard' },
+              { href: '/cash-dashboard', label: 'Cash' },
+              { href: '/transactions', label: 'Transactions' },
+            ].map(({ href, label }) => (
+              <Link key={href} href={href} className={pathname === href ? 'active' : ''}>
+                {label}
+              </Link>
+            ))}
           </nav>
         )}
 

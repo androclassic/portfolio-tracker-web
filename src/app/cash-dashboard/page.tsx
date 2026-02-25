@@ -342,28 +342,51 @@ export default function CashDashboardPage(){
         </div>
 
         {/* Summary Cards */}
-        <div className="dashboard-summary">
-          {fiatCurrencies.map(currency => {
-            const data = cashFlowData[currency];
-            const totalDeposits = data.deposits;
-            const totalWithdrawals = data.withdrawals;
-            const netFlow = totalDeposits - totalWithdrawals;
+        {fiatTxs.length === 0 ? (
+          <div style={{
+            textAlign: 'center',
+            padding: '3rem 2rem',
+            background: 'var(--card)',
+            borderRadius: 'var(--radius)',
+            border: '1px solid var(--border)',
+            marginBottom: '2rem',
+          }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '1rem', opacity: 0.5 }}>💱</div>
+            <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.25rem', fontWeight: 600 }}>
+              No fiat transactions yet
+            </h3>
+            <p style={{ color: 'var(--muted)', margin: '0 0 1rem 0', maxWidth: '480px', marginInline: 'auto', lineHeight: 1.6 }}>
+              This dashboard tracks <strong>fiat currency</strong> (USD, EUR) deposits and withdrawals.
+              Add a Deposit or Withdrawal transaction with a fiat currency to see your cash flow here.
+            </p>
+            <a href="/transactions" className="btn btn-primary" style={{ textDecoration: 'none' }}>
+              Go to Transactions
+            </a>
+          </div>
+        ) : (
+          <div className="dashboard-summary">
+            {fiatCurrencies.map(currency => {
+              const data = cashFlowData[currency];
+              const totalDeposits = data.deposits;
+              const totalWithdrawals = data.withdrawals;
+              const netFlow = totalDeposits - totalWithdrawals;
 
-            return (
-              <div key={currency} className="summary-card">
-                <div className="summary-label" style={{ color: colorFor(currency), fontWeight: 600 }}>
-                  {currency}
+              return (
+                <div key={currency} className="summary-card">
+                  <div className="summary-label" style={{ color: colorFor(currency), fontWeight: 600 }}>
+                    {currency}
+                  </div>
+                  <div className="summary-value">
+                    {netFlow >= 0 ? '+' : ''}{netFlow.toFixed(2)} {currency}
+                  </div>
+                  <div className="summary-subtext">
+                    Deposits: {totalDeposits.toFixed(2)} | Withdrawals: {totalWithdrawals.toFixed(2)}
+                  </div>
                 </div>
-                <div className="summary-value">
-                  {netFlow >= 0 ? '+' : ''}{netFlow.toFixed(2)} {currency}
-                </div>
-                <div className="summary-subtext">
-                  Deposits: {totalDeposits.toFixed(2)} | Withdrawals: {totalWithdrawals.toFixed(2)}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
 
       {/* Charts Grid */}
       <div className="dashboard-grid">

@@ -151,6 +151,7 @@ p{margin:0 0 var(--space-sm);line-height:1.6}
 /* Navigation links */
 .header-nav a{padding:8px 12px;border-radius:8px;color:var(--muted);text-decoration:none;font-weight:500;transition:all 0.2s ease}
 .header-nav a:hover{background:rgba(125,125,125,.08);color:var(--text)}
+.header-nav a.active{color:var(--primary);background:var(--primary-50);font-weight:600}
 
 /* Dropdown containers */
 .dropdown-container{position:relative;display:inline-block}
@@ -683,6 +684,13 @@ select option{background:var(--surface);color:var(--text)}
 .transaction-type-badge.deposit{background:color-mix(in oklab, var(--success) 15%, transparent);color:var(--success);border:1px solid color-mix(in oklab, var(--success) 30%, transparent)}
 .transaction-type-badge.withdrawal{background:color-mix(in oklab, var(--warning) 15%, transparent);color:var(--warning);border:1px solid color-mix(in oklab, var(--warning) 30%, transparent)}
 .transaction-type-badge.swap{background:color-mix(in oklab, var(--primary) 15%, transparent);color:var(--primary);border:1px solid color-mix(in oklab, var(--primary) 30%, transparent)}
+.transaction-type-badge.buy{background:color-mix(in oklab, var(--success) 15%, transparent);color:var(--success);border:1px solid color-mix(in oklab, var(--success) 30%, transparent)}
+.transaction-type-badge.sell{background:color-mix(in oklab, var(--danger) 15%, transparent);color:var(--danger);border:1px solid color-mix(in oklab, var(--danger) 30%, transparent)}
+
+/* Overview top grid: side-by-side on desktop, stacked on mobile */
+@media (max-width: 768px) {
+  .overview-top-grid{grid-template-columns:1fr !important}
+}
 
 /* Loading spinner */
 @keyframes spin{to{transform:rotate(360deg)}}

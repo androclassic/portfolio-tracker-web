@@ -264,17 +264,28 @@ export default function OverviewPage() {
         </p>
       </div>
 
-              <PortfolioSummary summary={portfolioSummary} />
-              
-              <div style={{ marginBottom: '2rem' }}>
-                <h2 style={{ margin: '0 0 1rem 0', fontSize: '1.5rem', fontWeight: 'bold' }}>
-                  Portfolio Allocation
-                </h2>
-                <AllocationPieChart 
-                  data={allocationData}
-                  isLoading={isLoading}
-                  height={400}
-                />
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+                gap: '2rem',
+                marginBottom: '2rem',
+                alignItems: 'start',
+              }}
+                className="overview-top-grid"
+              >
+                <div>
+                  <PortfolioSummary summary={portfolioSummary} />
+                </div>
+                <div>
+                  <h2 style={{ margin: '0 0 1rem 0', fontSize: '1.25rem', fontWeight: 'bold' }}>
+                    Portfolio Allocation
+                  </h2>
+                  <AllocationPieChart 
+                    data={allocationData}
+                    isLoading={isLoading}
+                    height={320}
+                  />
+                </div>
               </div>
               
               <HoldingsTable holdings={holdingsData} />

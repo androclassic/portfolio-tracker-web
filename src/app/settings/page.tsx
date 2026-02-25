@@ -158,6 +158,46 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* Password Section */}
+        <section className="card" style={{ marginBottom: '2rem' }}>
+          <div className="card-header">
+            <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Password</h2>
+          </div>
+          <div style={{ padding: '1rem' }}>
+            <p style={{ color: 'var(--muted)', marginBottom: '1rem', fontSize: '0.9rem' }}>
+              Change your account password.
+            </p>
+            <a
+              href="/setup-password"
+              className="btn btn-secondary"
+              style={{ textDecoration: 'none' }}
+            >
+              Change Password
+            </a>
+          </div>
+        </section>
+
+        {/* Data Export Section */}
+        <section className="card" style={{ marginBottom: '2rem' }}>
+          <div className="card-header">
+            <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Data Export</h2>
+          </div>
+          <div style={{ padding: '1rem' }}>
+            <p style={{ color: 'var(--muted)', marginBottom: '1rem', fontSize: '0.9rem' }}>
+              Export your transaction data as CSV for backup or analysis in other tools.
+            </p>
+            <a
+              href="/api/transactions/export"
+              className="btn btn-secondary"
+              style={{ textDecoration: 'none' }}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Export All Transactions (CSV)
+            </a>
+          </div>
+        </section>
+
         {/* API Keys Section */}
         <section className="card">
           <div className="card-header">

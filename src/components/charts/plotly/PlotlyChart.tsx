@@ -53,7 +53,7 @@ export function PlotlyChart({
   onUnhover,
   onLegendClick,
   onLegendDoubleClick,
-  showModeBar = true,
+  showModeBar = false,
 }: PlotlyChartProps) {
   const theme = usePlotlyTheme();
 

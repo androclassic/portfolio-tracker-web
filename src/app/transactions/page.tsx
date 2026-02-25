@@ -2,7 +2,7 @@
 import useSWR, { useSWRConfig } from 'swr';
 import { useMemo, useState } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
-import { getAssetColor } from '@/lib/assets';
+import { getAssetColor, isStablecoin, isFiatCurrency } from '@/lib/assets';
 import CryptoIcon from '../components/CryptoIcon';
 import { jsonFetcher } from '@/lib/swr-fetcher';
 import type { Transaction as Tx } from '@/lib/types';
@@ -344,9 +344,26 @@ Withdrawal,2024-02-28T11:00:00Z,BTC,0.05,55000,USD,2750,1,12,Withdrew some BTC t
                         )}
                       </td>
                       <td>
-                        <span className={`transaction-type-badge ${t.type.toLowerCase()}`}>
-                          {t.type}
-                        </span>
+                        {(() => {
+                          let badgeClass = t.type.toLowerCase();
+                          let label = t.type;
+                          if (t.type === 'Swap' && t.fromAsset) {
+                            const fromIsStable = isStablecoin(t.fromAsset) || isFiatCurrency(t.fromAsset);
+                            const toIsStable = isStablecoin(t.toAsset) || isFiatCurrency(t.toAsset);
+                            if (fromIsStable && !toIsStable) {
+                              badgeClass = 'buy';
+                              label = 'Buy';
+                            } else if (!fromIsStable && toIsStable) {
+                              badgeClass = 'sell';
+                              label = 'Sell';
+                            }
+                          }
+                          return (
+                            <span className={`transaction-type-badge ${badgeClass}`}>
+                              {label}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td>
                         {t.fromAsset ? (
@@ -399,10 +416,10 @@ Withdrawal,2024-02-28T11:00:00Z,BTC,0.05,55000,USD,2750,1,12,Withdrew some BTC t
                             Edit
                           </button>
                           <button
-                            className="btn btn-danger btn-sm"
+                            className="btn btn-sm"
                             onClick={() => removeTx(t.id)}
                             disabled={isSaving}
-                            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '6px 12px' }}
+                            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '6px 12px', color: 'var(--muted)', background: 'none', border: '1px solid var(--border)' }}
                             title="Delete transaction"
                           >
                             Delete
