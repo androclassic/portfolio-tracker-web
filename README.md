@@ -100,20 +100,21 @@ git push origin v1.0.0
 git push origin main:production
 ```
 
-**Required GitHub Secrets** (set in repo Settings → Secrets and variables → Actions):
+> `GITHUB_TOKEN` is provided automatically by GitHub Actions — no manual setup needed.
 
-| Secret | Description |
-|---|---|
-| `DEPLOY_WEBHOOK_URL` | URL of the webhook listener on your server (e.g. `http://your-server-ip:9000/deploy`) |
-| `DEPLOY_WEBHOOK_SECRET` | Shared secret to authenticate requests |
+**How it works:** GitHub Actions builds the image and pushes it to GHCR. On the server, [Watchtower](https://containrrr.dev/watchtower/) polls GHCR every 5 minutes and automatically pulls + restarts when a new image is detected. No SSH, webhooks, or inbound ports needed.
 
-> `GITHUB_TOKEN` is provided automatically by GitHub Actions — no manual setup needed for GHCR access.
-> The deploy step uses a **webhook** (not SSH), so it works even if your server has a dynamic IP or is behind Cloudflare.
+**Server setup (one-time):**
 
-**Server setup:**
-1. Docker and Docker Compose must be installed.
-2. An `.env.production` file must exist in the app directory (see `env.production.example`).
-3. Run the webhook listener — see `scripts/deploy-webhook.sh` for setup instructions and an optional systemd service config.
+```bash
+# 1. Log in to GHCR so Watchtower can pull images
+docker login ghcr.io -u YOUR_GITHUB_USERNAME
+
+# 2. Start the app + Watchtower
+docker compose up -d
+```
+
+That's it. Future deploys happen automatically when you push a tag.
 
 ## Configuration
 
