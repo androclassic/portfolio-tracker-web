@@ -1,5 +1,13 @@
 'use client';
 import React, { useState, useCallback } from 'react';
+
+function formatUnits(v: number): string {
+  if (v === 0) return '0';
+  if (v >= 10000) return Math.round(v).toLocaleString('en-US');
+  if (v >= 1000)  return v.toLocaleString('en-US', { maximumFractionDigits: 1 });
+  if (v >= 1)     return parseFloat(v.toFixed(3)).toLocaleString('en-US', { maximumFractionDigits: 3 });
+  return parseFloat(v.toPrecision(4)).toString();
+}
 import { getAssetColor, isFiatCurrency } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
 import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
@@ -45,8 +53,14 @@ export function StackedCompositionChart() {
 
         // Filter out fiat currencies from the stacked chart
         const cryptoAssets = Array.from(stacked.perAssetUsd.keys()).filter(asset => !isFiatCurrency(asset));
-        const traces = cryptoAssets.map(asset => {
+
+        // Two traces per asset: visual (stacked, no hover) + hover-only (non-stacked, invisible).
+        // Stacked traces force all rows into unified hover even at zero values.
+        // Non-stacked hover traces allow null y values which Plotly properly skips in hover.
+        const allTraces: Record<string, unknown>[] = [];
+        cryptoAssets.forEach(asset => {
           const usdValues = stacked.perAssetUsd.get(asset) || [];
+          const unitValues = (stacked.perAssetUnits.get(asset) || []).slice(idx);
           const yData = stackedMode === 'usd'
             ? usdValues.slice(idx)
             : usdValues.slice(idx).map((value, i) => {
@@ -55,8 +69,10 @@ export function StackedCompositionChart() {
               });
 
           const sampledY = sampleDataWithDates(dates, yData, maxPoints).data;
+          const sampledUnits = sampleDataWithDates(dates, unitValues, maxPoints).data;
 
-          return {
+          // Visual trace: draws the stacked area, excluded from hover entirely
+          allTraces.push({
             x: sampledDates,
             y: sampledY,
             type: 'scatter' as const,
@@ -64,13 +80,33 @@ export function StackedCompositionChart() {
             stackgroup: 'one',
             name: asset,
             line: { color: colorFor(asset) },
-            hovertemplate: `${asset}: %{y:.2f}${stackedMode === 'usd' ? ' USD' : '%'}<extra></extra>`,
-          };
+            hoverinfo: 'skip' as const,
+          });
+
+          // Hover-only trace: invisible line (no stackgroup), null for zero values.
+          // Null y values are properly excluded from unified hover in non-stacked traces.
+          const yHover = sampledY.map(v => v > 0 ? v : null);
+          const unitText = sampledUnits.map(u => formatUnits(u));
+          const hovertemplate = stackedMode === 'usd'
+            ? `${asset}: %{y:,.2f} USD (%{text} ${asset})<extra></extra>`
+            : `${asset}: %{y:.2f}% (%{text} ${asset})<extra></extra>`;
+
+          allTraces.push({
+            x: sampledDates,
+            y: yHover,
+            text: unitText,
+            type: 'scatter' as const,
+            mode: 'lines' as const,
+            name: asset,
+            line: { width: 0, color: colorFor(asset) },
+            showlegend: false,
+            hovertemplate,
+          });
         });
 
         return (
           <Plot
-            data={traces as Data[]}
+            data={allTraces as Data[]}
             layout={{
               autosize: true,
               height: expanded ? undefined : 400,

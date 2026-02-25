@@ -33,6 +33,7 @@ interface DashboardData {
     dates: string[];
     totals: number[];
     perAssetUsd: Map<string, number[]>;
+    perAssetUnits: Map<string, number[]>;
   };
 }
 
@@ -298,7 +299,7 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
       const fxRateMap = new Map<string, Record<string, number>>();
 
       // Compute stacked portfolio value
-      let stacked = { dates: [] as string[], totals: [] as number[], perAssetUsd: new Map<string, number[]>() };
+      let stacked = { dates: [] as string[], totals: [] as number[], perAssetUsd: new Map<string, number[]>(), perAssetUnits: new Map<string, number[]>() };
       // Compute if we have historical prices (dailyPos is preferred but we can compute from transactions if needed)
       const canComputeStacked = hist && hist.prices && hist.prices.length > 0 && assets.length > 0 && txs;
       if (canComputeStacked) {
@@ -353,9 +354,11 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
         const dates = Array.from(new Set(hist.prices.map(p => p.date))).sort();
         const totals: number[] = new Array(dates.length).fill(0);
         const perAssetUsd = new Map<string, number[]>();
+        const perAssetUnits = new Map<string, number[]>();
 
         for (const a of assets) {
           const y: number[] = new Array(dates.length).fill(0);
+          const units: number[] = new Array(dates.length).fill(0);
           let lastPos = 0;
           let lastPx: number | undefined = undefined;
           for (let di = 0; di < dates.length; di++) {
@@ -373,11 +376,13 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
             const val = px > 0 ? px * pos : 0;
             const v = val > EPS ? val : 0;
             y[di] = v;
+            units[di] = pos;
             totals[di] += v;
           }
           perAssetUsd.set(a, y);
+          perAssetUnits.set(a, units);
         }
-        stacked = { dates, totals, perAssetUsd };
+        stacked = { dates, totals, perAssetUsd, perAssetUnits };
       }
 
     const computed: DashboardData = {
@@ -554,7 +559,7 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
       loadingCurr,
       loadingHist,
       pnlData,
-      stacked: { dates: [], totals: [], perAssetUsd: new Map() },
+      stacked: { dates: [], totals: [], perAssetUsd: new Map(), perAssetUnits: new Map() },
     };
   }, [computedData, txs, loadingTxs, assets, latestPrices, latestPricesWithStables, historicalPrices, loadingCurr, loadingHist, pnlData]);
 
