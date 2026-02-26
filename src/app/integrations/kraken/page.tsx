@@ -1,20 +1,30 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import { usePortfolio } from '../../PortfolioProvider';
+import { useExchangeConnection } from '@/hooks/useExchangeConnection';
 import type { NormalizedTrade } from '@/lib/integrations/crypto-com';
 
 type Step = 'credentials' | 'preview' | 'importing' | 'done';
 type ImportMode = 'api' | 'csv';
 
-export default function CryptoComIntegrationPage() {
+export default function KrakenIntegrationPage() {
   const { portfolios } = usePortfolio();
+  const conn = useExchangeConnection('kraken');
   const [mode, setMode] = useState<ImportMode>('csv');
   const [step, setStep] = useState<Step>('credentials');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
+
+  useEffect(() => {
+    if (conn.isLoaded && conn.savedKey) {
+      setApiKey(conn.savedKey);
+      setApiSecret(conn.savedSecret);
+      setMode('api');
+    }
+  }, [conn.isLoaded, conn.savedKey, conn.savedSecret]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [loading, setLoading] = useState(false);
@@ -46,6 +56,8 @@ export default function CryptoComIntegrationPage() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch trades');
+
+      await conn.save(apiKey, apiSecret);
 
       setTrades(data.trades);
       setSelectedTrades(new Set(data.trades.map((t: NormalizedTrade) => t.externalId)));
@@ -253,10 +265,26 @@ export default function CryptoComIntegrationPage() {
               <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Connect Your Account</h2>
             </div>
             <form onSubmit={handleFetchTrades} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <p style={{ color: 'var(--muted)', fontSize: '0.9rem', margin: 0 }}>
-                Enter your Kraken API credentials. Use a <strong>read-only</strong> API key for security.
-                Your keys are used for this session only and are never stored.
-              </p>
+              {conn.hasSaved ? (
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  background: 'var(--success-50)', border: '1px solid color-mix(in oklab, var(--success) 30%, transparent)',
+                  borderRadius: 8, padding: '10px 14px',
+                }}>
+                  <span style={{ color: 'var(--success)', fontWeight: 600, fontSize: '0.9rem' }}>
+                    &#10003; Connected — API keys saved securely
+                  </span>
+                  <button type="button" className="btn btn-sm" onClick={async () => { await conn.remove(); setApiKey(''); setApiSecret(''); }}
+                    style={{ color: 'var(--muted)', background: 'none', border: '1px solid var(--border)', fontSize: '0.8rem' }}>
+                    Disconnect
+                  </button>
+                </div>
+              ) : (
+                <p style={{ color: 'var(--muted)', fontSize: '0.9rem', margin: 0 }}>
+                  Enter your Kraken API credentials. Use a <strong>read-only</strong> API key for security.
+                  Your keys will be saved encrypted for future use.
+                </p>
+              )}
 
               <div style={{
                 background: 'var(--primary-50)', border: '1px solid color-mix(in oklab, var(--primary) 20%, transparent)',

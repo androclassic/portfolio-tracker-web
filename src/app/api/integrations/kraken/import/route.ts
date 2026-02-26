@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerAuth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import type { NormalizedTrade } from '@/lib/integrations/crypto-com';
+import { enrichTradesWithPrices } from '@/lib/integrations/enrich-prices';
 
 export async function POST(req: NextRequest) {
   const auth = await getServerAuth(req);
@@ -40,8 +41,10 @@ export async function POST(req: NextRequest) {
       return Number.isFinite(n) ? n : null;
     };
 
+    const enriched = await enrichTradesWithPrices(trades);
+
     const created = await prisma.$transaction(
-      trades.map(trade =>
+      enriched.map(trade =>
         prisma.transaction.create({
           data: {
             type: trade.type || 'Swap',

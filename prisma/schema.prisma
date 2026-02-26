@@ -21,6 +21,7 @@ model User {
   sessions      Session[]
   portfolios    Portfolio[]
   apiKeys       ApiKey[]
+  exchangeConnections ExchangeConnection[]
 }
 
 model ApiKey {
@@ -34,6 +35,21 @@ model ApiKey {
   expiresAt   DateTime? // Optional expiration
   createdAt   DateTime  @default(now())
   revokedAt   DateTime? // Null if active, set when revoked
+}
+
+model ExchangeConnection {
+  id          String    @id @default(cuid())
+  exchange    String    // "crypto-com" | "kraken"
+  apiKey      String    // encrypted
+  apiSecret   String    // encrypted
+  label       String?   // user-friendly name
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([userId, exchange])
+  @@index([userId])
 }
 
 model Account {
