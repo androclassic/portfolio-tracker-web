@@ -1,15 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import { usePortfolio } from '../../PortfolioProvider';
 import type { NormalizedTrade } from '@/lib/integrations/crypto-com';
 
 type Step = 'credentials' | 'preview' | 'importing' | 'done';
+type ImportMode = 'api' | 'csv';
 
 export default function CryptoComIntegrationPage() {
   const { portfolios } = usePortfolio();
+  const [mode, setMode] = useState<ImportMode>('csv');
   const [step, setStep] = useState<Step>('credentials');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -46,6 +49,32 @@ export default function CryptoComIntegrationPage() {
       setStep('preview');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Connection failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCsvUpload(file: File) {
+    setLoading(true);
+    setError('');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/integrations/crypto-com/csv-parse', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to parse CSV');
+
+      setTrades(data.trades);
+      setSelectedTrades(new Set(data.trades.map((t: NormalizedTrade) => t.externalId)));
+      setStep('preview');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to parse CSV');
     } finally {
       setLoading(false);
     }
@@ -105,11 +134,37 @@ export default function CryptoComIntegrationPage() {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: '#fff', fontWeight: 700, fontSize: '1rem',
           }}>C</div>
-          <h1 style={{ margin: 0 }}>Crypto.com Exchange</h1>
+          <h1 style={{ margin: 0 }}>Crypto.com</h1>
         </div>
-        <p style={{ color: 'var(--muted)', marginBottom: '2rem' }}>
-          Import your trade history directly from Crypto.com Exchange
+        <p style={{ color: 'var(--muted)', marginBottom: '1.5rem' }}>
+          Import your trade history from Crypto.com App or Exchange
         </p>
+
+        {/* Mode selector */}
+        {step === 'credentials' && (
+          <div style={{ display: 'flex', gap: '0', marginBottom: '1.5rem', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)', width: 'fit-content' }}>
+            <button
+              onClick={() => setMode('csv')}
+              style={{
+                padding: '0.6rem 1.25rem', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem',
+                background: mode === 'csv' ? 'var(--primary)' : 'var(--surface)',
+                color: mode === 'csv' ? '#fff' : 'var(--muted)',
+              }}
+            >
+              App (CSV Upload)
+            </button>
+            <button
+              onClick={() => setMode('api')}
+              style={{
+                padding: '0.6rem 1.25rem', border: 'none', borderLeft: '1px solid var(--border)', cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem',
+                background: mode === 'api' ? 'var(--primary)' : 'var(--surface)',
+                color: mode === 'api' ? '#fff' : 'var(--muted)',
+              }}
+            >
+              Exchange (API)
+            </button>
+          </div>
+        )}
 
         {error && (
           <div style={{
@@ -122,8 +177,71 @@ export default function CryptoComIntegrationPage() {
           </div>
         )}
 
-        {/* Step 1: Credentials */}
-        {step === 'credentials' && (
+        {/* Step 1a: CSV Upload (App) */}
+        {step === 'credentials' && mode === 'csv' && (
+          <div className="card">
+            <div className="card-header">
+              <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Upload Crypto.com App CSV</h2>
+            </div>
+            <div style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div style={{
+                background: 'var(--primary-50)', border: '1px solid color-mix(in oklab, var(--primary) 20%, transparent)',
+                borderRadius: 8, padding: '12px 16px', fontSize: '0.85rem',
+              }}>
+                <strong>How to export from the Crypto.com App:</strong>
+                <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.25rem', lineHeight: 1.8 }}>
+                  <li>Open the Crypto.com App → go to <strong>Accounts</strong></li>
+                  <li>Tap the <strong>History</strong> icon (clock icon)</li>
+                  <li>Tap <strong>Export</strong> → select <strong>Crypto Wallet</strong></li>
+                  <li>Choose your date range and tap <strong>Export to CSV</strong></li>
+                  <li>Download the file and upload it below</li>
+                </ol>
+              </div>
+
+              <div
+                style={{
+                  border: '2px dashed var(--border)', borderRadius: 12,
+                  padding: '3rem 2rem', textAlign: 'center', cursor: 'pointer',
+                  transition: 'border-color 0.2s',
+                }}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--primary)'; }}
+                onDragLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; }}
+                onDrop={e => {
+                  e.preventDefault();
+                  e.currentTarget.style.borderColor = 'var(--border)';
+                  const file = e.dataTransfer.files[0];
+                  if (file) handleCsvUpload(file);
+                }}
+              >
+                <div style={{ fontSize: '2rem', marginBottom: '0.5rem', opacity: 0.5 }}>📄</div>
+                <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>
+                  {loading ? 'Parsing...' : 'Drop your CSV file here or click to browse'}
+                </p>
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.85rem' }}>
+                  Supports crypto_transactions_record CSV from the Crypto.com App
+                </p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  style={{ display: 'none' }}
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) handleCsvUpload(file);
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <a href="/settings" className="btn btn-secondary" style={{ textDecoration: 'none' }}>Cancel</a>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Step 1b: API Credentials (Exchange) */}
+        {step === 'credentials' && mode === 'api' && (
           <div className="card">
             <div className="card-header">
               <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Connect Your Account</h2>
