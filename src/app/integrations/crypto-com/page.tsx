@@ -25,8 +25,13 @@ export default function CryptoComIntegrationPage() {
       setMode('api');
     }
   }, [conn.isLoaded, conn.savedKey, conn.savedSecret]);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-01-01`;
+  });
+  const [endDate, setEndDate] = useState(() => {
+    return new Date().toISOString().slice(0, 10);
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [trades, setTrades] = useState<NormalizedTrade[]>([]);
@@ -339,7 +344,7 @@ export default function CryptoComIntegrationPage() {
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
                 <a href="/settings" className="btn btn-secondary" style={{ textDecoration: 'none' }}>Cancel</a>
                 <button type="submit" className="btn btn-primary" disabled={loading || !apiKey || !apiSecret}>
-                  {loading ? 'Connecting...' : 'Fetch Trades'}
+                  {loading ? 'Fetching (may take a minute)...' : 'Fetch Trades'}
                 </button>
               </div>
             </form>

@@ -122,34 +122,56 @@ export async function fetchTrades(
   endTime?: Date,
   instrumentName?: string
 ): Promise<CryptoComTrade[]> {
+  const end = endTime || new Date();
+  const start = startTime || new Date(end.getFullYear(), 0, 1);
+
   const allTrades: CryptoComTrade[] = [];
-  let page = 0;
-  const pageSize = 100;
-  const maxPages = 50;
+  const seenIds = new Set<string>();
+  const DAY_MS = 24 * 60 * 60 * 1000;
 
-  const params: Record<string, unknown> = {
-    page_size: pageSize,
-  };
+  let windowStart = start.getTime();
+  const finalEnd = end.getTime();
 
-  if (startTime) params.start_ts = startTime.getTime();
-  if (endTime) params.end_ts = endTime.getTime();
-  if (instrumentName) params.instrument_name = instrumentName;
+  while (windowStart < finalEnd) {
+    const windowEnd = Math.min(windowStart + DAY_MS, finalEnd);
 
-  while (page < maxPages) {
-    params.page = page;
+    let page = 0;
+    while (page < 20) {
+      const params: Record<string, unknown> = {
+        start_ts: windowStart,
+        end_ts: windowEnd,
+        page_size: 100,
+        page,
+      };
+      if (instrumentName) params.instrument_name = instrumentName;
 
-    const resp = await privateRequest<CryptoComTradeResponse>(
-      creds,
-      'private/get-trades',
-      params
-    );
+      const resp = await privateRequest<CryptoComTradeResponse>(
+        creds,
+        'private/get-trades',
+        params
+      );
 
-    const result = resp.result || {} as Record<string, unknown>;
-    const trades = (result.data || result.trade_list || []) as CryptoComTrade[];
-    allTrades.push(...trades);
+      const result = resp.result || {} as Record<string, unknown>;
+      const trades = (result.data || result.trade_list || []) as CryptoComTrade[];
 
-    if (trades.length < pageSize) break;
-    page++;
+      for (const t of trades) {
+        const id = String(t.trade_id || t.order_id);
+        if (!seenIds.has(id)) {
+          seenIds.add(id);
+          allTrades.push(t);
+        }
+      }
+
+      if (trades.length < 100) break;
+      page++;
+    }
+
+    windowStart = windowEnd;
+
+    // Rate limit: small delay between day windows
+    if (windowStart < finalEnd) {
+      await new Promise(r => setTimeout(r, 100));
+    }
   }
 
   return allTrades;

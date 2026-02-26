@@ -25,8 +25,13 @@ export default function KrakenIntegrationPage() {
       setMode('api');
     }
   }, [conn.isLoaded, conn.savedKey, conn.savedSecret]);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-01-01`;
+  });
+  const [endDate, setEndDate] = useState(() => {
+    return new Date().toISOString().slice(0, 10);
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [trades, setTrades] = useState<NormalizedTrade[]>([]);
