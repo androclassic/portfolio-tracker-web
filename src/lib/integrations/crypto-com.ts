@@ -130,22 +130,21 @@ export async function fetchTrades(
   const allTrades: CryptoComTrade[] = [];
   const seenIds = new Set<string>();
   const DAY_MS = 24 * 60 * 60 * 1000;
-  const NANO_PER_MS = 1_000_000n;
-  const MAX_WINDOW_NS = BigInt(7 * DAY_MS) * NANO_PER_MS; // API docs: max 7-day range
+  const MAX_WINDOW_MS = 7 * DAY_MS; // API docs: max 7-day range
   const LIMIT = 100;
 
-  let windowStartNs = BigInt(start.getTime()) * NANO_PER_MS;
-  const finalEndNs = BigInt(end.getTime()) * NANO_PER_MS;
+  let windowStartMs = start.getTime();
+  const finalEndMs = end.getTime();
 
-  while (windowStartNs < finalEndNs) {
-    const windowEndNs = minBigInt(windowStartNs + MAX_WINDOW_NS, finalEndNs);
-    let cursorEndNs = windowEndNs;
+  while (windowStartMs < finalEndMs) {
+    const windowEndMs = Math.min(windowStartMs + MAX_WINDOW_MS, finalEndMs);
+    let cursorEndMs = windowEndMs;
     let pageSafety = 0;
 
-    while (cursorEndNs > windowStartNs && pageSafety < 1000) {
+    while (cursorEndMs > windowStartMs && pageSafety < 1000) {
       const params: Record<string, unknown> = {
-        start_time: windowStartNs.toString(),
-        end_time: cursorEndNs.toString(),
+        start_time: windowStartMs,
+        end_time: cursorEndMs,
         limit: LIMIT,
       };
       if (instrumentName) params.instrument_name = instrumentName;
@@ -168,20 +167,20 @@ export async function fetchTrades(
         }
       }
 
-      const oldestTradeNs = trades.reduce((min, t) => {
-        const ts = getTradeTimeNs(t);
+      const oldestTradeMs = trades.reduce((min, t) => {
+        const ts = getTradeTimeMs(t);
         return ts < min ? ts : min;
-      }, getTradeTimeNs(trades[0]));
+      }, getTradeTimeMs(trades[0]));
 
-      if (oldestTradeNs >= cursorEndNs) break;
-      cursorEndNs = oldestTradeNs;
+      if (oldestTradeMs >= cursorEndMs) break;
+      cursorEndMs = oldestTradeMs;
 
       if (trades.length < LIMIT) break;
       pageSafety++;
     }
 
-    windowStartNs = windowEndNs;
-    if (windowStartNs < finalEndNs) {
+    windowStartMs = windowEndMs;
+    if (windowStartMs < finalEndMs) {
       await new Promise(r => setTimeout(r, 80));
     }
   }
@@ -238,22 +237,21 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function minBigInt(a: bigint, b: bigint): bigint {
-  return a < b ? a : b;
-}
+function getTradeTimeMs(trade: CryptoComTrade): number {
+  const ms = Number(trade.create_time);
+  if (Number.isFinite(ms) && ms > 0) {
+    return ms;
+  }
 
-function getTradeTimeNs(trade: CryptoComTrade): bigint {
   const ns = trade.create_time_ns;
   if (ns != null && String(ns).trim() !== '') {
-    try {
-      return BigInt(String(ns));
-    } catch {
-      // Fallback to millisecond timestamp below.
+    const parsedNs = Number(ns);
+    if (Number.isFinite(parsedNs) && parsedNs > 0) {
+      return Math.floor(parsedNs / 1_000_000);
     }
   }
-  const ms = Number(trade.create_time);
-  const safeMs = Number.isFinite(ms) && ms > 0 ? Math.trunc(ms) : 0;
-  return BigInt(safeMs) * 1_000_000n;
+
+  return 0;
 }
 
 function isUsdStable(symbol: string): boolean {
