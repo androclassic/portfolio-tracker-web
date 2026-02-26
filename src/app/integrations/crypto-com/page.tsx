@@ -5,7 +5,6 @@ import AuthGuard from '@/components/AuthGuard';
 import { usePortfolio } from '../../PortfolioProvider';
 import { useExchangeConnection } from '@/hooks/useExchangeConnection';
 import type { NormalizedTrade } from '@/lib/integrations/crypto-com';
-import { isFiatCurrency, isStablecoin } from '@/lib/assets';
 
 type Step = 'credentials' | 'preview' | 'importing' | 'done';
 type ImportMode = 'api' | 'csv';
@@ -432,33 +431,7 @@ export default function CryptoComIntegrationPage() {
                   </thead>
                   <tbody>
                     {trades.map(trade => {
-                      const fromAsset = trade.fromAsset?.toUpperCase();
-                      const toAsset = trade.toAsset?.toUpperCase();
-                      const fromIsFunding = !!fromAsset && (isFiatCurrency(fromAsset) || isStablecoin(fromAsset));
-                      const toIsFunding = !!toAsset && (isFiatCurrency(toAsset) || isStablecoin(toAsset));
-                      const isDeposit = trade.type === 'Deposit' || (!fromAsset && !!toAsset);
-                      const isWithdrawal = trade.type === 'Withdrawal' || (!!fromAsset && !toAsset);
-                      const isBuy = !isDeposit && !isWithdrawal && fromIsFunding && !toIsFunding;
-                      const isSell = !isDeposit && !isWithdrawal && !fromIsFunding && toIsFunding;
-
-                      const badgeClass = isDeposit
-                        ? 'deposit'
-                        : isWithdrawal
-                          ? 'withdrawal'
-                          : isBuy
-                            ? 'buy'
-                            : isSell
-                              ? 'sell'
-                              : 'swap';
-                      const label = isDeposit
-                        ? 'Deposit'
-                        : isWithdrawal
-                          ? 'Withdrawal'
-                          : isBuy
-                            ? 'Buy'
-                            : isSell
-                              ? 'Sell'
-                              : 'Swap';
+                      const isBuy = trade.raw.side === 'BUY';
                       return (
                         <tr key={trade.externalId} style={{ borderBottom: '1px solid var(--border)' }}>
                           <td style={{ padding: '0.75rem' }}>
@@ -468,8 +441,8 @@ export default function CryptoComIntegrationPage() {
                             {df.format(new Date(trade.datetime))}
                           </td>
                           <td style={{ padding: '0.75rem' }}>
-                            <span className={`transaction-type-badge ${badgeClass}`}>
-                              {label}
+                            <span className={`transaction-type-badge ${isBuy ? 'buy' : 'sell'}`}>
+                              {isBuy ? 'Buy' : 'Sell'}
                             </span>
                           </td>
                           <td style={{ padding: '0.75rem', fontWeight: 500 }}>
