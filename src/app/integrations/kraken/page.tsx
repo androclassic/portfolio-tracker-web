@@ -422,7 +422,7 @@ export default function CryptoComIntegrationPage() {
                             ${nf.format(trade.raw.traded_price)}
                           </td>
                           <td style={{ padding: '0.75rem', textAlign: 'right', color: 'var(--muted)' }}>
-                            {nf.format(trade.raw.fee)} {trade.feeCurrency}
+                            {trade.raw?.fee != null && Number(trade.raw.fee) > 0 ? `${nf.format(Number(trade.raw.fee))} ${trade.feeCurrency}` : '—'}
                           </td>
                         </tr>
                       );

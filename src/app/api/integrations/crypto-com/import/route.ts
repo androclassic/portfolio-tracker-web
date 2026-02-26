@@ -29,20 +29,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Portfolio not found' }, { status: 404 });
     }
 
+    const toNum = (v: unknown): number => {
+      if (v == null) return 0;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const toNumOrNull = (v: unknown): number | null => {
+      if (v == null) return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
     const created = await prisma.$transaction(
       trades.map(trade =>
         prisma.transaction.create({
           data: {
-            type: trade.type,
+            type: trade.type || 'Swap',
             datetime: new Date(trade.datetime),
-            fromAsset: trade.fromAsset,
-            fromQuantity: trade.fromQuantity,
-            fromPriceUsd: trade.fromPriceUsd,
+            fromAsset: trade.fromAsset || null,
+            fromQuantity: toNum(trade.fromQuantity),
+            fromPriceUsd: toNumOrNull(trade.fromPriceUsd),
             toAsset: trade.toAsset,
-            toQuantity: trade.toQuantity,
-            toPriceUsd: trade.toPriceUsd,
-            feesUsd: trade.feesUsd,
-            notes: trade.notes,
+            toQuantity: toNum(trade.toQuantity),
+            toPriceUsd: toNumOrNull(trade.toPriceUsd),
+            feesUsd: toNumOrNull(trade.feesUsd),
+            notes: trade.notes || null,
             portfolioId,
           },
         })

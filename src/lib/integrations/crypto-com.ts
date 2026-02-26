@@ -12,10 +12,12 @@ export interface CryptoComTrade {
   order_id: string;
   instrument_name: string;
   side: 'BUY' | 'SELL';
-  traded_price: number;
-  traded_quantity: number;
-  fee: number;
+  traded_price: number | string;
+  traded_quantity: number | string;
+  fee: number | string;
+  fees: number | string;
   fee_currency: string;
+  fee_instrument_name: string;
   create_time: number;
   liquidity_indicator: string;
 }
@@ -162,14 +164,20 @@ export function normalizeTrades(trades: CryptoComTrade[]): NormalizedTrade[] {
       const quote = (parts[1] || '').toUpperCase();
       const isBuy = trade.side === 'BUY';
 
+      const tradedQty = num(trade.traded_quantity);
+      const tradedPrice = num(trade.traded_price);
+      const feeRaw = trade.fees ?? trade.fee ?? 0;
+      const fee = Math.abs(num(feeRaw));
+      const feeCurrency = (trade.fee_instrument_name || trade.fee_currency || '').toUpperCase();
+
       const fromAsset = isBuy ? (quote || 'UNKNOWN') : (base || 'UNKNOWN');
       const toAsset = isBuy ? (base || 'UNKNOWN') : (quote || 'UNKNOWN');
-      const toQuantity = isBuy ? trade.traded_quantity : trade.traded_quantity * trade.traded_price;
-      const fromQuantity = isBuy ? trade.traded_quantity * trade.traded_price : trade.traded_quantity;
+      const toQuantity = isBuy ? tradedQty : tradedQty * tradedPrice;
+      const fromQuantity = isBuy ? tradedQty * tradedPrice : tradedQty;
 
-      const toPriceUsd = quote && isUsdStable(quote) ? trade.traded_price : null;
+      const toPriceUsd = quote && isUsdStable(quote) ? tradedPrice : null;
       const fromPriceUsd = quote && isUsdStable(quote)
-        ? (isBuy ? 1 : trade.traded_price)
+        ? (isBuy ? 1 : tradedPrice)
         : null;
 
       return {
@@ -182,12 +190,18 @@ export function normalizeTrades(trades: CryptoComTrade[]): NormalizedTrade[] {
         toAsset,
         toQuantity,
         toPriceUsd,
-        feesUsd: trade.fee_currency && isUsdStable(trade.fee_currency) ? trade.fee : null,
-        feeCurrency: trade.fee_currency || '',
+        feesUsd: feeCurrency && isUsdStable(feeCurrency) && fee > 0 ? fee : null,
+        feeCurrency,
         notes: `Crypto.com Exchange | ${trade.instrument_name} ${trade.side} | Trade #${trade.trade_id}`,
         raw: trade,
       };
     });
+}
+
+function num(v: unknown): number {
+  if (typeof v === 'number') return v;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
 }
 
 function isUsdStable(symbol: string): boolean {
