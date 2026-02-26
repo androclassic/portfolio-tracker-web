@@ -1,26 +1,31 @@
 import type { NormalizedTrade } from './crypto-com';
 
 interface CryptoComAppRow {
-  Timestamp: string;
-  'Transaction Description': string;
-  Currency: string;
-  Amount: string;
+  'Timestamp (UTC)'?: string;
+  'Timestamp'?: string;
+  'Transaction Description'?: string;
+  'Currency'?: string;
+  'Amount'?: string;
   'To Currency'?: string;
   'To Amount'?: string;
   'Native Currency'?: string;
   'Native Amount'?: string;
+  'Native Amount (in USD)'?: string;
+  'Transaction Kind'?: string;
   'Transaction Hash'?: string;
 }
 
-const TRADE_DESCRIPTIONS = new Set([
+const BUY_KINDS = new Set([
   'crypto_purchase',
+  'trading.crypto_purchase.apple_pay',
+  'trading.crypto_purchase',
   'crypto_exchange',
   'viban_purchase',
   'dust_conversion_credited',
   'dust_conversion_debited',
 ]);
 
-const DEPOSIT_DESCRIPTIONS = new Set([
+const DEPOSIT_KINDS = new Set([
   'crypto_deposit',
   'fiat_deposit',
   'viban_deposit',
@@ -33,66 +38,128 @@ const DEPOSIT_DESCRIPTIONS = new Set([
   'admin_wallet_credited',
   'supercharger_reward_to_app_credited',
   'crypto_earn_program_created',
+  'referral_bonus',
+  'referral_gift',
+  'campaign_reward',
 ]);
 
-const WITHDRAWAL_DESCRIPTIONS = new Set([
+const WITHDRAWAL_KINDS = new Set([
   'crypto_withdrawal',
   'fiat_withdrawal',
   'viban_card_cashback_reverted',
   'crypto_earn_program_withdrawn',
 ]);
 
+const TRANSFER_KINDS = new Set([
+  'crypto_to_exchange_transfer',
+  'exchange_to_crypto_transfer',
+]);
+
+const SKIP_KINDS = new Set([
+  'lockup_lock',
+  'lockup_unlock',
+  'supercharger_deposit',
+  'supercharger_withdrawal',
+  'crypto_earn_program_created',
+  'crypto_earn_program_withdrawn',
+  'stake_reward',
+]);
+
 export function isCryptoComAppCsv(headers: string[]): boolean {
   const normalized = headers.map(h => h.trim());
-  return (
-    normalized.includes('Timestamp') &&
-    normalized.includes('Transaction Description') &&
-    normalized.includes('Currency') &&
-    normalized.includes('Amount')
-  );
+  const hasTimestamp = normalized.includes('Timestamp (UTC)') || normalized.includes('Timestamp');
+  const hasCurrency = normalized.includes('Currency');
+  const hasAmount = normalized.includes('Amount');
+  const hasKindOrDesc = normalized.includes('Transaction Kind') || normalized.includes('Transaction Description');
+  return hasTimestamp && hasCurrency && hasAmount && hasKindOrDesc;
 }
 
-export function parseCryptoComAppCsv(rows: CryptoComAppRow[]): NormalizedTrade[] {
+export interface CsvParseResult {
+  trades: NormalizedTrade[];
+  warnings: string[];
+  skippedKinds: Record<string, number>;
+  unsupportedAssets: string[];
+}
+
+export function parseCryptoComAppCsv(rows: CryptoComAppRow[]): CsvParseResult {
   const trades: NormalizedTrade[] = [];
+  const warnings: string[] = [];
+  const skippedKinds: Record<string, number> = {};
+  const assetsUsed = new Set<string>();
 
   for (const row of rows) {
-    const desc = (row['Transaction Description'] || '').trim().toLowerCase();
-    const currency = (row.Currency || '').trim().toUpperCase();
-    const amount = parseFloat(row.Amount || '0');
+    const kind = (row['Transaction Kind'] || '').trim().toLowerCase();
+    const desc = (row['Transaction Description'] || '').trim();
+    const currency = (row['Currency'] || '').trim().toUpperCase();
+    const amount = parseFloat(row['Amount'] || '0');
     const toCurrency = (row['To Currency'] || '').trim().toUpperCase();
     const toAmount = parseFloat(row['To Amount'] || '0');
-    const nativeCurrency = (row['Native Currency'] || '').trim().toUpperCase();
-    const nativeAmount = parseFloat(row['Native Amount'] || '0');
-    const timestamp = row.Timestamp;
+    const nativeAmountUsd = parseFloat(row['Native Amount (in USD)'] || row['Native Amount'] || '0');
+    const timestamp = row['Timestamp (UTC)'] || row['Timestamp'] || '';
 
     if (!timestamp || !currency) continue;
 
     const datetime = parseTimestamp(timestamp);
-    if (!datetime) continue;
+    if (!datetime) {
+      warnings.push(`Row skipped: invalid timestamp "${timestamp}"`);
+      continue;
+    }
 
-    const externalId = `cdc-app-${datetime}-${desc}-${currency}-${amount}`;
+    if (currency) assetsUsed.add(currency);
+    if (toCurrency) assetsUsed.add(toCurrency);
 
-    if (TRADE_DESCRIPTIONS.has(desc)) {
+    const externalId = `cdc-${datetime}-${kind}-${currency}-${amount}`;
+
+    if (SKIP_KINDS.has(kind)) {
+      skippedKinds[kind] = (skippedKinds[kind] || 0) + 1;
+      continue;
+    }
+
+    if (TRANSFER_KINDS.has(kind)) {
+      skippedKinds[kind] = (skippedKinds[kind] || 0) + 1;
+      continue;
+    }
+
+    if (BUY_KINDS.has(kind) || kind.startsWith('trading.')) {
       if (toCurrency && toAmount) {
-        const isBuying = amount < 0;
+        const fromQty = Math.abs(amount);
+        const toQty = Math.abs(toAmount);
         trades.push({
           externalId,
           datetime,
           type: 'Swap',
-          fromAsset: isBuying ? currency : currency,
-          fromQuantity: Math.abs(amount),
-          fromPriceUsd: nativeAmount ? Math.abs(nativeAmount) / Math.abs(amount) : null,
+          fromAsset: currency,
+          fromQuantity: fromQty,
+          fromPriceUsd: fromQty > 0 ? Math.abs(nativeAmountUsd) / fromQty : null,
           toAsset: toCurrency,
-          toQuantity: Math.abs(toAmount),
-          toPriceUsd: nativeAmount ? Math.abs(nativeAmount) / Math.abs(toAmount) : null,
+          toQuantity: toQty,
+          toPriceUsd: toQty > 0 ? Math.abs(nativeAmountUsd) / toQty : null,
           feesUsd: null,
-          feeCurrency: nativeCurrency || 'USD',
+          feeCurrency: 'USD',
+          notes: `Crypto.com App | ${desc}`,
+          raw: row as never,
+        });
+      } else if (amount > 0) {
+        trades.push({
+          externalId,
+          datetime,
+          type: 'Swap' as const,
+          fromAsset: 'USD',
+          fromQuantity: Math.abs(nativeAmountUsd),
+          fromPriceUsd: 1,
+          toAsset: currency,
+          toQuantity: amount,
+          toPriceUsd: amount > 0 ? Math.abs(nativeAmountUsd) / amount : null,
+          feesUsd: null,
+          feeCurrency: 'USD',
           notes: `Crypto.com App | ${desc}`,
           raw: row as never,
         });
       }
-    } else if (DEPOSIT_DESCRIPTIONS.has(desc)) {
-      if (amount > 0) {
+    } else if (DEPOSIT_KINDS.has(kind)) {
+      if (amount > 0 || (toCurrency && toAmount > 0)) {
+        const depositAsset = toCurrency || currency;
+        const depositAmount = toCurrency ? Math.abs(toAmount) : Math.abs(amount);
         trades.push({
           externalId,
           datetime,
@@ -100,16 +167,16 @@ export function parseCryptoComAppCsv(rows: CryptoComAppRow[]): NormalizedTrade[]
           fromAsset: '',
           fromQuantity: 0,
           fromPriceUsd: null,
-          toAsset: currency,
-          toQuantity: amount,
-          toPriceUsd: nativeAmount && amount ? Math.abs(nativeAmount) / amount : null,
+          toAsset: depositAsset,
+          toQuantity: depositAmount,
+          toPriceUsd: depositAmount > 0 ? Math.abs(nativeAmountUsd) / depositAmount : null,
           feesUsd: null,
-          feeCurrency: nativeCurrency || 'USD',
+          feeCurrency: 'USD',
           notes: `Crypto.com App | ${desc}`,
           raw: row as never,
         });
       }
-    } else if (WITHDRAWAL_DESCRIPTIONS.has(desc)) {
+    } else if (WITHDRAWAL_KINDS.has(kind)) {
       if (amount < 0) {
         trades.push({
           externalId,
@@ -117,24 +184,51 @@ export function parseCryptoComAppCsv(rows: CryptoComAppRow[]): NormalizedTrade[]
           type: 'Swap' as const,
           fromAsset: currency,
           fromQuantity: Math.abs(amount),
-          fromPriceUsd: nativeAmount && amount ? Math.abs(nativeAmount) / Math.abs(amount) : null,
+          fromPriceUsd: Math.abs(amount) > 0 ? Math.abs(nativeAmountUsd) / Math.abs(amount) : null,
           toAsset: '',
           toQuantity: 0,
           toPriceUsd: null,
           feesUsd: null,
-          feeCurrency: nativeCurrency || 'USD',
+          feeCurrency: 'USD',
           notes: `Crypto.com App | ${desc}`,
           raw: row as never,
         });
       }
+    } else {
+      skippedKinds[kind || 'unknown'] = (skippedKinds[kind || 'unknown'] || 0) + 1;
     }
   }
 
-  return trades;
+  const knownAssets = getKnownAssets();
+  const unsupportedAssets = Array.from(assetsUsed).filter(a => !knownAssets.has(a) && a !== '' && a !== 'USD');
+
+  if (unsupportedAssets.length > 0) {
+    warnings.push(`Assets not in price database (prices may be missing): ${unsupportedAssets.join(', ')}`);
+  }
+
+  return { trades, warnings, skippedKinds, unsupportedAssets };
 }
 
 function parseTimestamp(input: string): string | null {
-  const d = new Date(input);
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const d = new Date(trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T') + 'Z');
   if (!isNaN(d.getTime())) return d.toISOString();
+  const d2 = new Date(trimmed);
+  if (!isNaN(d2.getTime())) return d2.toISOString();
   return null;
+}
+
+function getKnownAssets(): Set<string> {
+  return new Set([
+    'BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'LINK', 'AVAX', 'MATIC', 'UNI',
+    'ATOM', 'XRP', 'DOGE', 'SHIB', 'LTC', 'BCH', 'ETC', 'FIL', 'NEAR',
+    'APT', 'ARB', 'OP', 'SUI', 'SEI', 'TIA', 'INJ', 'FET', 'RNDR',
+    'USDC', 'USDT', 'DAI', 'BUSD', 'EUR', 'USD', 'GBP', 'RON',
+    'CRO', 'EGLD', 'ALGO', 'VET', 'SAND', 'MANA', 'AXS', 'GALA',
+    'AAVE', 'MKR', 'COMP', 'SNX', 'GRT', 'ENS', 'LDO', 'RPL',
+    'BNB', 'FTM', 'ONE', 'HBAR', 'ICP', 'FLOW',
+    'XLM', 'XTZ', 'NEO', 'IOTA', 'DASH', 'ZEC',
+    'PEPE', 'WIF', 'BONK', 'FLOKI', 'EURC',
+  ]);
 }

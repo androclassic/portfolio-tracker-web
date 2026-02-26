@@ -23,6 +23,9 @@ export default function CryptoComIntegrationPage() {
   const [selectedTrades, setSelectedTrades] = useState<Set<string>>(new Set());
   const [portfolioId, setPortfolioId] = useState<number | null>(null);
   const [importResult, setImportResult] = useState<{ imported: number } | null>(null);
+  const [csvWarnings, setCsvWarnings] = useState<string[]>([]);
+  const [skippedKinds, setSkippedKinds] = useState<Record<string, number>>({});
+  const [unsupportedAssets, setUnsupportedAssets] = useState<string[]>([]);
 
   async function handleFetchTrades(e: React.FormEvent) {
     e.preventDefault();
@@ -72,6 +75,9 @@ export default function CryptoComIntegrationPage() {
 
       setTrades(data.trades);
       setSelectedTrades(new Set(data.trades.map((t: NormalizedTrade) => t.externalId)));
+      setCsvWarnings(data.warnings || []);
+      setSkippedKinds(data.skippedKinds || {});
+      setUnsupportedAssets(data.unsupportedAssets || []);
       setStep('preview');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to parse CSV');
@@ -315,6 +321,34 @@ export default function CryptoComIntegrationPage() {
         {/* Step 2: Preview trades */}
         {step === 'preview' && (
           <div>
+            {/* Warnings & info banners */}
+            {unsupportedAssets.length > 0 && (
+              <div style={{
+                background: 'var(--warning-50)', border: '1px solid color-mix(in oklab, var(--warning) 30%, transparent)',
+                borderRadius: 8, padding: '12px 16px', marginBottom: '1rem', fontSize: '0.9rem', color: 'var(--text)',
+              }}>
+                <strong style={{ color: 'var(--warning)' }}>Unknown assets detected:</strong>{' '}
+                {unsupportedAssets.join(', ')} — prices may not be available. Transactions will still be imported.
+              </div>
+            )}
+            {Object.keys(skippedKinds).length > 0 && (
+              <div style={{
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 8, padding: '12px 16px', marginBottom: '1rem', fontSize: '0.85rem', color: 'var(--muted)',
+              }}>
+                <strong>Skipped transactions:</strong>{' '}
+                {Object.entries(skippedKinds).map(([kind, count]) => `${kind} (${count})`).join(', ')}
+              </div>
+            )}
+            {csvWarnings.map((w, i) => (
+              <div key={i} style={{
+                background: 'var(--warning-50)', border: '1px solid color-mix(in oklab, var(--warning) 30%, transparent)',
+                borderRadius: 8, padding: '10px 14px', marginBottom: '0.75rem', fontSize: '0.85rem', color: 'var(--text)',
+              }}>
+                {w}
+              </div>
+            ))}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
               <div>
                 <span style={{ fontWeight: 600, fontSize: '1.1rem' }}>{trades.length} trades found</span>
