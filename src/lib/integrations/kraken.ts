@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import type { NormalizedTrade } from './crypto-com';
+import { isFiatCurrency, isStablecoin } from '../assets';
 
 // ─── Kraken CSV Parser ──────────────────────────────────────────
 
@@ -96,11 +97,12 @@ export function parseKrakenCsv(rows: KrakenCsvRow[]): KrakenParseResult {
       if (primarySpend && primaryReceive) {
         const datetime = parseKrakenTimestamp(first.time);
         if (!datetime) continue;
+        const tradeType = classifyKrakenPairType(primarySpend.asset, primaryReceive.asset);
 
         trades.push({
           externalId: refid,
           datetime,
-          type: 'Swap',
+          type: tradeType,
           fromAsset: primarySpend.asset,
           fromQuantity: primarySpend.amount,
           fromPriceUsd: null,
@@ -119,6 +121,10 @@ export function parseKrakenCsv(rows: KrakenCsvRow[]): KrakenParseResult {
         const amount = parseFloat(row.amount || '0');
         const fee = Math.abs(parseFloat(row.fee || '0'));
         if (amount <= 0) continue;
+        if (isFiatCurrency(asset)) {
+          skippedTypes['deposit/fiat_topup'] = (skippedTypes['deposit/fiat_topup'] || 0) + 1;
+          continue;
+        }
         assetsUsed.add(asset);
 
         const datetime = parseKrakenTimestamp(row.time);
@@ -218,6 +224,12 @@ function parseKrakenTimestamp(input: string): string | null {
   const d = new Date(trimmed.replace(' ', 'T') + 'Z');
   if (!isNaN(d.getTime())) return d.toISOString();
   return null;
+}
+
+function classifyKrakenPairType(fromAsset: string, toAsset: string): 'Deposit' | 'Withdrawal' | 'Swap' {
+  if (isFiatCurrency(fromAsset) && isStablecoin(toAsset)) return 'Deposit';
+  if (isStablecoin(fromAsset) && isFiatCurrency(toAsset)) return 'Withdrawal';
+  return 'Swap';
 }
 
 function isStableFiat(s: string): boolean {
