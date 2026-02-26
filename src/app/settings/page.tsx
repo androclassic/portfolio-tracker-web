@@ -158,6 +158,41 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* Integrations Section */}
+        <section className="card" style={{ marginBottom: '2rem' }}>
+          <div className="card-header">
+            <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Integrations</h2>
+          </div>
+          <div style={{ padding: '1rem' }}>
+            <p style={{ color: 'var(--muted)', marginBottom: '1rem', fontSize: '0.9rem' }}>
+              Connect your exchange accounts to import trade history automatically.
+            </p>
+            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+              <a
+                href="/integrations/crypto-com"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.75rem',
+                  padding: '1rem 1.5rem', borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)', background: 'var(--surface)',
+                  textDecoration: 'none', color: 'var(--text)',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <div style={{
+                  width: 36, height: 36, borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #002D72, #0033A0)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#fff', fontWeight: 700, fontSize: '0.85rem', flexShrink: 0,
+                }}>C</div>
+                <div>
+                  <div style={{ fontWeight: 600 }}>Crypto.com Exchange</div>
+                  <div style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Import trade history via API</div>
+                </div>
+              </a>
+            </div>
+          </div>
+        </section>
+
         {/* Password Section */}
         <section className="card" style={{ marginBottom: '2rem' }}>
           <div className="card-header">
