@@ -1,4 +1,5 @@
 import type { NormalizedTrade } from './crypto-com';
+import { isFiatCurrency, isStablecoin } from '../assets';
 
 interface CryptoComAppRow {
   'Timestamp (UTC)'?: string;
@@ -27,8 +28,6 @@ const BUY_KINDS = new Set([
 
 const DEPOSIT_KINDS = new Set([
   'crypto_deposit',
-  'fiat_deposit',
-  'viban_deposit',
   'rewards_platform_deposit_credited',
   'referral_card_cashback',
   'card_cashback_reverted',
@@ -56,6 +55,8 @@ const TRANSFER_KINDS = new Set([
 ]);
 
 const SKIP_KINDS = new Set([
+  'fiat_deposit',
+  'viban_deposit',
   'lockup_lock',
   'lockup_unlock',
   'supercharger_deposit',
@@ -124,10 +125,11 @@ export function parseCryptoComAppCsv(rows: CryptoComAppRow[]): CsvParseResult {
       if (toCurrency && toAmount) {
         const fromQty = Math.abs(amount);
         const toQty = Math.abs(toAmount);
+        const txType = isFiatToStablecoinDeposit(kind, currency, toCurrency) ? 'Deposit' : 'Swap';
         trades.push({
           externalId,
           datetime,
-          type: 'Swap',
+          type: txType,
           fromAsset: currency,
           fromQuantity: fromQty,
           fromPriceUsd: fromQty > 0 ? Math.abs(nativeAmountUsd) / fromQty : null,
@@ -217,6 +219,10 @@ function parseTimestamp(input: string): string | null {
   const d2 = new Date(trimmed);
   if (!isNaN(d2.getTime())) return d2.toISOString();
   return null;
+}
+
+function isFiatToStablecoinDeposit(kind: string, fromAsset: string, toAsset: string): boolean {
+  return kind === 'viban_purchase' && isFiatCurrency(fromAsset) && isStablecoin(toAsset);
 }
 
 function getKnownAssets(): Set<string> {

@@ -35,7 +35,7 @@ export interface CryptoComTradeResponse {
 export interface NormalizedTrade {
   externalId: string;
   datetime: string;
-  type: 'Swap';
+  type: 'Deposit' | 'Withdrawal' | 'Swap';
   fromAsset: string;
   fromQuantity: number;
   fromPriceUsd: number | null;
