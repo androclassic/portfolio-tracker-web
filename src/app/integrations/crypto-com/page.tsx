@@ -419,10 +419,10 @@ export default function CryptoComIntegrationPage() {
                             {nf.format(trade.toQuantity)} {trade.toAsset}
                           </td>
                           <td style={{ padding: '0.75rem', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                            ${nf.format(trade.raw.traded_price)}
+                            {trade.toPriceUsd != null ? `$${nf.format(trade.toPriceUsd)}` : '—'}
                           </td>
                           <td style={{ padding: '0.75rem', textAlign: 'right', color: 'var(--muted)' }}>
-                            {trade.raw?.fee != null && Number(trade.raw.fee) > 0 ? `${nf.format(Number(trade.raw.fee))} ${trade.feeCurrency}` : '—'}
+                            {trade.feesUsd != null && trade.feesUsd > 0 ? `$${nf.format(trade.feesUsd)}` : '—'}
                           </td>
                         </tr>
                       );

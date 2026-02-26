@@ -398,7 +398,7 @@ export default function CryptoComIntegrationPage() {
                   </thead>
                   <tbody>
                     {trades.map(trade => {
-                      const isBuy = trade.raw.side === 'BUY';
+                      const isBuy = trade.notes?.includes('→') && trade.fromAsset && ['USD', 'EUR', 'GBP', 'USDC', 'USDT', 'USDG'].includes(trade.fromAsset);
                       return (
                         <tr key={trade.externalId} style={{ borderBottom: '1px solid var(--border)' }}>
                           <td style={{ padding: '0.75rem' }}>
@@ -408,21 +408,25 @@ export default function CryptoComIntegrationPage() {
                             {df.format(new Date(trade.datetime))}
                           </td>
                           <td style={{ padding: '0.75rem' }}>
-                            <span className={`transaction-type-badge ${isBuy ? 'buy' : 'sell'}`}>
-                              {isBuy ? 'Buy' : 'Sell'}
-                            </span>
+                            {(() => {
+                              const isDeposit = !trade.fromAsset && trade.toAsset;
+                              const isWithdraw = trade.fromAsset && !trade.toAsset;
+                              if (isDeposit) return <span className="transaction-type-badge deposit">Deposit</span>;
+                              if (isWithdraw) return <span className="transaction-type-badge withdrawal">Withdraw</span>;
+                              return <span className={`transaction-type-badge ${isBuy ? 'buy' : 'sell'}`}>{isBuy ? 'Buy' : 'Sell'}</span>;
+                            })()}
                           </td>
                           <td style={{ padding: '0.75rem', fontWeight: 500 }}>
-                            {nf.format(trade.fromQuantity)} {trade.fromAsset}
+                            {trade.fromAsset ? `${nf.format(trade.fromQuantity)} ${trade.fromAsset}` : '—'}
                           </td>
                           <td style={{ padding: '0.75rem', fontWeight: 500 }}>
-                            {nf.format(trade.toQuantity)} {trade.toAsset}
+                            {trade.toAsset ? `${nf.format(trade.toQuantity)} ${trade.toAsset}` : '—'}
                           </td>
                           <td style={{ padding: '0.75rem', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                            ${nf.format(trade.raw.traded_price)}
+                            {trade.toPriceUsd != null ? `$${nf.format(trade.toPriceUsd)}` : '—'}
                           </td>
                           <td style={{ padding: '0.75rem', textAlign: 'right', color: 'var(--muted)' }}>
-                            {trade.raw?.fee != null && Number(trade.raw.fee) > 0 ? `${nf.format(Number(trade.raw.fee))} ${trade.feeCurrency}` : '—'}
+                            {trade.feesUsd != null && trade.feesUsd > 0 ? `$${nf.format(trade.feesUsd)}` : (trade.feeCurrency && trade.notes?.includes('fee:') ? trade.notes.match(/fee: ([\d.]+)/)?.[1] + ' ' + trade.feeCurrency : '—')}
                           </td>
                         </tr>
                       );
