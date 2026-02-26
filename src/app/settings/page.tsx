@@ -185,8 +185,29 @@ export default function SettingsPage() {
                   color: '#fff', fontWeight: 700, fontSize: '0.85rem', flexShrink: 0,
                 }}>C</div>
                 <div>
-                  <div style={{ fontWeight: 600 }}>Crypto.com Exchange</div>
-                  <div style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Import trade history via API</div>
+                  <div style={{ fontWeight: 600 }}>Crypto.com</div>
+                  <div style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>App CSV or Exchange API</div>
+                </div>
+              </a>
+              <a
+                href="/integrations/kraken"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.75rem',
+                  padding: '1rem 1.5rem', borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--border)', background: 'var(--surface)',
+                  textDecoration: 'none', color: 'var(--text)',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <div style={{
+                  width: 36, height: 36, borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #5741D9, #7B61FF)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#fff', fontWeight: 700, fontSize: '0.85rem', flexShrink: 0,
+                }}>K</div>
+                <div>
+                  <div style={{ fontWeight: 600 }}>Kraken</div>
+                  <div style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Ledger CSV or API</div>
                 </div>
               </a>
             </div>
