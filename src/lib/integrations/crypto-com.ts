@@ -19,6 +19,8 @@ export interface CryptoComTrade {
   fee_currency: string;
   fee_instrument_name: string;
   create_time: number;
+  create_time_ns?: string | number;
+  transact_time_ns?: string | number;
   liquidity_indicator: string;
 }
 
@@ -128,20 +130,23 @@ export async function fetchTrades(
   const allTrades: CryptoComTrade[] = [];
   const seenIds = new Set<string>();
   const DAY_MS = 24 * 60 * 60 * 1000;
+  const NANO_PER_MS = 1_000_000n;
+  const MAX_WINDOW_NS = BigInt(7 * DAY_MS) * NANO_PER_MS; // API docs: max 7-day range
+  const LIMIT = 100;
 
-  let windowStart = start.getTime();
-  const finalEnd = end.getTime();
+  let windowStartNs = BigInt(start.getTime()) * NANO_PER_MS;
+  const finalEndNs = BigInt(end.getTime()) * NANO_PER_MS;
 
-  while (windowStart < finalEnd) {
-    const windowEnd = Math.min(windowStart + DAY_MS, finalEnd);
+  while (windowStartNs < finalEndNs) {
+    const windowEndNs = minBigInt(windowStartNs + MAX_WINDOW_NS, finalEndNs);
+    let cursorEndNs = windowEndNs;
+    let pageSafety = 0;
 
-    let page = 0;
-    while (page < 20) {
+    while (cursorEndNs > windowStartNs && pageSafety < 1000) {
       const params: Record<string, unknown> = {
-        start_ts: windowStart,
-        end_ts: windowEnd,
-        page_size: 100,
-        page,
+        start_time: windowStartNs.toString(),
+        end_time: cursorEndNs.toString(),
+        limit: LIMIT,
       };
       if (instrumentName) params.instrument_name = instrumentName;
 
@@ -153,6 +158,7 @@ export async function fetchTrades(
 
       const result = resp.result || {} as Record<string, unknown>;
       const trades = (result.data || result.trade_list || []) as CryptoComTrade[];
+      if (trades.length === 0) break;
 
       for (const t of trades) {
         const id = String(t.trade_id || t.order_id);
@@ -162,19 +168,25 @@ export async function fetchTrades(
         }
       }
 
-      if (trades.length < 100) break;
-      page++;
+      const oldestTradeNs = trades.reduce((min, t) => {
+        const ts = getTradeTimeNs(t);
+        return ts < min ? ts : min;
+      }, getTradeTimeNs(trades[0]));
+
+      if (oldestTradeNs >= cursorEndNs) break;
+      cursorEndNs = oldestTradeNs;
+
+      if (trades.length < LIMIT) break;
+      pageSafety++;
     }
 
-    windowStart = windowEnd;
-
-    // Rate limit: small delay between day windows
-    if (windowStart < finalEnd) {
-      await new Promise(r => setTimeout(r, 100));
+    windowStartNs = windowEndNs;
+    if (windowStartNs < finalEndNs) {
+      await new Promise(r => setTimeout(r, 80));
     }
   }
 
-  return allTrades;
+  return allTrades.sort((a, b) => Number(a.create_time) - Number(b.create_time));
 }
 
 export function normalizeTrades(trades: CryptoComTrade[]): NormalizedTrade[] {
@@ -224,6 +236,24 @@ function num(v: unknown): number {
   if (typeof v === 'number') return v;
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+function minBigInt(a: bigint, b: bigint): bigint {
+  return a < b ? a : b;
+}
+
+function getTradeTimeNs(trade: CryptoComTrade): bigint {
+  const ns = trade.create_time_ns;
+  if (ns != null && String(ns).trim() !== '') {
+    try {
+      return BigInt(String(ns));
+    } catch {
+      // Fallback to millisecond timestamp below.
+    }
+  }
+  const ms = Number(trade.create_time);
+  const safeMs = Number.isFinite(ms) && ms > 0 ? Math.trunc(ms) : 0;
+  return BigInt(safeMs) * 1_000_000n;
 }
 
 function isUsdStable(symbol: string): boolean {
