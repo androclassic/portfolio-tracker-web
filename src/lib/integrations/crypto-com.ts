@@ -25,7 +25,8 @@ export interface CryptoComTradeResponse {
   method: string;
   code: number;
   result: {
-    data: CryptoComTrade[];
+    data?: CryptoComTrade[];
+    trade_list?: CryptoComTrade[];
   };
 }
 
@@ -141,7 +142,8 @@ export async function fetchTrades(
       params
     );
 
-    const trades = resp.result?.data || [];
+    const result = resp.result || {} as Record<string, unknown>;
+    const trades = (result.data || result.trade_list || []) as CryptoComTrade[];
     allTrades.push(...trades);
 
     if (trades.length < pageSize) break;
@@ -152,36 +154,40 @@ export async function fetchTrades(
 }
 
 export function normalizeTrades(trades: CryptoComTrade[]): NormalizedTrade[] {
-  return trades.map(trade => {
-    const [base, quote] = trade.instrument_name.split('_');
-    const isBuy = trade.side === 'BUY';
+  return trades
+    .filter(trade => trade.instrument_name && trade.side)
+    .map(trade => {
+      const parts = (trade.instrument_name || '').split('_');
+      const base = (parts[0] || '').toUpperCase();
+      const quote = (parts[1] || '').toUpperCase();
+      const isBuy = trade.side === 'BUY';
 
-    const fromAsset = isBuy ? quote : base;
-    const toAsset = isBuy ? base : quote;
-    const toQuantity = isBuy ? trade.traded_quantity : trade.traded_quantity * trade.traded_price;
-    const fromQuantity = isBuy ? trade.traded_quantity * trade.traded_price : trade.traded_quantity;
+      const fromAsset = isBuy ? (quote || 'UNKNOWN') : (base || 'UNKNOWN');
+      const toAsset = isBuy ? (base || 'UNKNOWN') : (quote || 'UNKNOWN');
+      const toQuantity = isBuy ? trade.traded_quantity : trade.traded_quantity * trade.traded_price;
+      const fromQuantity = isBuy ? trade.traded_quantity * trade.traded_price : trade.traded_quantity;
 
-    const toPriceUsd = isUsdStable(quote) ? trade.traded_price : null;
-    const fromPriceUsd = isUsdStable(quote)
-      ? (isBuy ? 1 : trade.traded_price)
-      : null;
+      const toPriceUsd = quote && isUsdStable(quote) ? trade.traded_price : null;
+      const fromPriceUsd = quote && isUsdStable(quote)
+        ? (isBuy ? 1 : trade.traded_price)
+        : null;
 
-    return {
-      externalId: trade.trade_id,
-      datetime: new Date(trade.create_time).toISOString(),
-      type: 'Swap' as const,
-      fromAsset,
-      fromQuantity,
-      fromPriceUsd,
-      toAsset,
-      toQuantity,
-      toPriceUsd,
-      feesUsd: isUsdStable(trade.fee_currency) ? trade.fee : null,
-      feeCurrency: trade.fee_currency,
-      notes: `Crypto.com Exchange | ${trade.instrument_name} ${trade.side} | Trade #${trade.trade_id}`,
-      raw: trade,
-    };
-  });
+      return {
+        externalId: String(trade.trade_id || trade.order_id || Date.now()),
+        datetime: new Date(trade.create_time).toISOString(),
+        type: 'Swap' as const,
+        fromAsset,
+        fromQuantity,
+        fromPriceUsd,
+        toAsset,
+        toQuantity,
+        toPriceUsd,
+        feesUsd: trade.fee_currency && isUsdStable(trade.fee_currency) ? trade.fee : null,
+        feeCurrency: trade.fee_currency || '',
+        notes: `Crypto.com Exchange | ${trade.instrument_name} ${trade.side} | Trade #${trade.trade_id}`,
+        raw: trade,
+      };
+    });
 }
 
 function isUsdStable(symbol: string): boolean {

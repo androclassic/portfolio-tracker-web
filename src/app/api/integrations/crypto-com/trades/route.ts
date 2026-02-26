@@ -22,14 +22,28 @@ export async function POST(req: NextRequest) {
     const end = endDate ? new Date(endDate) : undefined;
 
     const rawTrades = await fetchTrades(creds, start, end, instrumentName || undefined);
-    const normalized = normalizeTrades(rawTrades);
+
+    let normalized;
+    try {
+      normalized = normalizeTrades(rawTrades);
+    } catch (normError) {
+      console.error('[Crypto.com] Normalization error:', normError);
+      console.error('[Crypto.com] Raw trade sample:', JSON.stringify(rawTrades.slice(0, 2)));
+      return NextResponse.json({
+        error: `Failed to process trades: ${normError instanceof Error ? normError.message : 'unknown error'}`,
+        rawCount: rawTrades.length,
+        sampleTrade: rawTrades[0] || null,
+      }, { status: 500 });
+    }
 
     return NextResponse.json({
       trades: normalized,
       count: normalized.length,
+      rawCount: rawTrades.length,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to fetch trades';
+    console.error('[Crypto.com] API error:', message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
