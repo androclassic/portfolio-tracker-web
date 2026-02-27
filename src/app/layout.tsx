@@ -6,6 +6,7 @@ import PortfolioProvider from './PortfolioProvider';
 import DynamicHeader from './DynamicHeader';
 import SessionProvider from '@/components/SessionProvider';
 import { MobileNavigation } from '@/components/MobileNavigation';
+import AutoSyncRunner from '@/components/AutoSyncRunner';
 
 const inter = Inter({ subsets: ['latin'], display: 'swap' });
 
@@ -27,6 +28,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <SessionProvider>
           <SWRProvider>
             <PortfolioProvider>
+              <AutoSyncRunner />
               <DynamicHeader />
               <main className="container">{children}</main>
               <MobileNavigation />

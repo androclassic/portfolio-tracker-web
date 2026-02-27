@@ -14,16 +14,43 @@ interface ApiKey {
   createdAt: string;
 }
 
+interface PortfolioOption {
+  id: number;
+  name: string;
+}
+
+interface ExchangeConnection {
+  id: string;
+  exchange: string;
+  label: string | null;
+  apiKeyPreview: string;
+  portfolioId: number | null;
+  autoSyncEnabled: boolean;
+  lastSyncAt: string | null;
+  lastAutoSyncAt: string | null;
+  lastSyncStatus: string | null;
+  lastSyncMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export default function SettingsPage() {
   const { data: session } = useSession();
   const router = useRouter();
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [portfolios, setPortfolios] = useState<PortfolioOption[]>([]);
+  const [connections, setConnections] = useState<ExchangeConnection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [newKeyName, setNewKeyName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
+  const [syncingExchange, setSyncingExchange] = useState<string | null>(null);
+  const [updatingConnectionId, setUpdatingConnectionId] = useState<string | null>(null);
 
   // Check if user needs to set up password
   useEffect(() => {
@@ -35,6 +62,8 @@ export default function SettingsPage() {
   // Fetch API keys
   useEffect(() => {
     fetchApiKeys();
+    fetchPortfolios();
+    fetchConnections();
   }, []);
 
   async function fetchApiKeys() {
@@ -48,6 +77,79 @@ export default function SettingsPage() {
       console.error('Failed to fetch API keys:', err);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function fetchPortfolios() {
+    try {
+      const res = await fetch('/api/portfolios');
+      if (!res.ok) return;
+      const data = await res.json();
+      setPortfolios(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to fetch portfolios:', err);
+    }
+  }
+
+  async function fetchConnections() {
+    try {
+      const res = await fetch('/api/integrations/connections');
+      if (!res.ok) return;
+      const data = await res.json();
+      setConnections(data.connections || []);
+    } catch (err) {
+      console.error('Failed to fetch connections:', err);
+    }
+  }
+
+  async function updateConnectionSettings(
+    connectionId: string,
+    payload: { portfolioId?: number | null; autoSyncEnabled?: boolean }
+  ) {
+    setUpdatingConnectionId(connectionId);
+    setSyncError(null);
+    try {
+      const res = await fetch('/api/integrations/connections', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: connectionId, ...payload }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update connection settings');
+      await fetchConnections();
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : 'Failed to update connection settings');
+    } finally {
+      setUpdatingConnectionId(null);
+    }
+  }
+
+  async function runSync(exchange: 'all' | 'crypto-com' | 'kraken') {
+    setSyncError(null);
+    setSyncMessage(null);
+    if (exchange === 'all') {
+      setIsSyncingAll(true);
+    } else {
+      setSyncingExchange(exchange);
+    }
+    try {
+      const res = await fetch('/api/integrations/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ exchange, days: 7 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Sync failed');
+      setSyncMessage(
+        `Sync complete: imported ${data.imported ?? 0} new transactions, skipped ${data.duplicates ?? 0} duplicates.`
+      );
+      await fetchConnections();
+      window.dispatchEvent(new CustomEvent('transactions-changed'));
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : 'Sync failed');
+    } finally {
+      setIsSyncingAll(false);
+      setSyncingExchange(null);
     }
   }
 
@@ -118,6 +220,12 @@ export default function SettingsPage() {
       hour: '2-digit',
       minute: '2-digit',
     });
+  }
+
+  function exchangeDisplayName(exchange: string): string {
+    if (exchange === 'crypto-com') return 'Crypto.com';
+    if (exchange === 'kraken') return 'Kraken';
+    return exchange;
   }
 
   return (
@@ -210,6 +318,126 @@ export default function SettingsPage() {
                   <div style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Ledger CSV or API</div>
                 </div>
               </a>
+            </div>
+
+            <div style={{ marginTop: '1.5rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                <h3 style={{ margin: 0, fontSize: '1rem' }}>Connected exchanges sync</h3>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => runSync('all')}
+                  disabled={isSyncingAll || connections.length === 0}
+                >
+                  {isSyncingAll ? 'Syncing...' : 'Sync all (last 7 days)'}
+                </button>
+              </div>
+              <p style={{ color: 'var(--muted)', margin: '0.5rem 0 1rem', fontSize: '0.85rem' }}>
+                Sync imports only new trades from the last 7 days. Enable auto-sync to run once per day when you are logged in.
+              </p>
+
+              {syncMessage && (
+                <div style={{
+                  background: 'var(--success-50)',
+                  border: '1px solid color-mix(in oklab, var(--success) 35%, transparent)',
+                  borderRadius: 8,
+                  padding: '0.65rem 0.8rem',
+                  marginBottom: '0.75rem',
+                  fontSize: '0.85rem',
+                  color: 'var(--text)',
+                }}>
+                  {syncMessage}
+                </div>
+              )}
+              {syncError && (
+                <div style={{
+                  background: 'var(--danger-50)',
+                  border: '1px solid color-mix(in oklab, var(--danger) 35%, transparent)',
+                  borderRadius: 8,
+                  padding: '0.65rem 0.8rem',
+                  marginBottom: '0.75rem',
+                  fontSize: '0.85rem',
+                  color: 'var(--danger)',
+                }}>
+                  {syncError}
+                </div>
+              )}
+
+              {connections.length === 0 ? (
+                <div style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+                  No saved exchange API connections yet. Connect an exchange first to use sync.
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: '0.75rem' }}>
+                  {connections.map((connection) => (
+                    <div
+                      key={connection.id}
+                      style={{
+                        border: '1px solid var(--border)',
+                        borderRadius: 10,
+                        padding: '0.85rem 0.9rem',
+                        background: 'var(--surface)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        <div>
+                          <div style={{ fontWeight: 600 }}>{exchangeDisplayName(connection.exchange)}</div>
+                          <div style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>{connection.apiKeyPreview}</div>
+                        </div>
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => runSync(connection.exchange as 'crypto-com' | 'kraken')}
+                          disabled={syncingExchange === connection.exchange || isSyncingAll}
+                        >
+                          {syncingExchange === connection.exchange ? 'Syncing...' : 'Sync now'}
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'grid', gap: '0.6rem', marginTop: '0.8rem' }}>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                          Portfolio for sync
+                          <select
+                            value={connection.portfolioId ?? ''}
+                            disabled={updatingConnectionId === connection.id}
+                            onChange={(e) => updateConnectionSettings(
+                              connection.id,
+                              { portfolioId: e.target.value ? Number(e.target.value) : null }
+                            )}
+                            style={{
+                              padding: '0.45rem 0.55rem',
+                              borderRadius: 8,
+                              border: '1px solid var(--border)',
+                              background: 'var(--surface)',
+                              color: 'var(--text)',
+                              maxWidth: 260,
+                            }}
+                          >
+                            <option value="">Default (first portfolio)</option>
+                            {portfolios.map((p) => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={connection.autoSyncEnabled}
+                            disabled={updatingConnectionId === connection.id}
+                            onChange={(e) => updateConnectionSettings(connection.id, { autoSyncEnabled: e.target.checked })}
+                          />
+                          Enable automatic daily sync
+                        </label>
+                      </div>
+
+                      <div style={{ marginTop: '0.7rem', fontSize: '0.78rem', color: 'var(--muted)' }}>
+                        Last sync: {formatDate(connection.lastSyncAt)}
+                        {connection.lastSyncStatus ? ` (${connection.lastSyncStatus})` : ''}
+                        {connection.lastSyncMessage ? ` — ${connection.lastSyncMessage}` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </section>

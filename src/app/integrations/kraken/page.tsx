@@ -113,7 +113,11 @@ export default function KrakenIntegrationPage() {
       const res = await fetch('/api/integrations/kraken/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trades: selected, portfolioId }),
+        body: JSON.stringify({
+          trades: selected,
+          portfolioId,
+          importSource: mode === 'csv' ? 'kraken-csv' : 'kraken-api',
+        }),
       });
 
       const data = await res.json();

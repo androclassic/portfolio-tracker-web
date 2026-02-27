@@ -113,7 +113,11 @@ export default function CryptoComIntegrationPage() {
       const res = await fetch('/api/integrations/crypto-com/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trades: selected, portfolioId }),
+        body: JSON.stringify({
+          trades: selected,
+          portfolioId,
+          importSource: mode === 'csv' ? 'crypto-com-csv' : 'crypto-com-api',
+        }),
       });
 
       const data = await res.json();
