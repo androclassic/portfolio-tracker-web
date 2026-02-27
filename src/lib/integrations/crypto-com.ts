@@ -19,6 +19,8 @@ export interface CryptoComTrade {
   fee_currency: string;
   fee_instrument_name: string;
   create_time: number;
+  create_time_ns?: string | number;
+  transact_time_ns?: string | number;
   liquidity_indicator: string;
 }
 
@@ -128,20 +130,22 @@ export async function fetchTrades(
   const allTrades: CryptoComTrade[] = [];
   const seenIds = new Set<string>();
   const DAY_MS = 24 * 60 * 60 * 1000;
+  const MAX_WINDOW_MS = 7 * DAY_MS; // API docs: max 7-day range
+  const LIMIT = 100;
 
-  let windowStart = start.getTime();
-  const finalEnd = end.getTime();
+  let windowStartMs = start.getTime();
+  const finalEndMs = end.getTime();
 
-  while (windowStart < finalEnd) {
-    const windowEnd = Math.min(windowStart + DAY_MS, finalEnd);
+  while (windowStartMs < finalEndMs) {
+    const windowEndMs = Math.min(windowStartMs + MAX_WINDOW_MS, finalEndMs);
+    let cursorEndMs = windowEndMs;
+    let pageSafety = 0;
 
-    let page = 0;
-    while (page < 20) {
+    while (cursorEndMs > windowStartMs && pageSafety < 1000) {
       const params: Record<string, unknown> = {
-        start_ts: windowStart,
-        end_ts: windowEnd,
-        page_size: 100,
-        page,
+        start_time: windowStartMs,
+        end_time: cursorEndMs,
+        limit: LIMIT,
       };
       if (instrumentName) params.instrument_name = instrumentName;
 
@@ -153,6 +157,7 @@ export async function fetchTrades(
 
       const result = resp.result || {} as Record<string, unknown>;
       const trades = (result.data || result.trade_list || []) as CryptoComTrade[];
+      if (trades.length === 0) break;
 
       for (const t of trades) {
         const id = String(t.trade_id || t.order_id);
@@ -162,19 +167,25 @@ export async function fetchTrades(
         }
       }
 
-      if (trades.length < 100) break;
-      page++;
+      const oldestTradeMs = trades.reduce((min, t) => {
+        const ts = getTradeTimeMs(t);
+        return ts < min ? ts : min;
+      }, getTradeTimeMs(trades[0]));
+
+      if (oldestTradeMs >= cursorEndMs) break;
+      cursorEndMs = oldestTradeMs;
+
+      if (trades.length < LIMIT) break;
+      pageSafety++;
     }
 
-    windowStart = windowEnd;
-
-    // Rate limit: small delay between day windows
-    if (windowStart < finalEnd) {
-      await new Promise(r => setTimeout(r, 100));
+    windowStartMs = windowEndMs;
+    if (windowStartMs < finalEndMs) {
+      await new Promise(r => setTimeout(r, 80));
     }
   }
 
-  return allTrades;
+  return allTrades.sort((a, b) => Number(a.create_time) - Number(b.create_time));
 }
 
 export function normalizeTrades(trades: CryptoComTrade[]): NormalizedTrade[] {
@@ -224,6 +235,23 @@ function num(v: unknown): number {
   if (typeof v === 'number') return v;
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+function getTradeTimeMs(trade: CryptoComTrade): number {
+  const ms = Number(trade.create_time);
+  if (Number.isFinite(ms) && ms > 0) {
+    return ms;
+  }
+
+  const ns = trade.create_time_ns;
+  if (ns != null && String(ns).trim() !== '') {
+    const parsedNs = Number(ns);
+    if (Number.isFinite(parsedNs) && parsedNs > 0) {
+      return Math.floor(parsedNs / 1_000_000);
+    }
+  }
+
+  return 0;
 }
 
 function isUsdStable(symbol: string): boolean {

@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import type { NormalizedTrade } from './crypto-com';
-import { isFiatCurrency, isStablecoin } from '../assets';
+import { isFiatCurrency } from '../assets';
 
 // ─── Kraken CSV Parser ──────────────────────────────────────────
 
@@ -227,8 +227,10 @@ function parseKrakenTimestamp(input: string): string | null {
 }
 
 function classifyKrakenPairType(fromAsset: string, toAsset: string): 'Deposit' | 'Withdrawal' | 'Swap' {
-  if (isFiatCurrency(fromAsset) && isStablecoin(toAsset)) return 'Deposit';
-  if (isStablecoin(fromAsset) && isFiatCurrency(toAsset)) return 'Withdrawal';
+  const fromIsFiat = isFiatCurrency(fromAsset);
+  const toIsFiat = isFiatCurrency(toAsset);
+  if (fromIsFiat && !toIsFiat) return 'Deposit';
+  if (!fromIsFiat && toIsFiat) return 'Withdrawal';
   return 'Swap';
 }
 
