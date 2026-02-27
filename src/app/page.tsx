@@ -32,7 +32,7 @@ const features = [
   {
     icon: '🧾',
     title: 'Tax Reports',
-    desc: 'Calculate capital gains for Romania with FIFO, LIFO, HIFO, and LOFO cost basis strategies.',
+    desc: 'Calculate capital gains with FIFO, LIFO, HIFO, and LOFO cost basis strategies. Only fiat-to-crypto transactions are considered taxable events.',
   },
   {
     icon: '🔑',

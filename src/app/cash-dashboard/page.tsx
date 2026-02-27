@@ -316,7 +316,7 @@ export default function CashDashboardPage(){
               <select
                 value={selectedAssetLotStrategy}
                 onChange={(e) => setSelectedAssetLotStrategy(e.target.value as 'FIFO' | 'LIFO' | 'HIFO' | 'LOFO')}
-                title="Applied when selling crypto assets (affects realized gains on sells). Romania may require FIFO; use alternatives for scenario analysis."
+                title="Applied when selling crypto assets (affects realized gains on sells). FIFO is commonly required for tax reporting; use alternatives for scenario analysis."
               >
                 <option value="FIFO">FIFO</option>
                 <option value="LIFO">LIFO</option>
@@ -516,11 +516,11 @@ export default function CashDashboardPage(){
         </ChartCard>
       </div>
 
-      {/* Romanian Tax Report Section */}
+      {/* Tax Report Section */}
       {selectedTaxYear !== 'all' && (
         <div style={{ marginTop: '2rem' }}>
           <h2>
-            🇷🇴 Romanian Tax Report ({selectedTaxYear}) — Asset: {selectedAssetLotStrategy}, Cash: {selectedCashLotStrategy}
+            🧾 Tax Report ({selectedTaxYear}) — Asset: {selectedAssetLotStrategy}, Cash: {selectedCashLotStrategy}
           </h2>
           {(selectedAssetLotStrategy !== 'FIFO' || selectedCashLotStrategy !== 'FIFO') && (
             <div style={{
@@ -533,7 +533,7 @@ export default function CashDashboardPage(){
               color: 'var(--text)',
               fontSize: '0.9rem',
             }}>
-              <strong>Note:</strong> Romania may require <strong>FIFO</strong> for tax reporting. Other strategies are provided for
+              <strong>Note:</strong> FIFO is commonly required for tax reporting. Other strategies are provided for
               scenario analysis (e.g., exploring tax-minimizing lot selection like HIFO).
             </div>
           )}
