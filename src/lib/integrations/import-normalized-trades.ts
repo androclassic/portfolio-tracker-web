@@ -96,7 +96,7 @@ export async function importNormalizedTrades({
         toQuantity: toNum(trade.toQuantity),
         toPriceUsd: toNumOrNull(trade.toPriceUsd),
         feesUsd: toNumOrNull(trade.feesUsd),
-        notes: trade.notes || null,
+        notes: withSourceTag(source, trade.notes),
         portfolioId,
         importSource: source,
         importExternalId: (trade.externalId || '').trim() || null,
@@ -110,4 +110,12 @@ export async function importNormalizedTrades({
     imported,
     duplicates: enriched.length - imported,
   };
+}
+
+function withSourceTag(source: ImportSource, notes: string | null | undefined): string {
+  const tag = source.startsWith('crypto-com') ? '[Crypto.com]' : '[Kraken]';
+  const content = (notes || '').trim();
+  if (!content) return tag;
+  if (content.startsWith(tag)) return content;
+  return `${tag} ${content}`;
 }
