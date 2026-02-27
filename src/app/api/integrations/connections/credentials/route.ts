@@ -23,5 +23,11 @@ export async function GET(req: NextRequest) {
     apiKey: decrypt(connection.apiKey),
     apiSecret: decrypt(connection.apiSecret),
     label: connection.label,
+    portfolioId: connection.portfolioId,
+    autoSyncEnabled: connection.autoSyncEnabled,
+    lastSyncAt: connection.lastSyncAt,
+    lastAutoSyncAt: connection.lastAutoSyncAt,
+    lastSyncStatus: connection.lastSyncStatus,
+    lastSyncMessage: connection.lastSyncMessage,
   });
 }

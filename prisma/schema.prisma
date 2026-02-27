@@ -38,18 +38,26 @@ model ApiKey {
 }
 
 model ExchangeConnection {
-  id          String    @id @default(cuid())
-  exchange    String    // "crypto-com" | "kraken"
-  apiKey      String    // encrypted
-  apiSecret   String    // encrypted
-  label       String?   // user-friendly name
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  exchange        String    // "crypto-com" | "kraken"
+  apiKey          String    // encrypted
+  apiSecret       String    // encrypted
+  label           String?   // user-friendly name
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  portfolioId     Int?
+  autoSyncEnabled Boolean   @default(false)
+  lastSyncAt      DateTime?
+  lastAutoSyncAt  DateTime?
+  lastSyncStatus  String?
+  lastSyncMessage String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@unique([userId, exchange])
   @@index([userId])
+  @@index([portfolioId])
+  @@index([userId, autoSyncEnabled])
 }
 
 model Account {
@@ -99,6 +107,8 @@ model Transaction {
   toAsset      String
   toQuantity   Float
   toPriceUsd   Float?
+  importSource String?
+  importExternalId String?
   portfolioId  Int
   portfolio    Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
   createdAt    DateTime  @default(now())
@@ -106,6 +116,8 @@ model Transaction {
 
   @@index([portfolioId])
   @@index([portfolioId, datetime])
+  @@index([portfolioId, importSource])
+  @@unique([portfolioId, importSource, importExternalId])
 }
 
 model Portfolio {
