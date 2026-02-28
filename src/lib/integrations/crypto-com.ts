@@ -193,15 +193,15 @@ export function normalizeTrades(trades: CryptoComTrade[]): NormalizedTrade[] {
     .filter(trade => trade.instrument_name && trade.side)
     .map(trade => {
       const parts = (trade.instrument_name || '').split('_');
-      const base = (parts[0] || '').toUpperCase();
-      const quote = (parts[1] || '').toUpperCase();
+      const base = normalizeCryptoComAssetSymbol(parts[0]);
+      const quote = normalizeCryptoComAssetSymbol(parts[1]);
       const isBuy = trade.side === 'BUY';
 
       const tradedQty = num(trade.traded_quantity);
       const tradedPrice = num(trade.traded_price);
       const feeRaw = trade.fees ?? trade.fee ?? 0;
       const fee = Math.abs(num(feeRaw));
-      const feeCurrency = (trade.fee_instrument_name || trade.fee_currency || '').toUpperCase();
+      const feeCurrency = normalizeCryptoComAssetSymbol(trade.fee_instrument_name || trade.fee_currency || '');
 
       const fromAsset = isBuy ? (quote || 'UNKNOWN') : (base || 'UNKNOWN');
       const toAsset = isBuy ? (base || 'UNKNOWN') : (quote || 'UNKNOWN');
@@ -252,6 +252,13 @@ function getTradeTimeMs(trade: CryptoComTrade): number {
   }
 
   return 0;
+}
+
+function normalizeCryptoComAssetSymbol(symbol: string): string {
+  const upper = (symbol || '').toUpperCase();
+  // On Crypto.com Exchange spot, quote "USD" markets settle in USDC.
+  if (upper === 'USD') return 'USDC';
+  return upper;
 }
 
 function isUsdStable(symbol: string): boolean {
