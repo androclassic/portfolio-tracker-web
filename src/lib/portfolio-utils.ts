@@ -1,5 +1,6 @@
 import { Transaction as Tx, TransactionHelpers } from '@/lib/types';
 import { SUPPORTED_ASSETS } from '@/lib/assets';
+import { computeNetHoldings } from '@/lib/portfolio-engine';
 
 export interface HoldingData {
   asset: string;
@@ -31,27 +32,7 @@ export const getAssetName = (symbol: string): string => {
 
 // Calculate current holdings from transactions
 export const calculateHoldings = (txs: Tx[]): Record<string, number> => {
-  const holdings: Record<string, number> = {};
-  
-  txs.forEach(tx => {
-    if (tx.type === 'Swap') {
-      // For swaps, update both assets
-      if (tx.fromAsset) {
-        holdings[tx.fromAsset] = (holdings[tx.fromAsset] || 0) - (tx.fromQuantity || 0);
-      }
-      holdings[tx.toAsset] = (holdings[tx.toAsset] || 0) + tx.toQuantity;
-    } else if (tx.type === 'Deposit') {
-      // Deposit adds to holdings
-      holdings[tx.toAsset] = (holdings[tx.toAsset] || 0) + tx.toQuantity;
-    } else if (tx.type === 'Withdrawal') {
-      // Withdrawal: remove stablecoin from holdings (fromAsset is the stablecoin)
-      if (tx.fromAsset) {
-        holdings[tx.fromAsset] = (holdings[tx.fromAsset] || 0) - (tx.fromQuantity || 0);
-      }
-    }
-  });
-  
-  return holdings;
+  return computeNetHoldings(txs);
 };
 
 // Calculate cost basis for an asset

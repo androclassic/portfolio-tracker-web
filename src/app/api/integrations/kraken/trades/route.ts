@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerAuth } from '@/lib/auth';
 import { fetchKrakenLedger, parseKrakenCsv, type KrakenCredentials } from '@/lib/integrations/kraken';
+import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 
-export async function POST(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
+export const POST = withServerAuthRateLimit(async (req: NextRequest) => {
   try {
     const { apiKey, apiSecret, startDate, endDate } = await req.json();
     if (!apiKey || !apiSecret) {
@@ -31,4 +28,4 @@ export async function POST(req: NextRequest) {
     const message = error instanceof Error ? error.message : 'Failed to fetch ledger';
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
+});

@@ -1,21 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerAuth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { calculateRomaniaTax } from '@/lib/tax/romania-v2';
 import { getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/exchange-rates';
 import type { LotStrategy } from '@/lib/tax/lot-strategy';
-import { rateLimitStandard } from '@/lib/rate-limit';
+import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 
-export async function GET(req: NextRequest) {
+export const GET = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   try {
-    // Authenticate user
-    const auth = await getServerAuth(req);
-    if (!auth?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    const rl = rateLimitStandard(auth.user.id);
-    if (rl) return rl;
-
     // Get query parameters
     const { searchParams } = new URL(req.url);
     const year = searchParams.get('year') || new Date().getFullYear().toString();
@@ -35,7 +26,7 @@ export async function GET(req: NextRequest) {
       portfolioId?: number;
     } = {
       portfolio: {
-        userId: auth.user.id,
+        userId: auth.userId,
       },
     };
 
@@ -90,5 +81,5 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+});
 

@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentPrices, getHistoricalPrices } from '@/lib/prices/service';
 import { getAssetColor, isStablecoin } from '@/lib/assets';
-import { validateApiKey } from '@/lib/api-key';
-import { rateLimitTicker } from '@/lib/rate-limit';
+import { authenticateTickerRequest } from '@/lib/ticker-auth';
+import { buildAssetPositions, valueAssetPositions } from '@/lib/portfolio-engine';
 
 /**
  * Ticker API - Returns portfolio data for external display devices (e-ink ticker, etc.)
@@ -22,27 +22,9 @@ import { rateLimitTicker } from '@/lib/rate-limit';
  */
 
 export async function GET(req: NextRequest) {
-  const limited = rateLimitTicker(req);
-  if (limited) return limited;
-  // Check API key
-  const apiKey = req.headers.get('x-api-key');
-
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: 'Unauthorized. Missing API key. Generate one from your account settings.' },
-      { status: 401 }
-    );
-  }
-
-  // Validate API key and get user ID
-  const { valid, userId } = await validateApiKey(apiKey);
-
-  if (!valid || !userId) {
-    return NextResponse.json(
-      { error: 'Unauthorized. Invalid or expired API key.' },
-      { status: 401 }
-    );
-  }
+  const authResult = await authenticateTickerRequest(req);
+  if (authResult instanceof NextResponse) return authResult;
+  const { userId } = authResult;
 
   // Get query params
   const url = new URL(req.url);
@@ -81,53 +63,9 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Calculate holdings from transactions using new schema
-  // New schema uses: type (Deposit/Withdrawal/Swap), fromAsset/fromQuantity/fromPriceUsd, toAsset/toQuantity/toPriceUsd
-  const holdingsMap: Record<string, { quantity: number; costBasis: number }> = {};
-
-  for (const tx of transactions) {
-    // Handle "to" side (receiving assets)
-    if (tx.toAsset && tx.toQuantity) {
-      const asset = tx.toAsset.toUpperCase();
-      if (!holdingsMap[asset]) {
-        holdingsMap[asset] = { quantity: 0, costBasis: 0 };
-      }
-
-      const quantity = Number(tx.toQuantity) || 0;
-      // Cost basis: use toPriceUsd * toQuantity, or for swaps use fromPriceUsd * fromQuantity
-      let costUsd = 0;
-      if (tx.toPriceUsd) {
-        costUsd = quantity * Number(tx.toPriceUsd);
-      } else if (tx.fromPriceUsd && tx.fromQuantity) {
-        // For swaps without toPriceUsd, derive from source side
-        costUsd = Number(tx.fromQuantity) * Number(tx.fromPriceUsd);
-      }
-
-      holdingsMap[asset].quantity += quantity;
-      holdingsMap[asset].costBasis += costUsd;
-    }
-
-    // Handle "from" side (sending assets) - reduces holdings
-    if (tx.fromAsset && tx.fromQuantity) {
-      const asset = tx.fromAsset.toUpperCase();
-      if (!holdingsMap[asset]) {
-        holdingsMap[asset] = { quantity: 0, costBasis: 0 };
-      }
-
-      const quantity = Number(tx.fromQuantity) || 0;
-
-      // Proportionally reduce cost basis
-      if (holdingsMap[asset].quantity > 0) {
-        const ratio = Math.min(quantity / holdingsMap[asset].quantity, 1);
-        holdingsMap[asset].costBasis -= holdingsMap[asset].costBasis * ratio;
-      }
-      holdingsMap[asset].quantity -= quantity;
-    }
-  }
-
-  // Filter out assets with zero or negative holdings
-  const assetsWithHoldings = Object.entries(holdingsMap)
-    .filter(([, data]) => data.quantity > 0.0001) // Small threshold for floating point
+  const positions = buildAssetPositions(transactions);
+  const assetsWithHoldings = Object.entries(positions)
+    .filter(([, data]) => data.quantity > 0.0001)
     .map(([asset]) => asset);
 
   if (assetsWithHoldings.length === 0) {
@@ -160,41 +98,45 @@ export async function GET(req: NextRequest) {
     prices7dAgo[hp.asset.toUpperCase()] = hp.price_usd;
   }
 
+  const { holdings: valuedHoldings, summary } = valueAssetPositions(
+    positions,
+    prices,
+    { isStablecoin },
+  );
+
   // Calculate holdings with current values and 7-day performance
-  const holdings = assetsWithHoldings.map(asset => {
-    const data = holdingsMap[asset];
-    const currentPrice = isStablecoin(asset) ? 1 : (prices[asset] || 0);
-    const currentValue = data.quantity * currentPrice;
-    const pnl = currentValue - data.costBasis;
-    const pnlPercent = data.costBasis > 0 ? (pnl / data.costBasis) * 100 : 0;
+  const holdings = valuedHoldings
+    .map((holding) => {
+      // Calculate 7-day price change
+      const price7dAgo = isStablecoin(holding.asset)
+        ? 1
+        : (prices7dAgo[holding.asset] || holding.currentPrice);
+      const change7d = holding.currentPrice - price7dAgo;
+      const change7dPercent = price7dAgo > 0 ? (change7d / price7dAgo) * 100 : 0;
+      // Value change based on current holdings
+      const value7dAgo = holding.quantity * price7dAgo;
+      const valueChange7d = holding.currentValue - value7dAgo;
 
-    // Calculate 7-day price change
-    const price7dAgo = isStablecoin(asset) ? 1 : (prices7dAgo[asset] || currentPrice);
-    const change7d = currentPrice - price7dAgo;
-    const change7dPercent = price7dAgo > 0 ? (change7d / price7dAgo) * 100 : 0;
-    // Value change based on current holdings
-    const value7dAgo = data.quantity * price7dAgo;
-    const valueChange7d = currentValue - value7dAgo;
-
-    return {
-      asset,
-      quantity: data.quantity,
-      currentPrice,
-      currentValue,
-      costBasis: data.costBasis,
-      pnl,
-      pnlPercent,
-      change7dPercent,
-      valueChange7d,
-      color: getAssetColor(asset),
-    };
-  }).sort((a, b) => b.currentValue - a.currentValue);
+      return {
+        asset: holding.asset,
+        quantity: holding.quantity,
+        currentPrice: holding.currentPrice,
+        currentValue: holding.currentValue,
+        costBasis: holding.costBasis,
+        pnl: holding.unrealizedPnl,
+        pnlPercent: holding.unrealizedPnlPercent,
+        change7dPercent,
+        valueChange7d,
+        color: getAssetColor(holding.asset),
+      };
+    })
+    .sort((a, b) => b.currentValue - a.currentValue);
 
   // Calculate totals
-  const totalValue = holdings.reduce((sum, h) => sum + h.currentValue, 0);
-  const totalCost = holdings.reduce((sum, h) => sum + h.costBasis, 0);
-  const totalPnl = totalValue - totalCost;
-  const totalPnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+  const totalValue = summary.totalValue;
+  const totalCost = summary.totalCost;
+  const totalPnl = summary.totalUnrealizedPnl;
+  const totalPnlPercent = summary.totalUnrealizedPnlPercent;
 
   // Allocation data (for pie chart)
   const allocation = holdings

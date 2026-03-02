@@ -1,14 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getServerAuth } from '@/lib/auth';
-import { rateLimitStandard } from '@/lib/rate-limit';
+import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 
-export async function GET(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const rl = rateLimitStandard(auth.userId);
-  if (rl) return rl;
-  
+export const GET = withServerAuthRateLimit(async (_req: NextRequest, auth) => {
   // Get only portfolios belonging to the authenticated user
   const rows = await prisma.portfolio.findMany({ 
     where: { userId: auth.userId },
@@ -16,14 +10,9 @@ export async function GET(req: NextRequest) {
   });
   
   return NextResponse.json(rows);
-}
+});
 
-export async function POST(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const rl2 = rateLimitStandard(auth.userId);
-  if (rl2) return rl2;
-  
+export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const { name } = await req.json();
   if (!name || typeof name !== 'string') return NextResponse.json({ error: 'Invalid name' }, { status: 400 });
   
@@ -34,14 +23,9 @@ export async function POST(req: NextRequest) {
     } 
   });
   return NextResponse.json(created, { status: 201 });
-}
+});
 
-export async function PUT(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const rl3 = rateLimitStandard(auth.userId);
-  if (rl3) return rl3;
-  
+export const PUT = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const { id, name } = await req.json();
   const pid = Number(id);
   if (!Number.isFinite(pid) || !name) return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
@@ -52,14 +36,9 @@ export async function PUT(req: NextRequest) {
   
   const updated = await prisma.portfolio.update({ where: { id: pid }, data: { name } });
   return NextResponse.json(updated);
-}
+});
 
-export async function DELETE(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const rl4 = rateLimitStandard(auth.userId);
-  if (rl4) return rl4;
-  
+export const DELETE = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const url = new URL(req.url);
   const id = Number(url.searchParams.get('id'));
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
@@ -70,6 +49,6 @@ export async function DELETE(req: NextRequest) {
   
   await prisma.portfolio.delete({ where: { id } });
   return NextResponse.json({ ok: true });
-}
+});
 
 

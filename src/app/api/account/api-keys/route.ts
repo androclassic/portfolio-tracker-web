@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getServerAuth } from '@/lib/auth';
-import { rateLimitStandard } from '@/lib/rate-limit';
+import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 import crypto from 'crypto';
 
 /**
@@ -24,14 +23,7 @@ function hashApiKey(key: string): string {
  * GET /api/account/api-keys
  * List all API keys for the authenticated user
  */
-export async function GET(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const rl = rateLimitStandard(auth.userId);
-  if (rl) return rl;
-
+export const GET = withServerAuthRateLimit(async (_req: NextRequest, auth) => {
   const apiKeys = await prisma.apiKey.findMany({
     where: {
       userId: auth.userId,
@@ -49,21 +41,14 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({ apiKeys });
-}
+});
 
 /**
  * POST /api/account/api-keys
  * Create a new API key
  * Body: { name: string }
  */
-export async function POST(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const rl2 = rateLimitStandard(auth.userId);
-  if (rl2) return rl2;
-
+export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const body = await req.json();
   const name = body?.name?.trim() || 'API Key';
 
@@ -115,20 +100,13 @@ export async function POST(req: NextRequest) {
     },
     message: 'API key created. Save this key now - it won\'t be shown again!',
   }, { status: 201 });
-}
+});
 
 /**
  * DELETE /api/account/api-keys?id=<keyId>
  * Revoke an API key
  */
-export async function DELETE(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const rl3 = rateLimitStandard(auth.userId);
-  if (rl3) return rl3;
-
+export const DELETE = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const url = new URL(req.url);
   const keyId = url.searchParams.get('id');
 
@@ -156,4 +134,4 @@ export async function DELETE(req: NextRequest) {
   });
 
   return NextResponse.json({ success: true, message: 'API key revoked' });
-}
+});

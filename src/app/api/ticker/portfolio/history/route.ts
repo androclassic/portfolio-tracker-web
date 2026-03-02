@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentPrices, getHistoricalPrices } from '@/lib/prices/service';
 import { isStablecoin } from '@/lib/assets';
-import { validateApiKey } from '@/lib/api-key';
-import { rateLimitTicker } from '@/lib/rate-limit';
+import { authenticateTickerRequest } from '@/lib/ticker-auth';
+import { applyTransactionToNetHoldings } from '@/lib/portfolio-engine';
 
 /**
  * Ticker API - Returns historical daily portfolio values for chart display
@@ -19,25 +19,11 @@ import { rateLimitTicker } from '@/lib/rate-limit';
  */
 
 export async function GET(req: NextRequest) {
-  const limited = rateLimitTicker(req);
-  if (limited) return limited;
-  const apiKey = req.headers.get('x-api-key');
-
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: 'Unauthorized. Missing API key.' },
-      { status: 401 }
-    );
-  }
-
-  const { valid, userId } = await validateApiKey(apiKey);
-
-  if (!valid || !userId) {
-    return NextResponse.json(
-      { error: 'Unauthorized. Invalid or expired API key.' },
-      { status: 401 }
-    );
-  }
+  const authResult = await authenticateTickerRequest(req, {
+    missingApiKeyMessage: 'Unauthorized. Missing API key.',
+  });
+  if (authResult instanceof NextResponse) return authResult;
+  const { userId } = authResult;
 
   const url = new URL(req.url);
   const portfolioId = Number(url.searchParams.get('portfolioId') || '1');
@@ -85,16 +71,7 @@ export async function GET(req: NextRequest) {
     // Apply all transactions up to this date
     while (txIdx < transactions.length && new Date(transactions[txIdx].datetime) <= endOfDay) {
       const tx = transactions[txIdx];
-
-      if (tx.toAsset && tx.toQuantity) {
-        const asset = tx.toAsset.toUpperCase();
-        holdings[asset] = (holdings[asset] || 0) + Number(tx.toQuantity);
-      }
-
-      if (tx.fromAsset && tx.fromQuantity) {
-        const asset = tx.fromAsset.toUpperCase();
-        holdings[asset] = (holdings[asset] || 0) - Number(tx.fromQuantity);
-      }
+      applyTransactionToNetHoldings(holdings, tx);
 
       txIdx++;
     }

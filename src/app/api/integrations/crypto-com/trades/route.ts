@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerAuth } from '@/lib/auth';
 import { fetchTrades, normalizeTrades, type CryptoComCredentials } from '@/lib/integrations/crypto-com';
+import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 
-export async function POST(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
+export const POST = withServerAuthRateLimit(async (req: NextRequest) => {
   try {
     const body = await req.json();
     const { apiKey, apiSecret, startDate, endDate, instrumentName } = body;
@@ -46,4 +41,4 @@ export async function POST(req: NextRequest) {
     console.error('[Crypto.com] API error:', message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
+});

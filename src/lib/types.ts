@@ -1,9 +1,10 @@
-// Stablecoins are treated as crypto (not fiat) but used as the base currency for swaps
-export const STABLECOINS = ['USDC', 'USDT', 'DAI', 'BUSD', 'EURC'] as const;
+import { STABLECOIN_SYMBOLS, isStablecoin as isStablecoinAsset } from '@/lib/assets';
 
-// Helper to check if an asset is a stablecoin
+// Re-export stablecoin symbols from the canonical asset catalog.
+export const STABLECOINS: readonly string[] = Object.freeze([...STABLECOIN_SYMBOLS]);
+
 export function isStablecoin(asset: string): boolean {
-  return (STABLECOINS as readonly string[]).includes(asset.toUpperCase());
+  return isStablecoinAsset(asset);
 }
 
 export type Transaction = {

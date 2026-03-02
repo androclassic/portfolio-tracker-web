@@ -1,5 +1,6 @@
 import type { NormalizedTrade } from './crypto-com';
 import { isFiatCurrency, isStablecoin } from '../assets';
+import { getUnsupportedIntegrationAssets } from './known-assets';
 
 interface CryptoComAppRow {
   'Timestamp (UTC)'?: string;
@@ -201,8 +202,7 @@ export function parseCryptoComAppCsv(rows: CryptoComAppRow[]): CsvParseResult {
     }
   }
 
-  const knownAssets = getKnownAssets();
-  const unsupportedAssets = Array.from(assetsUsed).filter(a => !knownAssets.has(a) && a !== '' && a !== 'USD');
+  const unsupportedAssets = getUnsupportedIntegrationAssets(assetsUsed, ['USD']);
 
   if (unsupportedAssets.length > 0) {
     warnings.push(`Assets not in price database (prices may be missing): ${unsupportedAssets.join(', ')}`);
@@ -223,18 +223,4 @@ function parseTimestamp(input: string): string | null {
 
 function isFiatToStablecoinDeposit(kind: string, fromAsset: string, toAsset: string): boolean {
   return kind === 'viban_purchase' && isFiatCurrency(fromAsset) && isStablecoin(toAsset);
-}
-
-function getKnownAssets(): Set<string> {
-  return new Set([
-    'BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'LINK', 'AVAX', 'MATIC', 'UNI',
-    'ATOM', 'XRP', 'DOGE', 'SHIB', 'LTC', 'BCH', 'ETC', 'FIL', 'NEAR',
-    'APT', 'ARB', 'OP', 'SUI', 'SEI', 'TIA', 'INJ', 'FET', 'RNDR',
-    'USDC', 'USDT', 'DAI', 'BUSD', 'EUR', 'USD', 'GBP', 'RON',
-    'CRO', 'EGLD', 'ALGO', 'VET', 'SAND', 'MANA', 'AXS', 'GALA',
-    'AAVE', 'MKR', 'COMP', 'SNX', 'GRT', 'ENS', 'LDO', 'RPL',
-    'BNB', 'FTM', 'ONE', 'HBAR', 'ICP', 'FLOW',
-    'XLM', 'XTZ', 'NEO', 'IOTA', 'DASH', 'ZEC',
-    'PEPE', 'WIF', 'BONK', 'FLOKI', 'EURC',
-  ]);
 }

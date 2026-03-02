@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerAuth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { encrypt, decrypt } from '@/lib/encryption';
+import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 
-export async function GET(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
+export const GET = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const exchange = req.nextUrl.searchParams.get('exchange');
 
   const where = exchange
@@ -31,12 +28,9 @@ export async function GET(req: NextRequest) {
       updatedAt: c.updatedAt,
     })),
   });
-}
+});
 
-export async function POST(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
+export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const { exchange, apiKey, apiSecret, label, portfolioId, autoSyncEnabled } = await req.json();
 
   if (!exchange || !apiKey || !apiSecret) {
@@ -78,12 +72,9 @@ export async function POST(req: NextRequest) {
     autoSyncEnabled: connection.autoSyncEnabled,
     saved: true,
   });
-}
+});
 
-export async function PATCH(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
+export const PATCH = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const { id, exchange, label, portfolioId, autoSyncEnabled } = await req.json();
   if (!id && !exchange) {
     return NextResponse.json({ error: 'id or exchange is required' }, { status: 400 });
@@ -136,12 +127,9 @@ export async function PATCH(req: NextRequest) {
     lastSyncMessage: updated.lastSyncMessage,
     updated: true,
   });
-}
+});
 
-export async function DELETE(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
+export const DELETE = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const exchange = req.nextUrl.searchParams.get('exchange');
   if (!exchange) return NextResponse.json({ error: 'exchange param required' }, { status: 400 });
 
@@ -150,7 +138,7 @@ export async function DELETE(req: NextRequest) {
   });
 
   return NextResponse.json({ deleted: true });
-}
+});
 
 function maskKey(key: string): string {
   if (key.length <= 8) return '****';
