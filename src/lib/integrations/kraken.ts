@@ -1,6 +1,10 @@
 import crypto from 'crypto';
 import type { NormalizedTrade } from './crypto-com';
 import { isFiatCurrency } from '../assets';
+import {
+  getUnsupportedIntegrationAssets,
+  STABLE_FIAT_SYMBOLS,
+} from './known-assets';
 
 // ─── Kraken CSV Parser ──────────────────────────────────────────
 
@@ -208,9 +212,9 @@ export function parseKrakenCsv(rows: KrakenCsvRow[]): KrakenParseResult {
     }
   }
 
-  const knownAssets = getKnownAssets();
-  const unsupportedAssets = Array.from(assetsUsed).filter(
-    a => a && !knownAssets.has(a) && !isStableFiat(a)
+  const unsupportedAssets = getUnsupportedIntegrationAssets(
+    assetsUsed,
+    STABLE_FIAT_SYMBOLS,
   );
 
   trades.sort((a, b) => new Date(a.datetime).getTime() - new Date(b.datetime).getTime());
@@ -233,25 +237,6 @@ function classifyKrakenPairType(fromAsset: string, toAsset: string): 'Deposit' |
   if (!fromIsFiat && toIsFiat) return 'Withdrawal';
   return 'Swap';
 }
-
-function isStableFiat(s: string): boolean {
-  return ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'RON'].includes(s);
-}
-
-function getKnownAssets(): Set<string> {
-  return new Set([
-    'BTC', 'ETH', 'SOL', 'ADA', 'DOT', 'LINK', 'AVAX', 'MATIC', 'UNI',
-    'ATOM', 'XRP', 'DOGE', 'SHIB', 'LTC', 'BCH', 'ETC', 'FIL', 'NEAR',
-    'APT', 'ARB', 'OP', 'SUI', 'SEI', 'TIA', 'INJ', 'FET', 'RNDR',
-    'USDC', 'USDT', 'DAI', 'BUSD', 'EUR', 'USD', 'GBP', 'RON',
-    'CRO', 'EGLD', 'ALGO', 'VET', 'SAND', 'MANA', 'AXS', 'GALA',
-    'AAVE', 'MKR', 'COMP', 'SNX', 'GRT', 'ENS', 'LDO', 'RPL',
-    'BNB', 'FTM', 'ONE', 'HBAR', 'ICP', 'FLOW',
-    'XLM', 'XTZ', 'NEO', 'IOTA', 'DASH', 'ZEC',
-    'PEPE', 'WIF', 'BONK', 'FLOKI', 'EURC', 'USDG', 'NIGHT',
-  ]);
-}
-
 
 // ─── Kraken REST API Client ─────────────────────────────────────
 

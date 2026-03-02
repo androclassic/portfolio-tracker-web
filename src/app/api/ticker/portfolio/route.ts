@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentPrices, getHistoricalPrices } from '@/lib/prices/service';
 import { getAssetColor, isStablecoin } from '@/lib/assets';
-import { validateApiKey } from '@/lib/api-key';
-import { rateLimitTicker } from '@/lib/rate-limit';
+import { authenticateTickerRequest } from '@/lib/ticker-auth';
 
 /**
  * Ticker API - Returns portfolio data for external display devices (e-ink ticker, etc.)
@@ -22,27 +21,9 @@ import { rateLimitTicker } from '@/lib/rate-limit';
  */
 
 export async function GET(req: NextRequest) {
-  const limited = rateLimitTicker(req);
-  if (limited) return limited;
-  // Check API key
-  const apiKey = req.headers.get('x-api-key');
-
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: 'Unauthorized. Missing API key. Generate one from your account settings.' },
-      { status: 401 }
-    );
-  }
-
-  // Validate API key and get user ID
-  const { valid, userId } = await validateApiKey(apiKey);
-
-  if (!valid || !userId) {
-    return NextResponse.json(
-      { error: 'Unauthorized. Invalid or expired API key.' },
-      { status: 401 }
-    );
-  }
+  const authResult = await authenticateTickerRequest(req);
+  if (authResult instanceof NextResponse) return authResult;
+  const { userId } = authResult;
 
   // Get query params
   const url = new URL(req.url);

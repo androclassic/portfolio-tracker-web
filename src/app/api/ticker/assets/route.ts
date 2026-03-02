@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { validateApiKey } from '@/lib/api-key';
-import { rateLimitTicker } from '@/lib/rate-limit';
 import { SUPPORTED_ASSETS } from '@/lib/assets';
+import { authenticateTickerRequest } from '@/lib/ticker-auth';
 
 /**
  * Ticker API - Returns the list of supported assets
@@ -18,26 +17,8 @@ import { SUPPORTED_ASSETS } from '@/lib/assets';
  */
 
 export async function GET(req: NextRequest) {
-  const limited = rateLimitTicker(req);
-  if (limited) return limited;
-
-  const apiKey = req.headers.get('x-api-key');
-
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: 'Unauthorized. Missing API key. Generate one from your account settings.' },
-      { status: 401 },
-    );
-  }
-
-  const { valid } = await validateApiKey(apiKey);
-
-  if (!valid) {
-    return NextResponse.json(
-      { error: 'Unauthorized. Invalid or expired API key.' },
-      { status: 401 },
-    );
-  }
+  const authResult = await authenticateTickerRequest(req);
+  if (authResult instanceof NextResponse) return authResult;
 
   const url = new URL(req.url);
   const category = url.searchParams.get('category')?.toLowerCase();

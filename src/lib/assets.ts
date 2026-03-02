@@ -36,12 +36,22 @@ export const SUPPORTED_ASSETS: SupportedAsset[] = [
   { symbol: 'CRO', name: 'Crypto.com Coin', marketCapRank: 0, category: 'altcoin' },
   { symbol: 'EGLD', name: 'MultiversX', marketCapRank: 0, category: 'altcoin' },
   // Additional stablecoins
+  { symbol: 'DAI', name: 'Dai', marketCapRank: 0, category: 'stablecoin' },
+  { symbol: 'BUSD', name: 'Binance USD', marketCapRank: 0, category: 'stablecoin' },
   { symbol: 'EURC', name: 'Euro Coin', marketCapRank: 0, category: 'stablecoin' },
   // Fiat currencies
   { symbol: 'USD', name: 'US Dollar', marketCapRank: 0, category: 'fiat' },
   { symbol: 'EUR', name: 'Euro', marketCapRank: 0, category: 'fiat' },
   { symbol: 'RON', name: 'Romanian Leu', marketCapRank: 0, category: 'fiat' },
 ];
+
+export const STABLECOIN_SYMBOLS = SUPPORTED_ASSETS
+  .filter((asset) => asset.category === 'stablecoin')
+  .map((asset) => asset.symbol.toUpperCase());
+
+export const FIAT_CURRENCY_SYMBOLS = SUPPORTED_ASSETS
+  .filter((asset) => asset.category === 'fiat')
+  .map((asset) => asset.symbol.toUpperCase());
 
 // Create lookup maps for efficient searching
 export const ASSET_SYMBOL_MAP = new Map(
@@ -133,6 +143,8 @@ export const ASSET_COLORS: Record<string, string> = {
   ALGO: '#000000',
   CRO: '#103f68',
   EGLD: '#23f7dd',
+  DAI: '#f5ac37',
+  BUSD: '#f0b90b',
   EURC: '#3b82f6',
   // Fiat currency colors
   USD: '#16a34a',
@@ -184,6 +196,8 @@ function getCoinGeckoId(symbol: string): string {
     'ALGO': '4030',
     'CRO': '3635',
     'EGLD': '6892',
+    'DAI': '9956',
+    'BUSD': '4687',
     'EURC': '20641',
   };
   
@@ -215,9 +229,9 @@ export function convertFiat(amount: number, fromCurrency: string, toCurrency: st
 // Get all supported fiat currencies
 export function getFiatCurrencies(): string[] {
   // Only return EUR and USD, exclude RON
-  return SUPPORTED_ASSETS
-    .filter(asset => asset.category === 'fiat' && (asset.symbol === 'EUR' || asset.symbol === 'USD'))
-    .map(asset => asset.symbol);
+  return FIAT_CURRENCY_SYMBOLS.filter(
+    (symbol) => symbol === 'EUR' || symbol === 'USD',
+  );
 }
 
 // Check if an asset is fiat

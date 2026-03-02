@@ -2,28 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { parse as parseCsv } from 'csv-parse/sync';
 import { getServerAuth } from '@/lib/auth';
 import { isKrakenCsv, parseKrakenCsv } from '@/lib/integrations/kraken';
+import { readCsvTextFromRequest } from '@/lib/integrations/csv-request';
 
 export async function POST(req: NextRequest) {
   const auth = await getServerAuth(req);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   try {
-    const ct = req.headers.get('content-type') || '';
-    let csvText = '';
+    const { csvText, errorResponse } = await readCsvTextFromRequest(req);
+    if (errorResponse) return errorResponse;
 
-    if (ct.includes('multipart/form-data')) {
-      const fd = await req.formData();
-      const file = fd.get('file') as File | null;
-      if (!file) return NextResponse.json({ error: 'File is required' }, { status: 400 });
-      csvText = await file.text();
-    } else {
-      const body = await req.json();
-      csvText = body.csvText || '';
-    }
-
-    if (!csvText.trim()) return NextResponse.json({ error: 'Empty CSV' }, { status: 400 });
-
-    const rows = parseCsv(csvText, {
+    const rows = parseCsv(csvText!, {
       columns: true, skip_empty_lines: true, bom: true, relax_quotes: true, relax_column_count: true,
     }) as Record<string, string>[];
 
