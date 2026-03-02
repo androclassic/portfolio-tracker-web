@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { warmHistoricalPricesCache } from '@/lib/prices/warm-cache';
-import { getServerAuth } from '@/lib/auth';
-import { rateLimitStandard } from '@/lib/rate-limit';
+import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 
 /**
  * API route to warm the historical prices cache
@@ -13,14 +12,8 @@ import { rateLimitStandard } from '@/lib/rate-limit';
  * - GET /api/prices/warm-cache - Warm cache in background (returns immediately)
  * - POST /api/prices/warm-cache - Warm cache synchronously (waits for completion)
  */
-export async function GET(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const rl = rateLimitStandard(auth.userId);
-  if (rl) return rl;
-
+export const GET = withServerAuthRateLimit(async (req: NextRequest) => {
+  void req;
   try {
     warmHistoricalPricesCache().catch(error => {
       console.error('[Cache Warm API] Background warming failed:', error);
@@ -37,20 +30,14 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+});
 
 /**
  * POST endpoint to warm cache synchronously (waits for completion)
  * Useful for testing or when you want to wait for results
  */
-export async function POST(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const rl2 = rateLimitStandard(auth.userId);
-  if (rl2) return rl2;
-
+export const POST = withServerAuthRateLimit(async (req: NextRequest) => {
+  void req;
   try {
     const result = await warmHistoricalPricesCache();
 
@@ -66,4 +53,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+});

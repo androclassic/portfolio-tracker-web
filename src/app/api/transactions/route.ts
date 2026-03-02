@@ -3,8 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import { TtlCache } from '@/lib/cache';
 import type { Transaction } from '@prisma/client';
-import { getServerAuth } from '@/lib/auth';
-import { rateLimitStandard } from '@/lib/rate-limit';
+import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 
 const TxSchema = z.object({
   type: z.enum(['Deposit','Withdrawal','Swap']),
@@ -41,14 +40,10 @@ const TxBatchSchema = z.object({
 
 const txCache = new TtlCache<string, Transaction[]>(15_000); // 15s cache
 
-export async function GET(req: NextRequest) {
+export const GET = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const url = new URL(req.url);
   const param = url.searchParams.get('portfolioId');
   const portfolioId = param === null ? 'all' : Number(param);
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const rl = rateLimitStandard(auth.userId);
-  if (rl) return rl;
   const key = `transactions:list:${String(portfolioId)}`;
   const cached = txCache.get(key);
   if (cached) {
@@ -59,13 +54,9 @@ export async function GET(req: NextRequest) {
   const rows = await prisma.transaction.findMany({ where, orderBy: { datetime: 'asc' } });
   txCache.set(key, rows);
   return NextResponse.json(rows, { headers: { 'Cache-Control': 'private, max-age=5, stale-while-revalidate=15' } });
-}
+});
 
-export async function POST(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const rl = rateLimitStandard(auth.userId);
-  if (rl) return rl;
+export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const json = await req.json();
 
   // Support both single and batch creation (used for paired stablecoin transactions).
@@ -121,13 +112,9 @@ export async function POST(req: NextRequest) {
   });
   
   return NextResponse.json(batchParsed.success ? created : created[0], { status: 201 });
-}
+});
 
-export async function PUT(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const rl = rateLimitStandard(auth.userId);
-  if (rl) return rl;
+export const PUT = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const json = await req.json();
   const id = Number(json?.id);
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
@@ -146,19 +133,15 @@ export async function PUT(req: NextRequest) {
   });
   try { txCache.clear(); } catch {}
   return NextResponse.json(updated);
-}
+});
 
-export async function DELETE(req: NextRequest) {
+export const DELETE = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const url = new URL(req.url);
   const id = Number(url.searchParams.get('id'));
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const rl = rateLimitStandard(auth.userId);
-  if (rl) return rl;
   const existing = await prisma.transaction.findFirst({ where: { id, portfolio: { userId: auth.userId } } });
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   await prisma.transaction.delete({ where: { id } });
   try { txCache.clear(); } catch {}
   return NextResponse.json({ ok: true });
-}
+});

@@ -4,8 +4,7 @@ import { parse as parseCsv } from 'csv-parse/sync';
 import { parse as parseDateFns, isValid as isValidDate } from 'date-fns';
 import type { Prisma } from '@prisma/client';
 import { validateAssetList, isFiatCurrency, isStablecoin } from '@/lib/assets';
-import { getServerAuth } from '@/lib/auth';
-import { rateLimitStandard } from '@/lib/rate-limit';
+import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 import { getHistoricalExchangeRateSyncStrict } from '@/lib/exchange-rates';
 import { getHistoricalPrices } from '@/lib/prices/service';
 
@@ -68,13 +67,7 @@ function parseDateFlexible(input: unknown): Date | null {
   return null;
 }
 
-export async function POST(req: NextRequest) {
-  // Authenticate user
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const rl = rateLimitStandard(auth.userId);
-  if (rl) return rl;
-
+export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const url = new URL(req.url);
   const portfolioId = Number(url.searchParams.get('portfolioId') || '1');
   
@@ -452,4 +445,4 @@ export async function POST(req: NextRequest) {
   }
   
   return NextResponse.json(response);
-}
+});

@@ -6,6 +6,7 @@ import { jsonFetcher } from '@/lib/swr-fetcher';
 import { usePriceData } from '@/hooks/usePriceData';
 import { usePnLCalculation } from '@/hooks/usePnLCalculation';
 import { isStablecoin, getFiatCurrencies, getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/assets';
+import { computeNetHoldings } from '@/lib/portfolio-engine';
 import type { Transaction as Tx } from '@/lib/types';
 
 interface DashboardData {
@@ -156,36 +157,10 @@ export default function DashboardDataProvider({ children }: { children: ReactNod
     // This prevents the dashboard from getting stuck in a loading state
     // Computation is fast (5ms for 793 transactions), so no need to defer
     
-    // Compute holdings
-    const holdings: Record<string, number> = {};
-      if (txs) {
-        for (const t of txs) {
-          if (t.type === 'Swap') {
-            if (t.toAsset) {
-              const toA = t.toAsset.toUpperCase();
-              if (toA !== 'USD') {
-                holdings[toA] = (holdings[toA] || 0) + Math.abs(t.toQuantity);
-              }
-            }
-            if (t.fromAsset) {
-              const fromA = t.fromAsset.toUpperCase();
-              if (fromA !== 'USD') {
-                holdings[fromA] = (holdings[fromA] || 0) - Math.abs(t.fromQuantity || 0);
-              }
-            }
-          } else if (t.type === 'Deposit') {
-            const a = t.toAsset.toUpperCase();
-            if (a !== 'USD') {
-              holdings[a] = (holdings[a] || 0) + Math.abs(t.toQuantity);
-            }
-          } else if (t.type === 'Withdrawal') {
-            const a = t.fromAsset?.toUpperCase();
-            if (a && a !== 'USD') {
-              holdings[a] = (holdings[a] || 0) - Math.abs(t.fromQuantity || 0);
-            }
-          }
-        }
-      }
+    // Compute holdings using shared portfolio engine and drop USD from dashboard charts.
+    const holdings = Object.fromEntries(
+      Object.entries(computeNetHoldings(txs || [])).filter(([asset]) => asset !== 'USD')
+    );
 
     // Compute daily positions
     const dailyPos: Array<{ date: string; asset: string; position: number }> = [];

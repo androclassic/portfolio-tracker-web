@@ -1,18 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@prisma/client';
-import { getServerAuth } from '@/lib/auth';
-import { rateLimitStandard } from '@/lib/rate-limit';
+import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 
-export async function GET(req: NextRequest) {
-  // Authenticate user
-  const auth = await getServerAuth(req);
-  if (!auth) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const rl = rateLimitStandard(auth.userId);
-  if (rl) return rl;
-
+export const GET = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const url = new URL(req.url);
   const portfolioId = Number(url.searchParams.get('portfolioId') || '1');
 
@@ -202,4 +193,4 @@ export async function GET(req: NextRequest) {
     cumulativeData,
     rawData: moneyFlowData,
   });
-}
+});
