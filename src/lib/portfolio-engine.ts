@@ -4,12 +4,19 @@ const MIN_QUANTITY = 0.0001;
 
 export interface PortfolioTransactionLike {
   type: string;
+  datetime?: string | Date;
   fromAsset?: string | null;
   fromQuantity?: number | null;
   fromPriceUsd?: number | null;
   toAsset?: string | null;
   toQuantity?: number | null;
   toPriceUsd?: number | null;
+}
+
+export interface HistoricalPricePointLike {
+  date: string;
+  asset: string;
+  price_usd: number;
 }
 
 export interface AssetPosition {
@@ -273,4 +280,105 @@ export function valueAssetPositions(
   holdings.sort((a, b) => b.currentValue - a.currentValue);
 
   return { holdings, summary };
+}
+
+interface AssetPnlEvent {
+  type: 'Buy' | 'Sell';
+  units: number;
+  unitPrice: number;
+}
+
+export function buildAssetSwapPnlSeries(
+  transactions: PortfolioTransactionLike[],
+  historicalPrices: HistoricalPricePointLike[],
+  assetSymbol: string,
+): { dates: string[]; realized: number[]; unrealized: number[] } {
+  const asset = assetSymbol.toUpperCase();
+  if (!asset || isStablecoinAsset(asset)) {
+    return { dates: [], realized: [], unrealized: [] };
+  }
+
+  const dates = Array.from(new Set(historicalPrices.map((p) => p.date))).sort();
+  if (dates.length === 0) {
+    return { dates: [], realized: [], unrealized: [] };
+  }
+
+  const priceMap = new Map<string, number>();
+  for (const p of historicalPrices) {
+    priceMap.set(`${p.date}|${p.asset.toUpperCase()}`, p.price_usd);
+  }
+
+  const byDate = new Map<string, AssetPnlEvent[]>();
+  for (const tx of transactions) {
+    if (tx.type !== 'Swap') continue;
+
+    const txDate = getTransactionDateKey(tx);
+    if (!txDate) continue;
+
+    const existing = byDate.get(txDate) || [];
+    const toAsset = normalizeAsset(tx.toAsset);
+    const fromAsset = normalizeAsset(tx.fromAsset);
+
+    if (toAsset === asset) {
+      const units = toAbsNumber(tx.toQuantity);
+      if (units > 0) {
+        const unitPrice =
+          toNonNegativeNumber(tx.toPriceUsd) || (priceMap.get(`${txDate}|${asset}`) || 0);
+        existing.push({ type: 'Buy', units, unitPrice });
+      }
+    } else if (fromAsset === asset) {
+      const units = toAbsNumber(tx.fromQuantity);
+      if (units > 0) {
+        const unitPrice =
+          toNonNegativeNumber(tx.fromPriceUsd) || (priceMap.get(`${txDate}|${asset}`) || 0);
+        existing.push({ type: 'Sell', units, unitPrice });
+      }
+    }
+
+    if (existing.length > 0) {
+      byDate.set(txDate, existing);
+    }
+  }
+
+  const realized: number[] = [];
+  const unrealized: number[] = [];
+  let heldUnits = 0;
+  let heldCost = 0;
+  let realizedCum = 0;
+
+  for (const d of dates) {
+    const todays = byDate.get(d) || [];
+    for (const event of todays) {
+      if (event.type === 'Buy') {
+        heldUnits += event.units;
+        heldCost += event.units * event.unitPrice;
+      } else {
+        const qty = Math.min(event.units, heldUnits);
+        const avgCost = heldUnits > 0 ? heldCost / heldUnits : 0;
+        const profit = (event.unitPrice - avgCost) * qty;
+        realizedCum += profit;
+        heldUnits -= qty;
+        heldCost -= avgCost * qty;
+      }
+    }
+
+    const currentPrice = priceMap.get(`${d}|${asset}`) || 0;
+    const avgCost = heldUnits > 0 ? heldCost / heldUnits : 0;
+    const unrealizedNow = (currentPrice - avgCost) * heldUnits;
+
+    realized.push(realizedCum);
+    unrealized.push(unrealizedNow);
+  }
+
+  return { dates, realized, unrealized };
+}
+
+function getTransactionDateKey(tx: PortfolioTransactionLike): string | null {
+  if (!tx.datetime) return null;
+  const dt =
+    tx.datetime instanceof Date
+      ? tx.datetime
+      : new Date(String(tx.datetime));
+  if (!Number.isFinite(dt.getTime())) return null;
+  return dt.toISOString().slice(0, 10);
 }

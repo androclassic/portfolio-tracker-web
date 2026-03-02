@@ -1,17 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getHistoricalPrices } from '@/lib/prices/service';
-import { rateLimitStandard } from '@/lib/rate-limit';
+import { withIpRateLimit } from '@/lib/api/route-auth';
 
 /**
  * API endpoint for historical prices
  * Uses multi-tier caching: in-memory -> database -> external API
  * Returns data as fast as possible using cached data
  */
-export async function GET(req: NextRequest) {
-  // Use IP-based rate limiting for this unauthenticated endpoint
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'unknown';
-  const rl = rateLimitStandard(ip);
-  if (rl) return rl;
+export const GET = withIpRateLimit(async (req: NextRequest) => {
   const startTime = performance.now();
   const url = new URL(req.url);
   const symbols = (url.searchParams.get('symbols')||'').split(',').map(s=>s.trim().toUpperCase()).filter(Boolean);
@@ -50,4 +46,4 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+});

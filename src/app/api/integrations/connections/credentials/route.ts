@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerAuth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { decrypt } from '@/lib/encryption';
+import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 
-export async function GET(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
+export const GET = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const exchange = req.nextUrl.searchParams.get('exchange');
   if (!exchange) return NextResponse.json({ error: 'exchange param required' }, { status: 400 });
 
@@ -30,4 +27,4 @@ export async function GET(req: NextRequest) {
     lastSyncStatus: connection.lastSyncStatus,
     lastSyncMessage: connection.lastSyncMessage,
   });
-}
+});

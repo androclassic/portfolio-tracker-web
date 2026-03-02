@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentPrices } from '@/lib/prices/service';
-import { rateLimitStandard } from '@/lib/rate-limit';
+import { withIpRateLimit } from '@/lib/api/route-auth';
 
-export async function GET(req: NextRequest){
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'unknown';
-  const rl = rateLimitStandard(ip);
-  if (rl) return rl;
+export const GET = withIpRateLimit(async (req: NextRequest) => {
   const url = new URL(req.url);
   const symbols = (url.searchParams.get('symbols')||'')
     .split(',')
@@ -18,4 +15,4 @@ export async function GET(req: NextRequest){
     { prices },
     { headers: { 'Cache-Control': 'public, max-age=30, s-maxage=30, stale-while-revalidate=60' } }
   );
-}
+});

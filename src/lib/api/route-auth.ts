@@ -38,3 +38,31 @@ export function withServerAuthRateLimit(
     return handler(req, auth);
   });
 }
+
+type IpRateLimitedRouteHandler = (
+  req: NextRequest,
+  ip: string,
+) => Promise<Response> | Response;
+
+function getRequestIp(req: NextRequest): string {
+  return (
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
+  );
+}
+
+/**
+ * Wrap an API route handler with IP-based standard rate limiting.
+ * Useful for public (unauthenticated) endpoints.
+ */
+export function withIpRateLimit(
+  handler: IpRateLimitedRouteHandler,
+) {
+  return async function ipRateLimitedHandler(req: NextRequest): Promise<Response> {
+    const ip = getRequestIp(req);
+    const limited = rateLimitStandard(ip);
+    if (limited) return limited;
+    return handler(req, ip);
+  };
+}

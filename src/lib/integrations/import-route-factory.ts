@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerAuth } from '@/lib/auth';
 import type { NormalizedTrade } from '@/lib/integrations/crypto-com';
 import {
   importNormalizedTrades,
   type ImportSource,
 } from '@/lib/integrations/import-normalized-trades';
+import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 
 interface CreateImportRouteOptions {
   exchangeName: string;
@@ -21,12 +21,7 @@ export function createImportRoute({
   exchangeName,
   defaultSource,
 }: CreateImportRouteOptions) {
-  return async function POST(req: NextRequest) {
-    const auth = await getServerAuth(req);
-    if (!auth) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
+  return withServerAuthRateLimit(async function POST(req: NextRequest, auth) {
     try {
       const body = (await req.json()) as ImportBody;
       const trades = body?.trades;
@@ -58,5 +53,5 @@ export function createImportRoute({
       const message = error instanceof Error ? error.message : 'Failed to import trades';
       return NextResponse.json({ error: message }, { status: 500 });
     }
-  };
+  });
 }

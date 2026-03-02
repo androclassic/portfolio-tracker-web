@@ -1,12 +1,14 @@
 {
   "name": "portfolio-tracker-web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:migrate": "prisma migrate dev --name init",
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
@@ -50,6 +52,7 @@
     "eslint": "^9",
     "eslint-config-next": "15.4.6",
     "tsx": "^4.20.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.18"
   }
 }

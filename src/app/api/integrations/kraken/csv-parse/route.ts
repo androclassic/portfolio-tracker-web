@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { parse as parseCsv } from 'csv-parse/sync';
-import { getServerAuth } from '@/lib/auth';
 import { isKrakenCsv, parseKrakenCsv } from '@/lib/integrations/kraken';
 import { readCsvTextFromRequest } from '@/lib/integrations/csv-request';
+import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 
-export async function POST(req: NextRequest) {
-  const auth = await getServerAuth(req);
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
+export const POST = withServerAuthRateLimit(async (req: NextRequest) => {
   try {
     const { csvText, errorResponse } = await readCsvTextFromRequest(req);
     if (errorResponse) return errorResponse;
@@ -39,4 +36,4 @@ export async function POST(req: NextRequest) {
     const message = error instanceof Error ? error.message : 'Failed to parse CSV';
     return NextResponse.json({ error: message }, { status: 500 });
   }
-}
+});
