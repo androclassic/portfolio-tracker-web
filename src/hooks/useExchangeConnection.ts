@@ -4,14 +4,13 @@ import { useState, useEffect, useCallback } from 'react';
 
 interface SavedConnection {
   found: boolean;
-  apiKey?: string;
-  apiSecret?: string;
+  apiKeyPreview?: string;
+  hasStoredSecret?: boolean;
   label?: string;
 }
 
 export function useExchangeConnection(exchange: string) {
-  const [savedKey, setSavedKey] = useState('');
-  const [savedSecret, setSavedSecret] = useState('');
+  const [savedKeyPreview, setSavedKeyPreview] = useState('');
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasSaved, setHasSaved] = useState(false);
 
@@ -19,9 +18,8 @@ export function useExchangeConnection(exchange: string) {
     fetch(`/api/integrations/connections/credentials?exchange=${exchange}`)
       .then(r => r.json())
       .then((data: SavedConnection) => {
-        if (data.found && data.apiKey && data.apiSecret) {
-          setSavedKey(data.apiKey);
-          setSavedSecret(data.apiSecret);
+        if (data.found) {
+          setSavedKeyPreview(data.apiKeyPreview || '****');
           setHasSaved(true);
         }
         setIsLoaded(true);
@@ -30,11 +28,16 @@ export function useExchangeConnection(exchange: string) {
   }, [exchange]);
 
   const save = useCallback(async (apiKey: string, apiSecret: string) => {
-    await fetch('/api/integrations/connections', {
+    const response = await fetch('/api/integrations/connections', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ exchange, apiKey, apiSecret }),
     });
+    const payload = await response.json().catch(() => ({} as { apiKeyPreview?: string }));
+    if (!response.ok) {
+      throw new Error(payload?.error || 'Failed to save credentials');
+    }
+    setSavedKeyPreview(payload?.apiKeyPreview || maskKey(apiKey));
     setHasSaved(true);
   }, [exchange]);
 
@@ -42,10 +45,15 @@ export function useExchangeConnection(exchange: string) {
     await fetch(`/api/integrations/connections?exchange=${exchange}`, {
       method: 'DELETE',
     });
-    setSavedKey('');
-    setSavedSecret('');
+    setSavedKeyPreview('');
     setHasSaved(false);
   }, [exchange]);
 
-  return { savedKey, savedSecret, isLoaded, hasSaved, save, remove };
+  return { savedKeyPreview, isLoaded, hasSaved, save, remove };
+}
+
+function maskKey(key: string): string {
+  const trimmed = key.trim();
+  if (trimmed.length <= 8) return '****';
+  return `${trimmed.slice(0, 4)}****${trimmed.slice(-4)}`;
 }

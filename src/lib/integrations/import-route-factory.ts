@@ -5,16 +5,11 @@ import {
   type ImportSource,
 } from '@/lib/integrations/import-normalized-trades';
 import { withServerAuthRateLimit } from '@/lib/api/route-auth';
+import { importRequestBodySchema } from '@/lib/integrations/request-schemas';
 
 interface CreateImportRouteOptions {
   exchangeName: string;
   defaultSource: ImportSource;
-}
-
-interface ImportBody {
-  trades?: NormalizedTrade[];
-  portfolioId?: number;
-  importSource?: ImportSource;
 }
 
 export function createImportRoute({
@@ -23,24 +18,22 @@ export function createImportRoute({
 }: CreateImportRouteOptions) {
   return withServerAuthRateLimit(async function POST(req: NextRequest, auth) {
     try {
-      const body = (await req.json()) as ImportBody;
-      const trades = body?.trades;
-      const portfolioId = Number(body?.portfolioId);
-
-      if (!Array.isArray(trades) || trades.length === 0) {
-        return NextResponse.json({ error: 'No trades to import' }, { status: 400 });
+      const parsed = importRequestBodySchema.safeParse(await req.json().catch(() => null));
+      if (!parsed.success) {
+        return NextResponse.json(
+          { error: 'Invalid request body', details: parsed.error.flatten().fieldErrors },
+          { status: 400 },
+        );
       }
+      const { trades, portfolioId, importSource } = parsed.data;
+      const normalizedTrades = trades as NormalizedTrade[];
 
-      if (!Number.isFinite(portfolioId) || portfolioId <= 0) {
-        return NextResponse.json({ error: 'Portfolio ID is required' }, { status: 400 });
-      }
-
-      const source = body?.importSource || defaultSource;
+      const source = importSource || defaultSource;
       const result = await importNormalizedTrades({
         userId: auth.userId,
         portfolioId,
         source,
-        trades,
+        trades: normalizedTrades,
       });
 
       return NextResponse.json({

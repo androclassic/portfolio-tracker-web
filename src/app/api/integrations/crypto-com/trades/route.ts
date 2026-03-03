@@ -1,20 +1,59 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchTrades, normalizeTrades, type CryptoComCredentials } from '@/lib/integrations/crypto-com';
 import { withServerAuthRateLimit } from '@/lib/api/route-auth';
+import { prisma } from '@/lib/prisma';
+import { decrypt } from '@/lib/encryption';
+import { credentialsFetchBodySchema } from '@/lib/integrations/request-schemas';
 
-export const POST = withServerAuthRateLimit(async (req: NextRequest) => {
+export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   try {
-    const body = await req.json();
-    const { apiKey, apiSecret, startDate, endDate, instrumentName } = body;
+    const parsed = credentialsFetchBodySchema.safeParse(await req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Invalid request body', details: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+    const { startDate, endDate, instrumentName } = parsed.data;
+    let apiKey = parsed.data.apiKey?.trim();
+    let apiSecret = parsed.data.apiSecret?.trim();
 
     if (!apiKey || !apiSecret) {
-      return NextResponse.json({ error: 'API Key and Secret are required' }, { status: 400 });
+      const connection = await prisma.exchangeConnection.findUnique({
+        where: {
+          userId_exchange: {
+            userId: auth.userId,
+            exchange: 'crypto-com',
+          },
+        },
+        select: { apiKey: true, apiSecret: true },
+      });
+      if (!connection) {
+        return NextResponse.json(
+          { error: 'No saved Crypto.com credentials found. Provide API key and secret first.' },
+          { status: 400 },
+        );
+      }
+      apiKey = decrypt(connection.apiKey);
+      apiSecret = decrypt(connection.apiSecret);
+    }
+    if (!apiKey || !apiSecret) {
+      return NextResponse.json({ error: 'API credentials are required' }, { status: 400 });
     }
 
     const creds: CryptoComCredentials = { apiKey, apiSecret };
 
-    const start = startDate ? new Date(startDate) : undefined;
-    const end = endDate ? new Date(endDate) : undefined;
+    const start = parseDateInput(startDate);
+    const end = parseDateInput(endDate);
+    if (startDate && !start) {
+      return NextResponse.json({ error: 'Invalid startDate format' }, { status: 400 });
+    }
+    if (endDate && !end) {
+      return NextResponse.json({ error: 'Invalid endDate format' }, { status: 400 });
+    }
+    if (start && end && start > end) {
+      return NextResponse.json({ error: 'startDate cannot be after endDate' }, { status: 400 });
+    }
 
     const rawTrades = await fetchTrades(creds, start, end, instrumentName || undefined);
 
@@ -42,3 +81,10 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest) => {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 });
+
+function parseDateInput(value?: string): Date | undefined {
+  if (!value || !value.trim()) return undefined;
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return undefined;
+  return parsed;
+}

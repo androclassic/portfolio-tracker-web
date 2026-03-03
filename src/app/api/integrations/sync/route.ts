@@ -5,6 +5,7 @@ import { fetchTrades, normalizeTrades, type NormalizedTrade } from '@/lib/integr
 import { fetchKrakenLedger, parseKrakenCsv } from '@/lib/integrations/kraken';
 import { importNormalizedTrades, type ImportSource } from '@/lib/integrations/import-normalized-trades';
 import { withServerAuthRateLimit } from '@/lib/api/route-auth';
+import { syncRequestBodySchema } from '@/lib/integrations/request-schemas';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AUTO_SYNC_INTERVAL_MS = DAY_MS;
@@ -13,11 +14,16 @@ type SyncExchange = 'crypto-com' | 'kraken' | 'all';
 
 export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   try {
-    const body = await req.json().catch(() => ({}));
-    const exchangeRaw = String(body?.exchange || 'all').toLowerCase();
-    const exchange: SyncExchange = exchangeRaw === 'crypto-com' || exchangeRaw === 'kraken' ? exchangeRaw : 'all';
-    const auto = Boolean(body?.auto);
-    const days = auto ? 7 : clamp(Number(body?.days || 7), 1, 30);
+    const parsed = syncRequestBodySchema.safeParse(await req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Invalid request body', details: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+    const exchange = parsed.data.exchange as SyncExchange;
+    const auto = parsed.data.auto;
+    const days = auto ? 7 : (parsed.data.days ?? 7);
     const now = new Date();
     const start = new Date(now.getTime() - days * DAY_MS);
     const dueThreshold = new Date(now.getTime() - AUTO_SYNC_INTERVAL_MS);
@@ -207,8 +213,3 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 });
-
-function clamp(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(max, Math.max(min, Math.trunc(value)));
-}

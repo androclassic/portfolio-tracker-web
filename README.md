@@ -79,13 +79,13 @@ The project uses GitHub Actions for continuous integration and deployment.
 
 ### CI (automatic)
 
-Every push to `main` and every pull request runs **lint + build** checks. No setup required — this works out of the box.
+Every push to `main` and every pull request runs **lint + test + build** checks. No setup required — this works out of the box.
 
 ### CD (deploy on tag or branch push)
 
 Pushing a version tag or to the `production` branch triggers a full deployment pipeline:
 
-1. Lint + build check
+1. Lint + test + build check
 2. Docker image build and push to [GitHub Container Registry](https://ghcr.io)
 3. SSH into your production server to pull the new image and restart
 

@@ -2,9 +2,25 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { encrypt, decrypt } from '@/lib/encryption';
 import { withServerAuthRateLimit } from '@/lib/api/route-auth';
+import {
+  connectionCreateBodySchema,
+  connectionUpdateBodySchema,
+  exchangeSchema,
+} from '@/lib/integrations/request-schemas';
 
 export const GET = withServerAuthRateLimit(async (req: NextRequest, auth) => {
-  const exchange = req.nextUrl.searchParams.get('exchange');
+  const exchangeParam = req.nextUrl.searchParams.get('exchange');
+  const exchangeResult = exchangeParam
+    ? exchangeSchema.safeParse(exchangeParam.toLowerCase())
+    : null;
+
+  if (exchangeResult && !exchangeResult.success) {
+    return NextResponse.json(
+      { error: 'Invalid exchange parameter' },
+      { status: 400 },
+    );
+  }
+  const exchange = exchangeResult?.success ? exchangeResult.data : null;
 
   const where = exchange
     ? { userId: auth.userId, exchange }
@@ -31,11 +47,14 @@ export const GET = withServerAuthRateLimit(async (req: NextRequest, auth) => {
 });
 
 export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
-  const { exchange, apiKey, apiSecret, label, portfolioId, autoSyncEnabled } = await req.json();
-
-  if (!exchange || !apiKey || !apiSecret) {
-    return NextResponse.json({ error: 'exchange, apiKey, and apiSecret are required' }, { status: 400 });
+  const parsed = connectionCreateBodySchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Invalid request body', details: parsed.error.flatten().fieldErrors },
+      { status: 400 },
+    );
   }
+  const { exchange, apiKey, apiSecret, label, portfolioId, autoSyncEnabled } = parsed.data;
 
   const normalizedPortfolioId = await parseOwnedPortfolioId(portfolioId, auth.userId);
   if (portfolioId !== undefined && normalizedPortfolioId === 'INVALID') {
@@ -48,7 +67,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
       exchange,
       apiKey: encrypt(apiKey),
       apiSecret: encrypt(apiSecret),
-      label: label || null,
+      label: label?.trim() || null,
       userId: auth.userId,
       portfolioId: normalizedPortfolioId === 'INVALID' ? null : normalizedPortfolioId ?? null,
       autoSyncEnabled: Boolean(autoSyncEnabled),
@@ -56,7 +75,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
     update: {
       apiKey: encrypt(apiKey),
       apiSecret: encrypt(apiSecret),
-      label: label || null,
+      label: label?.trim() || null,
       ...(portfolioId !== undefined
         ? { portfolioId: normalizedPortfolioId === 'INVALID' ? null : normalizedPortfolioId ?? null }
         : {}),
@@ -75,10 +94,14 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
 });
 
 export const PATCH = withServerAuthRateLimit(async (req: NextRequest, auth) => {
-  const { id, exchange, label, portfolioId, autoSyncEnabled } = await req.json();
-  if (!id && !exchange) {
-    return NextResponse.json({ error: 'id or exchange is required' }, { status: 400 });
+  const parsed = connectionUpdateBodySchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Invalid request body', details: parsed.error.flatten().fieldErrors },
+      { status: 400 },
+    );
   }
+  const { id, exchange, label, portfolioId, autoSyncEnabled } = parsed.data;
 
   const connection = await prisma.exchangeConnection.findFirst({
     where: {
@@ -102,7 +125,7 @@ export const PATCH = withServerAuthRateLimit(async (req: NextRequest, auth) => {
     autoSyncEnabled?: boolean;
   } = {};
 
-  if (label !== undefined) data.label = label || null;
+  if (label !== undefined) data.label = label?.trim() || null;
   if (portfolioId !== undefined) data.portfolioId = normalizedPortfolioId === 'INVALID' ? null : normalizedPortfolioId ?? null;
   if (autoSyncEnabled !== undefined) data.autoSyncEnabled = Boolean(autoSyncEnabled);
 
@@ -130,8 +153,12 @@ export const PATCH = withServerAuthRateLimit(async (req: NextRequest, auth) => {
 });
 
 export const DELETE = withServerAuthRateLimit(async (req: NextRequest, auth) => {
-  const exchange = req.nextUrl.searchParams.get('exchange');
-  if (!exchange) return NextResponse.json({ error: 'exchange param required' }, { status: 400 });
+  const exchangeParam = req.nextUrl.searchParams.get('exchange');
+  const parsedExchange = exchangeSchema.safeParse((exchangeParam || '').toLowerCase());
+  if (!parsedExchange.success) {
+    return NextResponse.json({ error: 'exchange param required' }, { status: 400 });
+  }
+  const exchange = parsedExchange.data;
 
   await prisma.exchangeConnection.deleteMany({
     where: { userId: auth.userId, exchange },
