@@ -19,12 +19,10 @@ export default function CryptoComIntegrationPage() {
   const [apiSecret, setApiSecret] = useState('');
 
   useEffect(() => {
-    if (conn.isLoaded && conn.savedKey) {
-      setApiKey(conn.savedKey);
-      setApiSecret(conn.savedSecret);
+    if (conn.isLoaded && conn.hasSaved) {
       setMode('api');
     }
-  }, [conn.isLoaded, conn.savedKey, conn.savedSecret]);
+  }, [conn.hasSaved, conn.isLoaded]);
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-01-01`;
@@ -44,16 +42,29 @@ export default function CryptoComIntegrationPage() {
 
   async function handleFetchTrades(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
     setError('');
 
     try {
+      const key = apiKey.trim();
+      const secret = apiSecret.trim();
+      const hasKey = key.length > 0;
+      const hasSecret = secret.length > 0;
+      const useSavedCredentials = !hasKey && !hasSecret;
+      const canSubmit = (hasKey && hasSecret) || (conn.hasSaved && useSavedCredentials);
+
+      if (hasKey !== hasSecret) {
+        throw new Error('Provide both API key and secret, or leave both empty to use saved credentials.');
+      }
+      if (!canSubmit) {
+        throw new Error('Enter API key and secret to connect your account.');
+      }
+      setLoading(true);
+
       const res = await fetch('/api/integrations/crypto-com/trades', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          apiKey,
-          apiSecret,
+          ...(useSavedCredentials ? {} : { apiKey: key, apiSecret: secret }),
           startDate: startDate || undefined,
           endDate: endDate || undefined,
         }),
@@ -62,7 +73,9 @@ export default function CryptoComIntegrationPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch trades');
 
-      await conn.save(apiKey, apiSecret);
+      if (!useSavedCredentials) {
+        await conn.save(key, secret);
+      }
 
       setTrades(data.trades);
       setSelectedTrades(new Set(data.trades.map((t: NormalizedTrade) => t.externalId)));
@@ -280,9 +293,14 @@ export default function CryptoComIntegrationPage() {
                   background: 'var(--success-50)', border: '1px solid color-mix(in oklab, var(--success) 30%, transparent)',
                   borderRadius: 8, padding: '10px 14px',
                 }}>
-                  <span style={{ color: 'var(--success)', fontWeight: 600, fontSize: '0.9rem' }}>
-                    &#10003; Connected — API keys saved securely
-                  </span>
+                  <div>
+                    <div style={{ color: 'var(--success)', fontWeight: 600, fontSize: '0.9rem' }}>
+                      &#10003; Connected — saved credentials available
+                    </div>
+                    <div style={{ color: 'var(--muted)', fontSize: '0.8rem', marginTop: '0.2rem', fontFamily: 'monospace' }}>
+                      {conn.savedKeyPreview || '****'}
+                    </div>
+                  </div>
                   <button type="button" className="btn btn-sm" onClick={async () => { await conn.remove(); setApiKey(''); setApiSecret(''); }}
                     style={{ color: 'var(--muted)', background: 'none', border: '1px solid var(--border)', fontSize: '0.8rem' }}>
                     Disconnect
@@ -292,6 +310,11 @@ export default function CryptoComIntegrationPage() {
                 <p style={{ color: 'var(--muted)', fontSize: '0.9rem', margin: 0 }}>
                   Enter your Crypto.com Exchange API credentials. Use a <strong>read-only</strong> API key for security.
                   Your keys will be saved encrypted for future use.
+                </p>
+              )}
+              {conn.hasSaved && (
+                <p style={{ color: 'var(--muted)', fontSize: '0.82rem', margin: 0 }}>
+                  Leave both fields blank to fetch using saved credentials, or enter new keys to replace them.
                 </p>
               )}
 
@@ -315,7 +338,6 @@ export default function CryptoComIntegrationPage() {
                   value={apiKey}
                   onChange={e => setApiKey(e.target.value)}
                   placeholder="Your crypto.com Exchange API key"
-                  required
                   style={{ width: '100%', padding: '0.75rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.9rem', fontFamily: 'monospace' }}
                 />
               </div>
@@ -327,7 +349,6 @@ export default function CryptoComIntegrationPage() {
                   value={apiSecret}
                   onChange={e => setApiSecret(e.target.value)}
                   placeholder="Your crypto.com Exchange Secret key"
-                  required
                   style={{ width: '100%', padding: '0.75rem', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.9rem', fontFamily: 'monospace' }}
                 />
               </div>
@@ -347,7 +368,18 @@ export default function CryptoComIntegrationPage() {
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
                 <a href="/settings" className="btn btn-secondary" style={{ textDecoration: 'none' }}>Cancel</a>
-                <button type="submit" className="btn btn-primary" disabled={loading || !apiKey || !apiSecret}>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={(() => {
+                    const key = apiKey.trim();
+                    const secret = apiSecret.trim();
+                    const hasKey = key.length > 0;
+                    const hasSecret = secret.length > 0;
+                    const canSubmit = (hasKey && hasSecret) || (conn.hasSaved && !hasKey && !hasSecret);
+                    return loading || !canSubmit;
+                  })()}
+                >
                   {loading ? 'Fetching (may take a minute)...' : 'Fetch Trades'}
                 </button>
               </div>

@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { decrypt } from '@/lib/encryption';
 import { withServerAuthRateLimit } from '@/lib/api/route-auth';
+import { exchangeSchema } from '@/lib/integrations/request-schemas';
 
 export const GET = withServerAuthRateLimit(async (req: NextRequest, auth) => {
-  const exchange = req.nextUrl.searchParams.get('exchange');
-  if (!exchange) return NextResponse.json({ error: 'exchange param required' }, { status: 400 });
+  const exchangeParam = req.nextUrl.searchParams.get('exchange');
+  const parsedExchange = exchangeSchema.safeParse((exchangeParam || '').toLowerCase());
+  if (!parsedExchange.success) {
+    return NextResponse.json({ error: 'exchange param required' }, { status: 400 });
+  }
+  const exchange = parsedExchange.data;
 
   const connection = await prisma.exchangeConnection.findUnique({
     where: { userId_exchange: { userId: auth.userId, exchange } },
@@ -17,8 +22,8 @@ export const GET = withServerAuthRateLimit(async (req: NextRequest, auth) => {
 
   return NextResponse.json({
     found: true,
-    apiKey: decrypt(connection.apiKey),
-    apiSecret: decrypt(connection.apiSecret),
+    apiKeyPreview: maskKey(decrypt(connection.apiKey)),
+    hasStoredSecret: true,
     label: connection.label,
     portfolioId: connection.portfolioId,
     autoSyncEnabled: connection.autoSyncEnabled,
@@ -28,3 +33,8 @@ export const GET = withServerAuthRateLimit(async (req: NextRequest, auth) => {
     lastSyncMessage: connection.lastSyncMessage,
   });
 });
+
+function maskKey(key: string): string {
+  if (key.length <= 8) return '****';
+  return key.slice(0, 4) + '****' + key.slice(-4);
+}

@@ -1,6 +1,6 @@
 {
   "name": "portfolio-tracker-web",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
@@ -22,7 +22,7 @@
     "csv-parse": "^6.1.0",
     "date-fns": "^4.1.0",
     "jsonwebtoken": "^9.0.2",
-    "next": "15.4.6",
+    "next": "^15.5.12",
     "next-auth": "^4.24.10",
     "nodemailer": "^7.0.13",
     "plotly.js": "^3.1.0",
@@ -50,7 +50,7 @@
     "@types/react-dom": "^19",
     "@types/react-plotly.js": "^2.6.3",
     "eslint": "^9",
-    "eslint-config-next": "15.4.6",
+    "eslint-config-next": "^15.5.12",
     "tsx": "^4.20.3",
     "typescript": "^5",
     "vitest": "^4.0.18"
