@@ -1,48 +1,73 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import type { EChartsOption } from 'echarts';
 import type { LineChartModel } from './types';
-import { PlotlyChart } from './plotly/PlotlyChart';
+import { EChart } from './echarts';
 
 export type LineChartProps = {
   model: LineChartModel;
   style?: React.CSSProperties;
 };
 
+const DASH_MAP: Record<string, string> = {
+  solid: 'solid',
+  dash: 'dashed',
+  dot: 'dotted',
+  dashdot: 'dashed',
+};
+
 export function LineChart({ model, style }: LineChartProps) {
-  const { data, layout } = useMemo(() => {
-    const traces = model.series.map((s) => {
+  const option = useMemo((): EChartsOption => {
+    const xData = model.x.map((v) => (v instanceof Date ? v.toISOString() : v));
+
+    const series = model.series.map((s) => {
+      const seriesX = s.x ? s.x.map((v) => (v instanceof Date ? v.toISOString() : v)) : xData;
+      const hasFill = s.fill && s.fill !== 'none';
+      const dashType = (DASH_MAP[s.dash ?? 'solid'] ?? 'solid') as 'solid' | 'dashed' | 'dotted';
+
       return {
-        type: 'scatter',
-        mode: 'lines',
+        type: 'line' as const,
         name: s.name,
-        x: s.x ?? model.x,
-        y: s.y,
-        line: {
+        data: s.y.map((yVal, i) => [seriesX[i], yVal]),
+        lineStyle: {
           color: s.color,
-          width: s.width,
-          dash: s.dash,
+          width: s.width ?? 2,
+          type: dashType,
         },
-        fill: s.fill && s.fill !== 'none' ? s.fill : undefined,
-        fillcolor: s.fillColor,
+        itemStyle: s.color ? { color: s.color } : undefined,
+        areaStyle: hasFill ? { color: s.fillColor, opacity: 0.15 } : undefined,
+        showSymbol: false,
+        smooth: false,
       };
     });
 
-    const layout = {
-      title: model.title ? { text: model.title } : undefined,
-      xaxis: model.xAxisTitle ? { title: { text: model.xAxisTitle } } : undefined,
-      yaxis: model.yAxisTitle ? { title: { text: model.yAxisTitle } } : undefined,
-      height: model.height,
-      hovermode: model.hovermode,
-      showlegend: true,
+    return {
+      xAxis: {
+        type: 'category',
+        data: xData as string[],
+        axisLabel: { show: true },
+      },
+      yAxis: {
+        type: 'value',
+        name: model.yAxisTitle,
+      },
+      series,
+      tooltip: {
+        trigger: model.hovermode === 'closest' ? 'item' : 'axis',
+      },
+      legend: {
+        show: model.series.length > 1,
+      },
     };
-
-    return { data: traces, layout };
   }, [model]);
 
   if (!model.series.length) return null;
 
-  return <PlotlyChart data={data} layout={layout} style={{ width: '100%', ...style }} />;
+  return (
+    <EChart
+      option={option}
+      style={{ width: '100%', height: model.height ?? 400, ...style }}
+    />
+  );
 }
-
-

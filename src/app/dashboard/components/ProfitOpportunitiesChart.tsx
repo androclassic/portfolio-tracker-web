@@ -2,11 +2,11 @@
 import React, { useCallback, useMemo } from 'react';
 import { getAssetColor } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
-import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { EChart } from '@/components/charts/echarts';
 import { sliceStartIndexForIsoDates, sampleDataPoints } from '@/lib/timeframe';
 import { useDashboardData } from '../../DashboardDataProvider';
 import { useAutoSelectAsset } from '../lib/use-auto-select-asset';
-import type { Data } from 'plotly.js';
+import type { EChartsOption } from 'echarts';
 
 export function ProfitOpportunitiesChart() {
   const { txs, assets, dailyPos, historicalPrices, priceIndex, loadingTxs } = useDashboardData();
@@ -19,7 +19,6 @@ export function ProfitOpportunitiesChart() {
   const colorFor = useCallback((asset: string): string => getAssetColor(asset), []);
   const hist = useMemo(() => ({ prices: historicalPrices }), [historicalPrices]);
 
-  // Profit-Taking Opportunities
   const profitOpportunities = useMemo(() => {
     if (!hist || !hist.prices || assets.length === 0 || !txs || txs.length === 0 || !dailyPos || dailyPos.length === 0) {
       return { dates: [] as string[], opportunities: {} as Record<string, { altcoinPnL: number[]; btcPnL: number[] }> };
@@ -28,12 +27,10 @@ export function ProfitOpportunitiesChart() {
     const priceMap = new Map<string, number>();
     for (const p of hist.prices) priceMap.set(p.date + '|' + p.asset.toUpperCase(), p.price_usd);
 
-    // Use priceIndex.dates if available, otherwise derive from historicalPrices
     const dates = priceIndex.dates.length > 0
       ? priceIndex.dates
       : Array.from(new Set(hist.prices.map(p => p.date))).sort();
 
-    // Group transactions by date for efficient processing
     const txsByDate = new Map<string, typeof txs>();
     for (const tx of txs) {
       const txDate = new Date(tx.datetime).toISOString().slice(0, 10);
@@ -42,7 +39,6 @@ export function ProfitOpportunitiesChart() {
       txsByDate.set(txDate, arr);
     }
 
-    // Build position map from dailyPos for quick position lookup
     const positionsByAsset = new Map<string, Array<{ date: string; position: number }>>();
     for (const pos of dailyPos) {
       if (!positionsByAsset.has(pos.asset)) {
@@ -51,7 +47,6 @@ export function ProfitOpportunitiesChart() {
       positionsByAsset.get(pos.asset)!.push({ date: pos.date, position: pos.position });
     }
 
-    // Sort positions by date for each asset
     for (const positions of positionsByAsset.values()) {
       positions.sort((a, b) => a.date.localeCompare(b.date));
     }
@@ -64,9 +59,8 @@ export function ProfitOpportunitiesChart() {
       const altcoinPnL: number[] = [];
       const btcPnL: number[] = [];
 
-      // Track cost basis and BTC equivalent over time
-        let totalQuantity = 0;
-        let totalCostUsd = 0;
+      let totalQuantity = 0;
+      let totalCostUsd = 0;
       let totalBtcQuantity = 0;
       let totalBtcCostUsd = 0;
 
@@ -74,17 +68,15 @@ export function ProfitOpportunitiesChart() {
       let positionIdx = 0;
 
       for (const date of dates) {
-        // Process transactions for this date (only once per date)
         const txsForDate = txsByDate.get(date) || [];
         for (const tx of txsForDate) {
           if (tx.type === 'Swap') {
             if (tx.toAsset.toUpperCase() === asset) {
               const quantity = Math.abs(tx.toQuantity);
-            totalQuantity += quantity;
+              totalQuantity += quantity;
               const costUsd = quantity * (tx.toPriceUsd || 0);
               totalCostUsd += costUsd;
 
-              // Track BTC equivalent
               const btcPriceAtTx = priceMap.get(date + '|BTC') || priceMap.get(dates[dates.length - 1]! + '|BTC') || 0;
               if (btcPriceAtTx > 0) {
                 const btcQty = costUsd / btcPriceAtTx;
@@ -93,19 +85,18 @@ export function ProfitOpportunitiesChart() {
               }
             } else if (tx.fromAsset?.toUpperCase() === asset) {
               const quantity = Math.abs(tx.fromQuantity || 0);
-            if (totalQuantity > 0) {
-              const currentAvgCost = totalCostUsd / totalQuantity;
-              const unitsToSell = Math.min(quantity, totalQuantity);
-              totalCostUsd -= unitsToSell * currentAvgCost;
-              totalQuantity -= unitsToSell;
+              if (totalQuantity > 0) {
+                const currentAvgCost = totalCostUsd / totalQuantity;
+                const unitsToSell = Math.min(quantity, totalQuantity);
+                totalCostUsd -= unitsToSell * currentAvgCost;
+                totalQuantity -= unitsToSell;
 
-                // Track BTC equivalent sell
-              if (totalBtcQuantity > 0) {
-                const currentAvgBtcCost = totalBtcCostUsd / totalBtcQuantity;
+                if (totalBtcQuantity > 0) {
+                  const currentAvgBtcCost = totalBtcCostUsd / totalBtcQuantity;
                   const btcPriceAtTx = priceMap.get(date + '|BTC') || priceMap.get(dates[dates.length - 1]! + '|BTC') || 0;
                   if (btcPriceAtTx > 0) {
                     const costUsd = quantity * (tx.fromPriceUsd || currentAvgCost);
-                const btcQuantityToSell = costUsd / btcPriceAtTx;
+                    const btcQuantityToSell = costUsd / btcPriceAtTx;
                     const unitsToSellBtc = Math.min(btcQuantityToSell, totalBtcQuantity);
                     totalBtcCostUsd -= unitsToSellBtc * currentAvgBtcCost;
                     totalBtcQuantity -= unitsToSellBtc;
@@ -119,7 +110,6 @@ export function ProfitOpportunitiesChart() {
             const costUsd = quantity * (tx.toPriceUsd || 1);
             totalCostUsd += costUsd;
 
-            // Track BTC equivalent
             const btcPriceAtTx = priceMap.get(date + '|BTC') || priceMap.get(dates[dates.length - 1]! + '|BTC') || 0;
             if (btcPriceAtTx > 0) {
               const btcQty = costUsd / btcPriceAtTx;
@@ -129,7 +119,6 @@ export function ProfitOpportunitiesChart() {
           }
         }
 
-        // Get current position from dailyPos (for validation)
         let currentPosition = 0;
         if (positions && positions.length > 0) {
           while (positionIdx < positions.length - 1 && positions[positionIdx + 1]!.date <= date) {
@@ -140,7 +129,6 @@ export function ProfitOpportunitiesChart() {
           }
         }
 
-        // Only calculate PnL if we have a position
         if (currentPosition > 0 || totalQuantity > 0) {
           const currentPrice = priceMap.get(date + '|' + asset) || 0;
           const currentBtcPrice = priceMap.get(date + '|BTC') || 0;
@@ -206,48 +194,32 @@ Use the asset selector to compare different altcoins.`}
         const idx = sliceStartIndexForIsoDates(profitOpportunities.dates, timeframe);
         const dates = profitOpportunities.dates.slice(idx);
 
-        // Sample data points for performance (max 100 points)
         const maxPoints = expanded ? 200 : 100;
-        const makeAssetTraces = (asset: string) => {
-          const altcoinPnL = (profitOpportunities.opportunities[asset]?.altcoinPnL || []).slice(idx);
-          const btcPnL = (profitOpportunities.opportunities[asset]?.btcPnL || []).slice(idx);
-          const sampled = sampleDataPoints(dates, [altcoinPnL, btcPnL], maxPoints);
-          return [
+        const altcoinPnL = (profitOpportunities.opportunities[selectedProfitAsset]?.altcoinPnL || []).slice(idx);
+        const btcPnL = (profitOpportunities.opportunities[selectedProfitAsset]?.btcPnL || []).slice(idx);
+        const sampled = sampleDataPoints(dates, [altcoinPnL, btcPnL], maxPoints);
+
+        const option: EChartsOption = {
+          xAxis: { type: 'category', data: sampled.dates },
+          yAxis: { type: 'value', name: 'PnL (USD)' },
+          tooltip: { trigger: 'axis' },
+          legend: { show: true },
+          series: [
             {
-              x: sampled.dates,
-              y: sampled.dataArrays[0]!,
-              type: 'scatter' as const,
-              mode: 'lines' as const,
-              name: `${asset} PnL`,
-              line: { color: colorFor(asset) },
+              type: 'line', name: `${selectedProfitAsset} PnL`, data: sampled.dataArrays[0]!, showSymbol: false,
+              lineStyle: { color: colorFor(selectedProfitAsset) }, itemStyle: { color: colorFor(selectedProfitAsset) },
             },
             {
-              x: sampled.dates,
-              y: sampled.dataArrays[1]!,
-              type: 'scatter' as const,
-              mode: 'lines' as const,
-              name: 'BTC PnL (if bought instead)',
-              line: { color: '#f7931a', dash: 'dash' },
+              type: 'line', name: 'BTC PnL (if bought instead)', data: sampled.dataArrays[1]!, showSymbol: false,
+              lineStyle: { color: '#f7931a', type: 'dashed' }, itemStyle: { color: '#f7931a' },
             },
-          ];
+          ],
         };
 
-        const traces = makeAssetTraces(selectedProfitAsset);
-
         return (
-          <Plot
-            data={traces as unknown as Data[]}
-            layout={{
-              autosize: true,
-              height: expanded ? undefined : 320,
-              margin: { t: 30, r: 10, l: 40, b: 40 },
-              legend: { orientation: 'h' },
-              yaxis: { title: { text: 'PnL (USD)' } },
-              hovermode: 'x unified',
-              paper_bgcolor: 'transparent',
-              plot_bgcolor: 'transparent',
-            }}
-            style={{ width: '100%', height: expanded ? '100%' : undefined }}
+          <EChart
+            option={option}
+            style={{ width: '100%', height: expanded ? '100%' : 320 }}
           />
         );
       }}

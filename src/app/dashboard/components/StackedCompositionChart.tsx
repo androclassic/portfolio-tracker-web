@@ -1,5 +1,11 @@
 'use client';
 import React, { useState, useCallback } from 'react';
+import { getAssetColor, isFiatCurrency } from '@/lib/assets';
+import { ChartCard } from '@/components/ChartCard';
+import { EChart } from '@/components/charts/echarts';
+import { sliceStartIndexForIsoDates, sampleDataWithDates } from '@/lib/timeframe';
+import { useDashboardData } from '../../DashboardDataProvider';
+import type { EChartsOption } from 'echarts';
 
 function formatUnits(v: number): string {
   if (v === 0) return '0';
@@ -8,12 +14,6 @@ function formatUnits(v: number): string {
   if (v >= 1)     return parseFloat(v.toFixed(3)).toLocaleString('en-US', { maximumFractionDigits: 3 });
   return parseFloat(v.toPrecision(4)).toString();
 }
-import { getAssetColor, isFiatCurrency } from '@/lib/assets';
-import { ChartCard } from '@/components/ChartCard';
-import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
-import { sliceStartIndexForIsoDates, sampleDataWithDates } from '@/lib/timeframe';
-import { useDashboardData } from '../../DashboardDataProvider';
-import type { Data } from 'plotly.js';
 
 export function StackedCompositionChart() {
   const { stacked, loadingTxs, loadingCurr, loadingHist } = useDashboardData();
@@ -47,18 +47,15 @@ export function StackedCompositionChart() {
         const idx = sliceStartIndexForIsoDates(stacked.dates, timeframe);
         const dates = stacked.dates.slice(idx);
 
-        // Sample data points for performance (max 100 points per trace)
         const maxPoints = expanded ? 200 : 100;
         const sampledDates = sampleDataWithDates(dates, dates, maxPoints).dates;
 
-        // Filter out fiat currencies from the stacked chart
         const cryptoAssets = Array.from(stacked.perAssetUsd.keys()).filter(asset => !isFiatCurrency(asset));
 
-        // Two traces per asset: visual (stacked, no hover) + hover-only (non-stacked, invisible).
-        // Stacked traces force all rows into unified hover even at zero values.
-        // Non-stacked hover traces allow null y values which Plotly properly skips in hover.
-        const allTraces: Record<string, unknown>[] = [];
-        cryptoAssets.forEach(asset => {
+        // Build per-asset sampled data for tooltip
+        const assetDataMap = new Map<string, { sampledY: number[]; sampledUnits: number[] }>();
+
+        const series: EChartsOption['series'] = cryptoAssets.map(asset => {
           const usdValues = stacked.perAssetUsd.get(asset) || [];
           const unitValues = (stacked.perAssetUnits.get(asset) || []).slice(idx);
           const yData = stackedMode === 'usd'
@@ -68,61 +65,57 @@ export function StackedCompositionChart() {
                 return total > 0 ? (value / total) * 100 : 0;
               });
 
-          const sampledY = sampleDataWithDates(dates, yData, maxPoints).data;
-          const sampledUnits = sampleDataWithDates(dates, unitValues, maxPoints).data;
+          const sampledY = sampleDataWithDates(dates, yData, maxPoints).data as number[];
+          const sampledUnits = sampleDataWithDates(dates, unitValues, maxPoints).data as number[];
+          assetDataMap.set(asset, { sampledY, sampledUnits });
 
-          // Visual trace: draws the stacked area, excluded from hover entirely
-          allTraces.push({
-            x: sampledDates,
-            y: sampledY,
-            type: 'scatter' as const,
-            mode: 'lines' as const,
-            stackgroup: 'one',
+          return {
+            type: 'line' as const,
             name: asset,
-            line: { color: colorFor(asset) },
-            hoverinfo: 'skip' as const,
-          });
-
-          // Hover-only trace: invisible line (no stackgroup), null for zero values.
-          // Null y values are properly excluded from unified hover in non-stacked traces.
-          const yHover = sampledY.map(v => v > 0 ? v : null);
-          const unitText = sampledUnits.map(u => formatUnits(u));
-          const hovertemplate = stackedMode === 'usd'
-            ? `${asset}: %{y:,.2f} USD (%{text} ${asset})<extra></extra>`
-            : `${asset}: %{y:.2f}% (%{text} ${asset})<extra></extra>`;
-
-          allTraces.push({
-            x: sampledDates,
-            y: yHover,
-            text: unitText,
-            type: 'scatter' as const,
-            mode: 'lines' as const,
-            name: asset,
-            line: { width: 0, color: colorFor(asset) },
-            showlegend: false,
-            hovertemplate,
-          });
+            data: sampledY,
+            stack: 'total',
+            areaStyle: {},
+            showSymbol: false,
+            lineStyle: { color: colorFor(asset), width: 1 },
+            itemStyle: { color: colorFor(asset) },
+          };
         });
 
+        const option: EChartsOption = {
+          xAxis: { type: 'category', data: sampledDates },
+          yAxis: {
+            type: 'value',
+            name: stackedMode === 'usd' ? 'USD Value' : 'Percentage',
+          },
+          tooltip: {
+            trigger: 'axis',
+            formatter: (params: unknown) => {
+              const ps = params as { seriesName: string; value: number; dataIndex: number; color: string }[];
+              if (!Array.isArray(ps) || ps.length === 0) return '';
+              const date = sampledDates[ps[0]!.dataIndex] ?? '';
+              let html = `<b>${date}</b>`;
+              // Show only non-zero entries
+              for (const p of ps) {
+                if (p.value <= 0) continue;
+                const units = assetDataMap.get(p.seriesName)?.sampledUnits[p.dataIndex] ?? 0;
+                const unitStr = formatUnits(units);
+                if (stackedMode === 'usd') {
+                  html += `<br/><span style="color:${p.color}">\u25CF</span> ${p.seriesName}: $${p.value.toLocaleString('en-US', { maximumFractionDigits: 2 })} (${unitStr} ${p.seriesName})`;
+                } else {
+                  html += `<br/><span style="color:${p.color}">\u25CF</span> ${p.seriesName}: ${p.value.toFixed(2)}% (${unitStr} ${p.seriesName})`;
+                }
+              }
+              return html;
+            },
+          },
+          legend: { show: true },
+          series,
+        };
+
         return (
-          <Plot
-            data={allTraces as Data[]}
-            layout={{
-              autosize: true,
-              height: expanded ? undefined : 400,
-              margin: { t: 30, r: 10, l: 50, b: 30 },
-              hovermode: 'x unified',
-              paper_bgcolor: 'transparent',
-              plot_bgcolor: 'transparent',
-              yaxis: {
-                title: { text: stackedMode === 'usd' ? 'USD Value' : 'Percentage' },
-              },
-              legend: {
-                orientation: 'h',
-                y: -0.2,
-              },
-            }}
-            style={{ width: '100%', height: expanded ? '100%' : undefined }}
+          <EChart
+            option={option}
+            style={{ width: '100%', height: expanded ? '100%' : 400 }}
           />
         );
       }}

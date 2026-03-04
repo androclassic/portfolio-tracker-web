@@ -2,11 +2,11 @@
 import React, { useCallback, useMemo } from 'react';
 import { isStablecoin } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
-import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { EChart } from '@/components/charts/echarts';
 import { sliceStartIndexForIsoDates, sampleDataPoints } from '@/lib/timeframe';
 import { useDashboardData } from '../../DashboardDataProvider';
 import { getEURCPrice } from '../lib/chart-helpers';
-import type { Data } from 'plotly.js';
+import type { EChartsOption } from 'echarts';
 
 export function NetWorthChart() {
   const { assets, dailyPos, priceIndex, fxRateMap, latestPrices, historicalPrices, loadingTxs, loadingCurr, loadingHist } = useDashboardData();
@@ -133,44 +133,31 @@ export function NetWorthChart() {
           stableY = sampled.dataArrays[2]!;
         }
 
-        const traces: Data[] = [
-          {
-            type: 'scatter',
-            mode: 'lines',
-            name: 'Total Net Worth',
-            x: dates,
-            y: totalY,
-            line: { color: '#3b82f6', width: 3 },
-          },
-          {
-            type: 'scatter',
-            mode: 'lines',
-            name: 'Crypto (ex Stablecoins)',
-            x: dates,
-            y: cryptoY,
-            line: { color: '#f59e0b', width: 2 },
-          },
-          {
-            type: 'scatter',
-            mode: 'lines',
-            name: 'Stablecoin Balance',
-            x: dates,
-            y: stableY,
-            line: { color: '#22c55e', width: 2 },
-          },
-        ];
+        const option: EChartsOption = {
+          xAxis: { type: 'category', data: dates },
+          yAxis: { type: 'value', name: 'Value (USD)' },
+          tooltip: { trigger: 'axis' },
+          legend: { show: true },
+          series: [
+            {
+              type: 'line', name: 'Total Net Worth', data: totalY, showSymbol: false,
+              lineStyle: { color: '#3b82f6', width: 3 }, itemStyle: { color: '#3b82f6' },
+            },
+            {
+              type: 'line', name: 'Crypto (ex Stablecoins)', data: cryptoY, showSymbol: false,
+              lineStyle: { color: '#f59e0b', width: 2 }, itemStyle: { color: '#f59e0b' },
+            },
+            {
+              type: 'line', name: 'Stablecoin Balance', data: stableY, showSymbol: false,
+              lineStyle: { color: '#22c55e', width: 2 }, itemStyle: { color: '#22c55e' },
+            },
+          ],
+        };
 
         return (
-          <Plot
-            data={traces}
-            layout={{
-              xaxis: { title: { text: 'Date' } },
-              yaxis: { title: { text: 'Value (USD)' } },
-              hovermode: 'x unified' as const,
-              showlegend: true,
-              height: expanded ? undefined : 400,
-            }}
-            style={{ width: '100%', height: expanded ? '100%' : undefined }}
+          <EChart
+            option={option}
+            style={{ width: '100%', height: expanded ? '100%' : 400 }}
           />
         );
       }}

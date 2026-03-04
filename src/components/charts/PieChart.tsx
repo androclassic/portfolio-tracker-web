@@ -1,56 +1,81 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import type { EChartsOption } from 'echarts';
 import type { PieChartModel, PieSlice } from './types';
-import { PlotlyChart } from './plotly/PlotlyChart';
+import { EChart } from './echarts';
 
 export type PieChartProps = {
   model: PieChartModel;
-  /**
-   * Optional hover renderer. Return plain text or HTML (Plotly will render `<br>`).
-   */
   getHoverText?: (slice: PieSlice) => string;
-  /**
-   * Defaults to hiding labels; consumers can override.
-   */
   textinfo?: 'none' | 'label' | 'percent' | 'label+percent' | 'label+value' | 'label+percent+value';
   style?: React.CSSProperties;
 };
 
 export function PieChart({ model, getHoverText, textinfo = 'label+percent', style }: PieChartProps) {
-  const { data, layout } = useMemo(() => {
-    const labels = model.slices.map((s) => s.label);
-    const values = model.slices.map((s) => s.value);
-    const colors = model.slices.map((s) => s.color).filter(Boolean);
+  const option = useMemo((): EChartsOption => {
+    const data = model.slices.map((s) => ({
+      name: s.label,
+      value: s.value,
+      itemStyle: s.color ? { color: s.color } : undefined,
+      _slice: s,
+    }));
 
-    const text = getHoverText ? model.slices.map((s) => getHoverText(s)) : undefined;
+    const showLabel = textinfo !== 'none';
 
-    const trace = {
-      type: 'pie',
-      labels,
-      values,
-      hole: typeof model.hole === 'number' ? model.hole : 0,
-      text,
-      hovertemplate: text ? '%{text}<extra></extra>' : undefined,
-      textinfo,
-      textposition: textinfo === 'none' ? 'none' : 'inside',
-      marker: colors.length === model.slices.length ? { colors } : undefined,
+    const labelFormatter = (params: { name: string; percent: number; value: number }) => {
+      switch (textinfo) {
+        case 'label': return params.name;
+        case 'percent': return `${params.percent}%`;
+        case 'label+value': return `${params.name}\n${params.value.toLocaleString()}`;
+        case 'label+percent+value': return `${params.name}\n${params.percent}%`;
+        case 'label+percent':
+        default: return `${params.name} ${params.percent}%`;
+      }
     };
 
-    const layout = {
-      title: model.title ? { text: model.title } : undefined,
-      autosize: true,
-      height: model.height,
-      margin: { t: model.title ? 40 : 30, r: 10, l: 10, b: 10 },
-      showlegend: false, // Hide legend - labels are shown on the chart itself
-    };
+    const hole = typeof model.hole === 'number' ? model.hole : 0;
+    const innerRadius = hole > 0 ? `${Math.round(hole * 100)}%` : '0%';
 
-    return { data: [trace], layout };
+    return {
+      tooltip: {
+        trigger: 'item',
+        formatter: getHoverText
+          ? (params: unknown) => {
+              const p = params as { data: { _slice: PieSlice } };
+              return getHoverText(p.data._slice);
+            }
+          : undefined,
+      },
+      legend: { show: false },
+      series: [
+        {
+          type: 'pie',
+          radius: [innerRadius, '75%'],
+          data,
+          label: {
+            show: showLabel,
+            position: 'inside',
+            formatter: labelFormatter as never,
+            fontSize: 11,
+            color: '#fff',
+          },
+          emphasis: {
+            itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.3)' },
+          },
+          animationType: 'scale',
+          animationEasing: 'elasticOut',
+        },
+      ],
+    };
   }, [model, getHoverText, textinfo]);
 
   if (!model.slices.length) return null;
 
-  return <PlotlyChart data={data} layout={layout} style={{ width: '100%', ...style }} />;
+  return (
+    <EChart
+      option={option}
+      style={{ width: '100%', height: model.height ?? 320, ...style }}
+    />
+  );
 }
-
-

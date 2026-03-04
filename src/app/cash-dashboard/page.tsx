@@ -4,13 +4,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePortfolio } from '../PortfolioProvider';
 import { getAssetColor, getFiatCurrencies, convertFiat } from '@/lib/assets';
 import AuthGuard from '@/components/AuthGuard';
-import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { EChart } from '@/components/charts/echarts';
 import { ChartCard } from '@/components/ChartCard';
 import { startIsoForTimeframe } from '@/lib/timeframe';
 import { SankeyExplorer } from './components/SankeyExplorer';
 import { createLogger } from '@/lib/logger';
 
-import type { Layout, Data } from 'plotly.js';
+import type { EChartsOption } from 'echarts';
 import { jsonFetcher } from '@/lib/swr-fetcher';
 import type { Transaction as Tx } from '@/lib/types';
 import type { RomaniaTaxReport } from '@/lib/tax/romania-v2';
@@ -241,34 +241,7 @@ export default function CashDashboardPage(){
 
   const colorFor = useCallback((asset: string): string => getAssetColor(asset), []);
 
-  // Chart layouts
-  const cashFlowLayout: Partial<Layout> = {
-    title: { text: `Cash Flow by Currency${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
-    xaxis: { title: { text: 'Currency' } },
-    yaxis: { title: { text: 'Amount' } },
-    barmode: 'group',
-    height: 400,
-  };
-
-  const balanceOverTimeLayout: Partial<Layout> = {
-    title: { text: `Total Cash Balance Over Time (USD)${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
-    xaxis: { title: { text: 'Date' } },
-    yaxis: { title: { text: 'Balance (USD)' } },
-    height: 400,
-  };
-
-  const monthlyCashFlowLayout: Partial<Layout> = {
-    title: { text: `Monthly Cash Flow - ${selectedCurrency}${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
-    xaxis: { title: { text: 'Month' } },
-    yaxis: { title: { text: `${selectedCurrency} Amount` } },
-    barmode: 'group',
-    height: 400,
-  };
-
-  const totalBalancesLayout: Partial<Layout> = {
-    title: { text: `Total Balances (USD Equivalent)${selectedTaxYear !== 'all' ? ` (${selectedTaxYear})` : ''}` },
-    height: 400,
-  };
+  // Layout variables removed — ECharts options are built inline in each chart
 
   if (loadingTxs) {
     return (
@@ -413,12 +386,18 @@ export default function CashDashboardPage(){
               else if (tx.type === 'Withdrawal') cashFlowDataLocal[cur].withdrawals += amount;
             }
 
-            const chart: Data[] = [
-              { x: fc, y: fc.map((c) => cashFlowDataLocal[c].deposits), type: 'bar', name: 'Deposits', marker: { color: '#10b981' } },
-              { x: fc, y: fc.map((c) => cashFlowDataLocal[c].withdrawals), type: 'bar', name: 'Withdrawals', marker: { color: '#ef4444' } },
-            ];
+            const option: EChartsOption = {
+              xAxis: { type: 'category', data: fc },
+              yAxis: { type: 'value', name: 'Amount' },
+              tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+              legend: { show: true },
+              series: [
+                { type: 'bar', name: 'Deposits', data: fc.map((c) => cashFlowDataLocal[c].deposits), itemStyle: { color: '#10b981' } },
+                { type: 'bar', name: 'Withdrawals', data: fc.map((c) => cashFlowDataLocal[c].withdrawals), itemStyle: { color: '#ef4444' } },
+              ],
+            };
 
-            return <Plot data={chart} layout={{ ...cashFlowLayout, height: expanded ? undefined : 400 }} style={{ width: '100%', height: expanded ? '100%' : undefined }} />;
+            return <EChart option={option} style={{ width: '100%', height: expanded ? '100%' : 400 }} />;
           }}
         </ChartCard>
 
@@ -432,8 +411,17 @@ export default function CashDashboardPage(){
             })() : 0;
             const dates = balanceOverTime.dates.slice(idx);
             const bals = balanceOverTime.balances.slice(idx);
-            const chart: Data[] = [{ x: dates, y: bals, type: 'scatter', mode: 'lines+markers', name: 'Total Cash Balance (USD)', line: { color: '#3b82f6' }, marker: { size: 6 } }];
-            return <Plot data={chart} layout={{ ...balanceOverTimeLayout, height: expanded ? undefined : 400 }} style={{ width: '100%', height: expanded ? '100%' : undefined }} />;
+            const option: EChartsOption = {
+              xAxis: { type: 'category', data: dates },
+              yAxis: { type: 'value', name: 'Balance (USD)' },
+              tooltip: { trigger: 'axis' },
+              series: [{
+                type: 'line', name: 'Total Cash Balance (USD)', data: bals,
+                showSymbol: true, symbolSize: 6,
+                lineStyle: { color: '#3b82f6' }, itemStyle: { color: '#3b82f6' },
+              }],
+            };
+            return <EChart option={option} style={{ width: '100%', height: expanded ? '100%' : 400 }} />;
           }}
         </ChartCard>
 
@@ -479,12 +467,18 @@ export default function CashDashboardPage(){
             const deposits = months.map((m) => monthlyData[m].deposits);
             const withdrawals = months.map((m) => monthlyData[m].withdrawals);
 
-            const chart: Data[] = [
-              { x: months, y: deposits, type: 'bar', name: 'Deposits', marker: { color: '#10b981' } },
-              { x: months, y: withdrawals, type: 'bar', name: 'Withdrawals', marker: { color: '#ef4444' } },
-            ];
+            const option: EChartsOption = {
+              xAxis: { type: 'category', data: months },
+              yAxis: { type: 'value', name: `${selectedCurrency} Amount` },
+              tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+              legend: { show: true },
+              series: [
+                { type: 'bar', name: 'Deposits', data: deposits, itemStyle: { color: '#10b981' } },
+                { type: 'bar', name: 'Withdrawals', data: withdrawals, itemStyle: { color: '#ef4444' } },
+              ],
+            };
 
-            return <Plot data={chart} layout={{ ...monthlyCashFlowLayout, height: expanded ? undefined : 400 }} style={{ width: '100%', height: expanded ? '100%' : undefined }} />;
+            return <EChart option={option} style={{ width: '100%', height: expanded ? '100%' : 400 }} />;
           }}
         </ChartCard>
 
@@ -505,16 +499,20 @@ export default function CashDashboardPage(){
             if (!currenciesWithBalances.length) {
               return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>No cash balances to display</div>;
             }
-            const pie: Data[] = [
-              {
-                labels: currenciesWithBalances,
-                values: currenciesWithBalances.map((c) => Math.abs(convertFiat(totals[c], c, 'USD'))),
+            const option: EChartsOption = {
+              tooltip: { trigger: 'item' },
+              series: [{
                 type: 'pie',
-                marker: { colors: currenciesWithBalances.map((c) => getAssetColor(c)) },
-                textinfo: 'label+percent',
-              } as unknown as Data,
-            ];
-            return <Plot data={pie} layout={{ ...totalBalancesLayout, height: expanded ? undefined : 400 }} style={{ width: '100%', height: expanded ? '100%' : undefined }} />;
+                radius: ['0%', '70%'],
+                data: currenciesWithBalances.map((c) => ({
+                  name: c,
+                  value: Math.abs(convertFiat(totals[c], c, 'USD')),
+                  itemStyle: { color: getAssetColor(c) },
+                })),
+                label: { show: true, formatter: '{b} {d}%' },
+              }],
+            };
+            return <EChart option={option} style={{ width: '100%', height: expanded ? '100%' : 400 }} />;
           }}
         </ChartCard>
       </div>

@@ -2,11 +2,11 @@
 import React, { useCallback, useMemo } from 'react';
 import { getAssetColor } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
-import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { EChart } from '@/components/charts/echarts';
 import { sliceStartIndexForIsoDates, sampleDataWithDates } from '@/lib/timeframe';
 import { useDashboardData } from '../../DashboardDataProvider';
 import { useAutoSelectAsset } from '../lib/use-auto-select-asset';
-import type { Layout, Data } from 'plotly.js';
+import type { EChartsOption } from 'echarts';
 
 export function PositionsChart() {
   const { txs, assets, dailyPos, notesByDayAsset, loadingTxs } = useDashboardData();
@@ -14,50 +14,21 @@ export function PositionsChart() {
   const [selectedAsset, setSelectedAsset] = useAutoSelectAsset(assets);
   const colorFor = useCallback((asset: string): string => getAssetColor(asset), []);
 
-  const positionsFigure = useMemo(() => {
-    const groups = new Map<string, { x: string[]; y: number[] }>();
+  const positionsData = useMemo(() => {
+    const groups = new Map<string, { x: string[]; y: number[]; notes: string[] }>();
     for (const r of dailyPos) {
-      const g = groups.get(r.asset) || { x: [], y: [] };
-      g.x.push(r.date); g.y.push(r.position);
+      const g = groups.get(r.asset) || { x: [], y: [], notes: [] };
+      g.x.push(r.date);
+      g.y.push(r.position);
+      g.notes.push(notesByDayAsset.get(`${r.date}|${r.asset}`) || '');
       groups.set(r.asset, g);
     }
 
-    const data: Data[] = ((() => {
-      if (selectedAsset && groups.has(selectedAsset)) {
-        const g = groups.get(selectedAsset)!;
-        const text = g.x.map(d => notesByDayAsset.get(`${d}|${selectedAsset}`) || '');
-        return [{
-          x: g.x,
-          y: g.y,
-          type: 'scatter',
-          mode: 'lines+markers',
-          name: selectedAsset,
-          line: { shape: 'hv', color: colorFor(selectedAsset) },
-          marker: { size: 5, color: colorFor(selectedAsset) },
-          text,
-          hovertemplate: `%{x}<br>Position: %{y}<br>%{text}<extra></extra>`,
-        } as Data];
-      }
-      return Array.from(groups.entries()).map(([asset, g]) => {
-        const text = g.x.map(d => notesByDayAsset.get(`${d}|${asset}`) || '');
-        const c = colorFor(asset);
-        return ({
-          x: g.x,
-          y: g.y,
-          type: 'scatter',
-          mode: 'lines+markers',
-          name: asset,
-          line: { shape: 'hv', color: c },
-          marker: { size: 5, color: c },
-          text,
-          hovertemplate: `%{x}<br>Position: %{y}<br>%{text}<extra></extra>`,
-        } as Data);
-      });
-    })());
-    const layout: Partial<Layout> = { autosize: true, height: 320, margin: { t: 30, r: 10, l: 40, b: 40 }, legend: { orientation: 'h' } };
-    const result = { data, layout };
-    return result;
-  }, [dailyPos, selectedAsset, colorFor, notesByDayAsset]);
+    if (selectedAsset && groups.has(selectedAsset)) {
+      return [{ asset: selectedAsset, ...groups.get(selectedAsset)! }];
+    }
+    return Array.from(groups.entries()).map(([asset, g]) => ({ asset, ...g }));
+  }, [dailyPos, selectedAsset, notesByDayAsset]);
 
   return (
     <ChartCard
@@ -80,44 +51,82 @@ export function PositionsChart() {
         if (loadingTxs || !txs) {
           return <div className="chart-loading">Loading positions...</div>;
         }
-        if (!positionsFigure.data.length) {
+        if (!positionsData.length) {
           return <div className="chart-empty">No position data</div>;
         }
-        const firstTrace = positionsFigure.data[0] as { x?: string[]; y?: number[] } | undefined;
-        const idx = firstTrace?.x
-          ? sliceStartIndexForIsoDates(firstTrace.x, timeframe)
-          : 0;
-        const slicedData = positionsFigure.data.map(trace => {
-          const t = trace as { x?: string[]; y?: number[]; [key: string]: unknown };
+
+        const firstX = positionsData[0]?.x;
+        const idx = firstX ? sliceStartIndexForIsoDates(firstX, timeframe) : 0;
+
+        const maxPoints = expanded ? 200 : 100;
+
+        const series: EChartsOption['series'] = positionsData.map(({ asset, x, y, notes }) => {
+          const slicedX = x.slice(idx);
+          const slicedY = y.slice(idx);
+          const slicedNotes = notes.slice(idx);
+
+          let sampledX = slicedX;
+          let sampledY = slicedY;
+          let sampledNotes = slicedNotes;
+
+          if (slicedX.length > maxPoints) {
+            const sampled = sampleDataWithDates(slicedX, slicedY, maxPoints);
+            sampledX = sampled.dates;
+            sampledY = sampled.data as number[];
+            // Sample notes at matching indices
+            const step = slicedX.length / maxPoints;
+            sampledNotes = Array.from({ length: sampledX.length }, (_, i) =>
+              slicedNotes[Math.min(Math.round(i * step), slicedNotes.length - 1)] ?? ''
+            );
+          }
+
+          const c = colorFor(asset);
           return {
-            ...trace,
-            x: t.x ? t.x.slice(idx) : [],
-            y: t.y ? t.y.slice(idx) : [],
-          } as Data;
+            type: 'line' as const,
+            name: asset,
+            step: 'start' as const,
+            data: sampledY,
+            showSymbol: true,
+            symbolSize: 5,
+            lineStyle: { color: c },
+            itemStyle: { color: c },
+            _notes: sampledNotes,
+            _xData: sampledX,
+          };
         });
 
-        // Sample data points for performance (max 100 points per trace)
-        const maxPoints = expanded ? 200 : 100;
-        const sampledData = slicedData.map(trace => {
-          const t = trace as { x?: string[]; y?: number[]; [key: string]: unknown };
-          if (!t.x || !t.y || t.x.length <= maxPoints) return trace;
-          const sampled = sampleDataWithDates(t.x, t.y, maxPoints);
-          return {
-            ...trace,
-            x: sampled.dates,
-            y: sampled.data,
-          } as Data;
-        });
+        // Use the x-axis data from the first series
+        const xData = (positionsData[0]?.x ?? []).slice(idx);
+        const sampledXData = xData.length > maxPoints
+          ? sampleDataWithDates(xData, xData, maxPoints).dates
+          : xData;
+
+        const option: EChartsOption = {
+          xAxis: { type: 'category', data: sampledXData },
+          yAxis: { type: 'value' },
+          tooltip: {
+            trigger: 'axis',
+            formatter: (params: unknown) => {
+              const ps = params as { seriesName: string; value: number; dataIndex: number; color: string; series: { _notes?: string[] } }[];
+              if (!Array.isArray(ps) || ps.length === 0) return '';
+              const date = sampledXData[ps[0]!.dataIndex] ?? '';
+              let html = `<b>${date}</b>`;
+              for (const p of ps) {
+                const note = (series as { _notes?: string[] }[])[0]?._notes?.[p.dataIndex] ?? '';
+                html += `<br/><span style="color:${p.color}">\u25CF</span> ${p.seriesName}: ${p.value}`;
+                if (note) html += `<br/><span style="color:var(--muted);font-size:11px">${note}</span>`;
+              }
+              return html;
+            },
+          },
+          legend: { show: positionsData.length > 1 },
+          series,
+        };
+
         return (
-          <Plot
-            data={sampledData}
-            layout={{
-              ...positionsFigure.layout,
-              height: expanded ? undefined : 320,
-              paper_bgcolor: 'transparent',
-              plot_bgcolor: 'transparent',
-            }}
-            style={{ width: '100%', height: expanded ? '100%' : undefined }}
+          <EChart
+            option={option}
+            style={{ width: '100%', height: expanded ? '100%' : 320 }}
           />
         );
       }}

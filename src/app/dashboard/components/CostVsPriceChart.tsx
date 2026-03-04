@@ -1,11 +1,11 @@
 'use client';
 import React, { useMemo } from 'react';
 import { ChartCard } from '@/components/ChartCard';
-import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { EChart } from '@/components/charts/echarts';
 import { sliceStartIndexForIsoDates, sampleDataPoints } from '@/lib/timeframe';
 import { useDashboardData } from '../../DashboardDataProvider';
 import { useAutoSelectAsset } from '../lib/use-auto-select-asset';
-import type { Data } from 'plotly.js';
+import type { EChartsOption } from 'echarts';
 
 export function CostVsPriceChart() {
   const { txs, assets, historicalPrices, loadingTxs } = useDashboardData();
@@ -83,41 +83,30 @@ export function CostVsPriceChart() {
         const avgCost = costVsPrice.avgCost.slice(idx);
         const price = costVsPrice.price.slice(idx);
 
-        // Sample data points for performance (max 100 points)
         const maxPoints = expanded ? 200 : 100;
         const sampled = sampleDataPoints(dates, [avgCost, price], maxPoints);
 
+        const option: EChartsOption = {
+          xAxis: { type: 'category', data: sampled.dates },
+          yAxis: { type: 'value', name: 'Price (USD)' },
+          tooltip: { trigger: 'axis' },
+          legend: { show: true },
+          series: [
+            {
+              type: 'line', name: 'Average Cost', data: sampled.dataArrays[0]!, showSymbol: false,
+              lineStyle: { color: '#5b8cff', width: 2 }, itemStyle: { color: '#5b8cff' },
+            },
+            {
+              type: 'line', name: 'Market Price', data: sampled.dataArrays[1]!, showSymbol: false,
+              lineStyle: { color: '#16a34a', width: 2 }, itemStyle: { color: '#16a34a' },
+            },
+          ],
+        };
+
         return (
-          <Plot
-            data={[
-              {
-                x: sampled.dates,
-                y: sampled.dataArrays[0]!,
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Average Cost',
-                line: { color: '#5b8cff', width: 2 },
-              },
-              {
-                x: sampled.dates,
-                y: sampled.dataArrays[1]!,
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Market Price',
-                line: { color: '#16a34a', width: 2 },
-              },
-            ] as Data[]}
-            layout={{
-              autosize: true,
-              height: expanded ? undefined : 320,
-              margin: { t: 30, r: 10, l: 40, b: 40 },
-              legend: { orientation: 'h' },
-              yaxis: { title: { text: 'Price (USD)' } },
-              hovermode: 'x unified',
-              paper_bgcolor: 'transparent',
-              plot_bgcolor: 'transparent',
-            }}
-            style={{ width: '100%', height: expanded ? '100%' : undefined }}
+          <EChart
+            option={option}
+            style={{ width: '100%', height: expanded ? '100%' : 320 }}
           />
         );
       }}

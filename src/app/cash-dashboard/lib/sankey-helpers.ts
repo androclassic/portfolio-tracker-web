@@ -1,5 +1,5 @@
 import { getAssetColor } from '@/lib/assets';
-import type { Layout, Data } from 'plotly.js';
+import type { EChartsOption } from 'echarts';
 import type { TaxableEvent, BuyLotTrace } from '@/lib/tax/romania-v2';
 import type { Transaction as Tx } from '@/lib/types';
 
@@ -8,18 +8,17 @@ export type BuyLotTraceWithFundingSells = BuyLotTrace & {
   cashSpentUsd?: number;
 };
 
-export type SankeyExplorerData = { data: Data[]; layout: Partial<Layout>; nodeKeys: string[] };
+export type SankeyExplorerData = { option: EChartsOption; nodeKeys: string[] };
 
 /**
  * Convert taxable event source trace to Sankey diagram format
  */
-export function createSankeyData(event: TaxableEvent, transactions?: Tx[]): { data: Data[]; layout: Partial<Layout> } {
+export function createSankeyData(event: TaxableEvent, transactions?: Tx[]): { option: EChartsOption } {
   const sourceTrace = event.sourceTrace;
 
   if (sourceTrace.length === 0) {
     return {
-      data: [] as Data[],
-      layout: { title: { text: 'No source data available' } }
+      option: { title: { text: 'No source data available' } }
     };
   }
 
@@ -354,48 +353,56 @@ export function createSankeyData(event: TaxableEvent, transactions?: Tx[]): { da
       colors.push(e.color);
     }
 
-    const data: Data = {
-      type: 'sankey',
-      node: {
-        pad: 14,
-        thickness: 18,
-        line: { color: 'black', width: 0.5 },
-        label: nodes,
-        customdata: nodeHover,
-        hovertemplate: '%{customdata}<extra></extra>',
-        color: nodes.map((n) => {
-          if (n === 'Withdrawal') return event.gainLossUsd >= 0 ? '#10b981' : '#ef4444';
-          if (n === 'Deposits') return '#64748b';
-          if (n.startsWith('Swap')) return '#f59e0b';
-          if (n.startsWith('Buy')) return '#a855f7';
-          if (n.startsWith('Sell')) return '#3b82f6';
-          return '#94a3b8';
-        }),
-      },
-      link: {
-        source: sources,
-        target: targets,
-        value: values,
-        label: values.map(() => ''),
-        customdata: linkHover,
-        hovertemplate: '%{customdata}<extra></extra>',
-        color: colors.map((c) => c + '80'),
-      },
-    } as Data;
+    // Build reverse map: index -> key
+    const nodeKeyByIndex: string[] = [];
+    for (const [key, idx] of nodeIndex.entries()) nodeKeyByIndex[idx] = key;
 
-    const layout: Partial<Layout> = {
+    const nodeColors = nodes.map((n) => {
+      if (n === 'Withdrawal') return event.gainLossUsd >= 0 ? '#10b981' : '#ef4444';
+      if (n === 'Deposits') return '#64748b';
+      if (n.startsWith('Swap')) return '#f59e0b';
+      if (n.startsWith('Buy')) return '#a855f7';
+      if (n.startsWith('Sell')) return '#3b82f6';
+      return '#94a3b8';
+    });
+
+    const option: EChartsOption = {
       title: {
-        text:
-          `Money flow to withdrawal - ${new Date(event.datetime).toLocaleDateString()}<br>` +
-          `<span style="font-size: 12px; color: ${event.gainLossUsd >= 0 ? '#10b981' : '#ef4444'}">` +
-          `Net P/L: ${event.gainLossUsd >= 0 ? '+' : ''}$${event.gainLossUsd.toFixed(2)}</span>`,
-        font: { size: 14 },
+        text: `Money flow to withdrawal - ${new Date(event.datetime).toLocaleDateString()}`,
+        subtext: `Net P/L: ${event.gainLossUsd >= 0 ? '+' : ''}$${event.gainLossUsd.toFixed(2)}`,
+        subtextStyle: { color: event.gainLossUsd >= 0 ? '#10b981' : '#ef4444', fontSize: 12 },
+        textStyle: { fontSize: 14 },
       },
-      height: 560,
-      font: { size: 10 },
+      tooltip: { trigger: 'item', triggerOn: 'mousemove' },
+      series: [{
+        type: 'sankey',
+        nodeGap: 14,
+        nodeWidth: 18,
+        layoutIterations: 32,
+        data: nodes.map((label, i) => ({
+          name: nodeKeyByIndex[i] || label,
+          label: { formatter: () => label },
+          itemStyle: { color: nodeColors[i] },
+          _hover: nodeHover[i],
+        })),
+        links: sources.map((src, i) => ({
+          source: nodeKeyByIndex[src] || nodes[src],
+          target: nodeKeyByIndex[targets[i]!] || nodes[targets[i]!],
+          value: values[i],
+          lineStyle: { color: colors[i] + '80' },
+          _hover: linkHover[i],
+        })),
+        tooltip: {
+          formatter: (params: unknown) => {
+            const p = params as { dataType: string; data: { _hover?: string } };
+            return p.data?._hover || '';
+          },
+        },
+        label: { fontSize: 10 },
+      }],
     };
 
-    return { data: [data], layout };
+    return { option };
   }
 
   // Fallback: simple asset-based aggregation
@@ -444,64 +451,80 @@ export function createSankeyData(event: TaxableEvent, transactions?: Tx[]): { da
   labels.push(`Withdrawal: $${event.fiatAmountUsd.toFixed(2)}`);
   colors.push(event.gainLossUsd >= 0 ? '#10b981' : '#ef4444');
 
-  const data: Data = {
-    type: 'sankey',
-    node: {
-      pad: 15,
-      thickness: 20,
-      line: { color: 'black', width: 0.5 },
-      label: nodes.map((n, i) => {
-        if (i === fiatIndex) return 'Withdrawal';
-        if (i === cashIndex) return 'Cash';
-        return n;
-      }),
-      customdata: nodes.map((n, i) => {
-        if (i === fiatIndex) {
-          return [
-            `<b>Withdrawal</b>`,
-            `Amount: $${event.fiatAmountUsd.toFixed(2)}`,
-            `Cost basis: $${event.costBasisUsd.toFixed(2)}`,
-            `Net P/L: ${event.gainLossUsd >= 0 ? '+' : ''}$${event.gainLossUsd.toFixed(2)}`,
-          ].join('<br>');
-        }
-        if (i === cashIndex) {
-          return `<b>Cash (USD)</b><br>Intermediate holding`;
-        }
-        const d = assetMap.get(n);
-        return d
-          ? `<b>${n}</b><br>Cost basis: $${d.costBasis.toFixed(2)}<br>Qty: ${d.quantity.toFixed(8)}`
-          : `<b>${n}</b>`;
-      }),
-      hovertemplate: '%{customdata}<extra></extra>',
-      color: nodes.map((node, idx) => {
-        if (idx === fiatIndex) return event.gainLossUsd >= 0 ? '#10b981' : '#ef4444';
-        if (idx === cashIndex) return '#3b82f6';
-        return getAssetColor(node);
-      })
-    },
-    link: {
-      source: sources,
-      target: targets,
-      value: values,
-      label: labels.map(() => ''),
-      customdata: labels.map((l, idx) => `<b>Flow</b><br>${l}<br>Value: $${values[idx].toFixed(2)}`),
-      hovertemplate: '%{customdata}<extra></extra>',
-      color: colors.map(c => c + '80')
-    }
-  } as Data;
+  const nodeLabels = nodes.map((n, i) => {
+    if (i === fiatIndex) return 'Withdrawal';
+    if (i === cashIndex) return 'Cash';
+    return n;
+  });
 
-  const layout: Partial<Layout> = {
+  const nodeHovers = nodes.map((n, i) => {
+    if (i === fiatIndex) {
+      return [
+        `<b>Withdrawal</b>`,
+        `Amount: $${event.fiatAmountUsd.toFixed(2)}`,
+        `Cost basis: $${event.costBasisUsd.toFixed(2)}`,
+        `Net P/L: ${event.gainLossUsd >= 0 ? '+' : ''}$${event.gainLossUsd.toFixed(2)}`,
+      ].join('<br>');
+    }
+    if (i === cashIndex) {
+      return `<b>Cash (USD)</b><br>Intermediate holding`;
+    }
+    const d = assetMap.get(n);
+    return d
+      ? `<b>${n}</b><br>Cost basis: $${d.costBasis.toFixed(2)}<br>Qty: ${d.quantity.toFixed(8)}`
+      : `<b>${n}</b>`;
+  });
+
+  const nodeColors = nodes.map((node, idx) => {
+    if (idx === fiatIndex) return event.gainLossUsd >= 0 ? '#10b981' : '#ef4444';
+    if (idx === cashIndex) return '#3b82f6';
+    return getAssetColor(node);
+  });
+
+  // Use unique keys for ECharts node names
+  const nodeNames = nodes.map((n, i) => {
+    if (i === fiatIndex) return 'withdrawal';
+    if (i === cashIndex) return 'cash';
+    return `asset:${n}`;
+  });
+
+  const option: EChartsOption = {
     title: {
-      text: `Source Flow - ${new Date(event.datetime).toLocaleDateString()}<br>` +
-            `<span style="font-size: 12px; color: ${event.gainLossUsd >= 0 ? '#10b981' : '#ef4444'}">` +
-            `Gain/Loss: ${event.gainLossUsd >= 0 ? '+' : ''}$${event.gainLossUsd.toFixed(2)}</span>`,
-      font: { size: 14 }
+      text: `Source Flow - ${new Date(event.datetime).toLocaleDateString()}`,
+      subtext: `Gain/Loss: ${event.gainLossUsd >= 0 ? '+' : ''}$${event.gainLossUsd.toFixed(2)}`,
+      subtextStyle: { color: event.gainLossUsd >= 0 ? '#10b981' : '#ef4444', fontSize: 12 },
+      textStyle: { fontSize: 14 },
     },
-    height: 400,
-    font: { size: 10 }
+    tooltip: { trigger: 'item', triggerOn: 'mousemove' },
+    series: [{
+      type: 'sankey',
+      nodeGap: 15,
+      nodeWidth: 20,
+      layoutIterations: 32,
+      data: nodeNames.map((name, i) => ({
+        name,
+        label: { formatter: () => nodeLabels[i] || '' },
+        itemStyle: { color: nodeColors[i] },
+        _hover: nodeHovers[i],
+      })),
+      links: sources.map((src, i) => ({
+        source: nodeNames[src]!,
+        target: nodeNames[targets[i]!]!,
+        value: values[i],
+        lineStyle: { color: colors[i] + '80' },
+        _hover: `<b>Flow</b><br>${labels[i]}<br>Value: $${values[i]!.toFixed(2)}`,
+      })),
+      tooltip: {
+        formatter: (params: unknown) => {
+          const p = params as { dataType: string; data: { _hover?: string } };
+          return p.data?._hover || '';
+        },
+      },
+      label: { fontSize: 10 },
+    }],
   };
 
-  return { data: [data], layout };
+  return { option };
 }
 
 export function createSankeyExplorerData(event: TaxableEvent, opts: {
@@ -511,7 +534,7 @@ export function createSankeyExplorerData(event: TaxableEvent, opts: {
   showLabels: boolean;
   nodeThickness: number;
   nodePad: number;
-}, transactions?: Tx[]): SankeyExplorerData {
+}, transactions?: Tx[]): { option: EChartsOption; nodeKeys: string[] } {
   const sourceTrace = event.sourceTrace;
   const directSales = event.saleTrace || [];
   const deepSales = (event.saleTraceDeep && event.saleTraceDeep.length ? event.saleTraceDeep : directSales) || [];
@@ -938,48 +961,51 @@ export function createSankeyExplorerData(event: TaxableEvent, opts: {
     colors.push(e.color);
   }
 
-  const data: Data = {
-    type: 'sankey',
-    arrangement: 'fixed',
-    node: {
-      pad: Math.max(2, Math.min(30, opts.nodePad)),
-      thickness: Math.max(6, Math.min(30, opts.nodeThickness)),
-      line: { color: 'black', width: 0.35 },
-      label: nodes,
-      customdata: nodeHover,
-      hovertemplate: '%{customdata}<extra></extra>',
-      color: nodeKeys.map((k) => {
-        if (k === 'withdrawal') return event.gainLossUsd >= 0 ? '#10b981' : '#ef4444';
-        if (k.startsWith('deposit:')) return '#64748b';
-        if (k.startsWith('collapsedLots:')) return '#94a3b8';
-        if (k.startsWith('collapsed:')) return '#94a3b8';
-        if (k.startsWith('buy:')) return '#a855f7';
-        if (k.startsWith('sell:')) return '#3b82f6';
-        return '#94a3b8';
-      }),
-    },
-    link: {
-      source: sources,
-      target: targets,
-      value: values,
-      label: values.map(() => ''),
-      customdata: linkHover,
-      hovertemplate: '%{customdata}<extra></extra>',
-      color: colors.map((c) => c + '66'),
-    },
-  } as Data;
+  const nodeColors = nodeKeys.map((k) => {
+    if (k === 'withdrawal') return event.gainLossUsd >= 0 ? '#10b981' : '#ef4444';
+    if (k.startsWith('deposit:')) return '#64748b';
+    if (k.startsWith('collapsedLots:')) return '#94a3b8';
+    if (k.startsWith('collapsed:')) return '#94a3b8';
+    if (k.startsWith('buy:')) return '#a855f7';
+    if (k.startsWith('sell:')) return '#3b82f6';
+    return '#94a3b8';
+  });
 
-  const layout: Partial<Layout> = {
+  const option: EChartsOption = {
     title: {
-      text:
-        `Money flow to withdrawal - ${new Date(event.datetime).toLocaleDateString()}<br>` +
-        `<span style="font-size: 12px; color: ${event.gainLossUsd >= 0 ? '#10b981' : '#ef4444'}">` +
-        `Net P/L: ${event.gainLossUsd >= 0 ? '+' : ''}$${event.gainLossUsd.toFixed(2)}</span>`,
-      font: { size: 14 },
+      text: `Money flow to withdrawal - ${new Date(event.datetime).toLocaleDateString()}`,
+      subtext: `Net P/L: ${event.gainLossUsd >= 0 ? '+' : ''}$${event.gainLossUsd.toFixed(2)}`,
+      subtextStyle: { color: event.gainLossUsd >= 0 ? '#10b981' : '#ef4444', fontSize: 12 },
+      textStyle: { fontSize: 14 },
     },
-    height: 560,
-    font: { size: 10 },
+    tooltip: { trigger: 'item', triggerOn: 'mousemove' },
+    series: [{
+      type: 'sankey',
+      nodeGap: Math.max(2, Math.min(30, opts.nodePad)),
+      nodeWidth: Math.max(6, Math.min(30, opts.nodeThickness)),
+      layoutIterations: 32,
+      data: nodeKeys.map((key, i) => ({
+        name: key,
+        label: { formatter: () => nodes[i] || '' },
+        itemStyle: { color: nodeColors[i] },
+        _hover: nodeHover[i],
+      })),
+      links: sources.map((src, i) => ({
+        source: nodeKeys[src]!,
+        target: nodeKeys[targets[i]!]!,
+        value: values[i],
+        lineStyle: { color: colors[i] + '66' },
+        _hover: linkHover[i],
+      })),
+      tooltip: {
+        formatter: (params: unknown) => {
+          const p = params as { dataType: string; data: { _hover?: string } };
+          return p.data?._hover || '';
+        },
+      },
+      label: { fontSize: 10 },
+    }],
   };
 
-  return { data: [data], layout, nodeKeys };
+  return { option, nodeKeys };
 }

@@ -1,11 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-
-type PlotlyTheme = {
-  layoutDefaults: Record<string, unknown>;
-  configDefaults: Record<string, unknown>;
-};
+import type { EChartsOption } from 'echarts';
 
 function readCssVar(name: string): string {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name);
@@ -29,7 +25,7 @@ function hexToRgba(hex: string, alpha: number): string | null {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-function buildTheme(): PlotlyTheme {
+function buildTheme(): EChartsOption {
   const text = readCssVar('--text') || '#e8eeff';
   const muted = readCssVar('--muted') || '#a3b1d1';
   const border = readCssVar('--border') || '#1e2a4a';
@@ -41,90 +37,74 @@ function buildTheme(): PlotlyTheme {
   const danger = readCssVar('--danger') || '#dc2626';
 
   const grid = hexToRgba(border, 0.35) ?? border;
-  const hoverBg = hexToRgba(card, 0.98) ?? card;
-  const hoverBorder = hexToRgba(border, 0.85) ?? border;
-
-  const transparent = 'rgba(0,0,0,0)';
+  const tooltipBg = hexToRgba(card, 0.98) ?? card;
+  const tooltipBorder = hexToRgba(border, 0.85) ?? border;
 
   return {
-    layoutDefaults: {
-      paper_bgcolor: transparent,
-      plot_bgcolor: transparent,
-      autosize: true,
-      font: {
-        family: 'inherit',
-        color: text,
-        size: 12,
-      },
-      colorway: [primary, accent, success, warning, danger],
-      margin: { t: 36, r: 14, l: 44, b: 40 },
-      legend: {
-        orientation: 'h',
-        bgcolor: transparent,
-        font: { color: text },
-      },
-      hoverlabel: {
-        bgcolor: hoverBg,
-        bordercolor: hoverBorder,
-        font: { color: text, family: 'inherit' },
-      },
-      xaxis: {
-        color: muted,
-        gridcolor: grid,
-        zerolinecolor: grid,
-        linecolor: border,
-        tickcolor: border,
-      },
-      yaxis: {
-        color: muted,
-        gridcolor: grid,
-        zerolinecolor: grid,
-        linecolor: border,
-        tickcolor: border,
+    backgroundColor: 'transparent',
+    color: [primary, accent, success, warning, danger],
+    textStyle: {
+      fontFamily: 'inherit',
+      color: text,
+      fontSize: 12,
+    },
+    grid: {
+      top: 36,
+      right: 14,
+      left: 44,
+      bottom: 40,
+      containLabel: false,
+    },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: tooltipBg,
+      borderColor: tooltipBorder,
+      textStyle: { color: text, fontSize: 12 },
+      axisPointer: {
+        type: 'cross',
+        lineStyle: { color: muted, type: 'dashed' },
+        crossStyle: { color: muted },
       },
     },
-    configDefaults: {
-      responsive: true,
-      displaylogo: false,
-      displayModeBar: true, // Enable modebar by default for zoom controls
-      modeBarButtonsToRemove: [
-        'zoom2d',
-        'pan2d',
-        'lasso2d',
-        'select2d',
-        'zoomIn2d',
-        'zoomOut2d',
-        'resetScale2d',
-        'hoverClosestCartesian',
-        'hoverCompareCartesian',
-        'toggleHover',
-        'toImage',
-      ],
-      // Keep only: autoScale2d (autofit/zoom out)
+    legend: {
+      orient: 'horizontal',
+      bottom: 0,
+      textStyle: { color: text },
+      icon: 'roundRect',
+      itemWidth: 14,
+      itemHeight: 8,
+    },
+    xAxis: {
+      axisLine: { lineStyle: { color: border } },
+      axisTick: { lineStyle: { color: border } },
+      axisLabel: { color: muted },
+      splitLine: { lineStyle: { color: grid, type: 'dashed' } },
+    },
+    yAxis: {
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: muted },
+      splitLine: { lineStyle: { color: grid, type: 'dashed' } },
     },
   };
 }
 
-export function usePlotlyTheme(): PlotlyTheme {
+export function useEChartsTheme(): EChartsOption {
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
     const recompute = () => setVersion((v) => v + 1);
 
-    // Recompute when the manual theme attribute changes.
     const obs = new MutationObserver(recompute);
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
-    // Recompute when system theme changes and the app is in "system" mode.
     const mql = window.matchMedia?.('(prefers-color-scheme: light)');
     const onMql = () => recompute();
     if (mql?.addEventListener) mql.addEventListener('change', onMql);
-    else if (mql?.addListener) mql.addListener(onMql);
 
     return () => {
       obs.disconnect();
       if (mql?.removeEventListener) mql.removeEventListener('change', onMql);
-      else if (mql?.removeListener) mql.removeListener(onMql);
     };
   }, []);
 
@@ -133,5 +113,3 @@ export function usePlotlyTheme(): PlotlyTheme {
     return buildTheme();
   }, [version]);
 }
-
-

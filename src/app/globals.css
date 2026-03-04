@@ -705,8 +705,6 @@ select option{background:var(--surface);color:var(--text)}
 .chart-card-collapsed{opacity:0.85}
 .chart-card-body{min-height:250px;overflow:hidden;position:relative;width:100%}
 .chart-card-body > *{max-width:100%}
-.chart-card-body .js-plotly-plot{max-width:100%!important;overflow:hidden!important}
-.chart-card-body .plotly{max-width:100%!important;overflow:hidden!important}
 .chart-card-footer{margin-top:10px;color:var(--muted);font-size:0.9rem}
 
 .modal-backdrop.chart-modal-backdrop{align-items:center;justify-content:center}
@@ -732,11 +730,6 @@ select option{background:var(--surface);color:var(--text)}
   flex:1;
   min-height:0;
 }
-.chart-modal-body .js-plotly-plot,
-.chart-modal-body .js-plotly-plot .plotly{
-  height:100% !important;
-}
-
 /* Segmented control */
 .segmented{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}
 .segmented button{appearance:none;background:none;border:none;color:var(--text);padding:6px 12px;cursor:pointer}
@@ -966,26 +959,6 @@ select option{background:var(--surface);color:var(--text)}
 
 /* Chart mobile optimization */
 @media (max-width: 768px) {
-  .js-plotly-plot{
-    min-height:250px !important;
-  }
-  .js-plotly-plot .plotly{
-    height:250px !important;
-  }
-  
-  /* Make legend scrollable on mobile for stacked charts */
-  .js-plotly-plot .legend{
-    max-height: 200px;
-    overflow-y: auto;
-    overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-  }
-  
-  /* Ensure chart container doesn't overflow */
-  .js-plotly-plot .plot-container{
-    overflow: visible;
-  }
-  
   /* Make card action buttons (close, expand, collapse) bigger on mobile */
   .card-actions .icon-btn {
     width: 40px !important;
@@ -1015,19 +988,6 @@ select option{background:var(--surface);color:var(--text)}
   .modal .actions{
     flex-direction:column;
   }
-  .js-plotly-plot{
-    min-height:200px !important;
-  }
-  .js-plotly-plot .plotly{
-    height:200px !important;
-  }
-  
-  /* Smaller legend on very small screens */
-  .js-plotly-plot .legend{
-    max-height: 150px;
-    font-size: 10px !important;
-  }
-  
   /* Even bigger card action buttons on very small screens */
   .card-actions .icon-btn {
     width: 44px !important;
@@ -1239,20 +1199,6 @@ select option{background:var(--surface);color:var(--text)}
     font-size: var(--text-xs);
   }
 
-  /* Better chart touch interactions */
-  .js-plotly-plot .plotly .cartesianlayer .subplot {
-    touch-action: manipulation;
-  }
-
-  /* Improve chart legend on mobile */
-  .js-plotly-plot .legend {
-    font-size: 11px !important;
-    padding: 8px !important;
-  }
-
-  .js-plotly-plot .legend .legendtoggle {
-    padding: 4px !important;
-  }
 }
 
 .skeleton-text {

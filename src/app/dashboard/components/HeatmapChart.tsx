@@ -2,10 +2,10 @@
 import React, { useMemo, useState } from 'react';
 import { isStablecoin } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
-import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { EChart } from '@/components/charts/echarts';
 import { ShortTimeframeSelector, type ShortTimeframe } from '@/components/ShortTimeframeSelector';
 import { useDashboardData } from '../../DashboardDataProvider';
-import type { Data } from 'plotly.js';
+import type { EChartsOption } from 'echarts';
 
 export function HeatmapChart() {
   const { txs, assets, historicalPrices, latestPrices, loadingTxs, loadingCurr, loadingHist } = useDashboardData();
@@ -121,31 +121,44 @@ export function HeatmapChart() {
         if (!portfolioHeatmap.pnlValues.length) {
           return <div className="chart-empty">No heatmap data available</div>;
         }
-        const treemapData = [{
-          type: 'treemap' as const,
-          labels: portfolioHeatmap.assets,
-          values: portfolioHeatmap.pnlValues.map(Math.abs),
-          parents: portfolioHeatmap.assets.map(() => ''),
-          marker: {
-            colors: portfolioHeatmap.colors,
-            line: { width: 1, color: 'white' }
+
+        const treemapData = portfolioHeatmap.assets.map((asset, i) => ({
+          name: asset,
+          value: Math.abs(portfolioHeatmap.pnlValues[i]!),
+          itemStyle: { color: portfolioHeatmap.colors[i] },
+          _pnl: portfolioHeatmap.pnlValues[i],
+        }));
+
+        const option: EChartsOption = {
+          tooltip: {
+            formatter: (params: unknown) => {
+              const p = params as { data: { name: string; _pnl: number } };
+              const pnl = p.data._pnl;
+              return `${p.data.name}: ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}`;
+            },
           },
-          textinfo: 'label+value',
-          texttemplate: '%{label}<br>%{value:.2f}',
-          hovertemplate: '%{label}: %{customdata:.2f} USD<extra></extra>',
-          customdata: portfolioHeatmap.pnlValues,
-        }];
+          series: [
+            {
+              type: 'treemap',
+              data: treemapData,
+              label: {
+                show: true,
+                formatter: (params: unknown) => {
+                  const p = params as { data: { name: string; value: number; _pnl: number } };
+                  return `${p.data.name}\n$${p.data._pnl.toFixed(2)}`;
+                },
+              },
+              breadcrumb: { show: false },
+              roam: false,
+              nodeClick: false,
+            },
+          ],
+        };
 
         return (
-          <Plot
-            data={treemapData as Data[]}
-            layout={{
-              height: expanded ? undefined : 400,
-              margin: { t: 30, r: 10, l: 10, b: 10 },
-              paper_bgcolor: 'transparent',
-              plot_bgcolor: 'transparent',
-            }}
-            style={{ width: '100%', height: expanded ? '100%' : undefined }}
+          <EChart
+            option={option}
+            style={{ width: '100%', height: expanded ? '100%' : 400 }}
           />
         );
       }}

@@ -1,7 +1,7 @@
 'use client';
 import React, { useCallback, useMemo, useState } from 'react';
 import { getAssetColor } from '@/lib/assets';
-import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { EChart } from '@/components/charts/echarts';
 import CryptoIcon from '../../components/CryptoIcon';
 import { createSankeyExplorerData, type BuyLotTraceWithFundingSells } from '../lib/sankey-helpers';
 import type { TaxableEvent } from '@/lib/tax/romania-v2';
@@ -54,13 +54,10 @@ export function SankeyExplorer({ event, transactions }: { event: TaxableEvent; t
   }, [event, visibleSaleIds, visibleBuyIds, showDepositTxs, showLabels, nodeThickness, nodePad, transactions]);
 
   const onNodeClick = useCallback((ev: unknown) => {
-    const e = ev as { points?: Array<{ pointNumber?: number; pointIndex?: number }> } | null;
-    const p = e?.points?.[0];
-    const idx = typeof p?.pointNumber === 'number'
-      ? p.pointNumber
-      : (typeof p?.pointIndex === 'number' ? p.pointIndex : null);
-    if (idx === null) return;
-    const key = data.nodeKeys[idx];
+    const e = ev as { dataType?: string; data?: { name?: string }; name?: string } | null;
+    // ECharts sankey click gives us the node name directly
+    if (e?.dataType !== 'node') return;
+    const key = e.data?.name || e.name;
     if (!key) return;
 
     if (key.startsWith('collapsed:')) {
@@ -566,11 +563,10 @@ export function SankeyExplorer({ event, transactions }: { event: TaxableEvent; t
             Click nodes in the diagram to explore transactions hierarchically.
           </span>
         </div>
-        <Plot
-          data={data.data}
-          layout={data.layout}
-          style={{ width: '100%', minHeight: '400px' }}
-          onClick={onNodeClick}
+        <EChart
+          option={data.option}
+          style={{ width: '100%', minHeight: '400px', height: 560 }}
+          onEvents={{ click: onNodeClick }}
         />
       </div>
 

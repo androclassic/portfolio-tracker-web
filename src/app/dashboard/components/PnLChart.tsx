@@ -2,12 +2,12 @@
 import React, { useCallback, useMemo } from 'react';
 import { getAssetColor } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
-import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { EChart } from '@/components/charts/echarts';
 import { sliceStartIndexForIsoDates, sampleDataWithDates } from '@/lib/timeframe';
 import { useDashboardData } from '../../DashboardDataProvider';
 import { useAutoSelectAsset } from '../lib/use-auto-select-asset';
 import { buildAssetSwapPnlSeries } from '@/lib/portfolio-engine';
-import type { Data } from 'plotly.js';
+import type { EChartsOption } from 'echarts';
 
 export function PnLChart() {
   const { txs, assets, historicalPrices, loadingTxs, pnlData } = useDashboardData();
@@ -66,61 +66,42 @@ export function PnLChart() {
         const idx = sliceStartIndexForIsoDates(chartDates, timeframe);
         const dates = chartDates.slice(idx);
 
-        // Sample data points for performance (max 100 points per trace)
         const maxPoints = expanded ? 200 : 100;
         const sampledDates = sampleDataWithDates(dates, dates, maxPoints).dates;
 
-        let traces: Data[] = [];
+        const series: EChartsOption['series'] = [];
         if (selectedPnLAsset === '') {
-          // Show all assets - use shared time-series when available, fallback to current P&L.
-          traces = assets.map(asset => {
-            const series = pnlSeriesByAsset.get(asset);
-            const values = (series?.values || new Array(chartDates.length).fill(pnlData.assetPnL[asset]?.pnl || 0)).slice(idx);
+          for (const asset of assets) {
+            const s = pnlSeriesByAsset.get(asset);
+            const values = (s?.values || new Array(chartDates.length).fill(pnlData.assetPnL[asset]?.pnl || 0)).slice(idx);
             const sampledY = sampleDataWithDates(dates, values, maxPoints).data;
-
-            return {
-              x: sampledDates,
-              y: sampledY as number[],
-              type: 'scatter' as const,
-              mode: 'lines' as const,
-              name: asset,
-              line: { color: colorFor(asset) },
-              hovertemplate: `${asset}: %{y:.2f} USD<extra></extra>`,
-            };
-          });
+            series.push({
+              type: 'line', name: asset, data: sampledY as number[], showSymbol: false,
+              lineStyle: { color: colorFor(asset) }, itemStyle: { color: colorFor(asset) },
+            });
+          }
         } else {
-          const series = pnlSeriesByAsset.get(selectedPnLAsset);
-          const values = (series?.values || new Array(chartDates.length).fill(pnlData.assetPnL[selectedPnLAsset]?.pnl || 0)).slice(idx);
+          const s = pnlSeriesByAsset.get(selectedPnLAsset);
+          const values = (s?.values || new Array(chartDates.length).fill(pnlData.assetPnL[selectedPnLAsset]?.pnl || 0)).slice(idx);
           const sampledY = sampleDataWithDates(dates, values, maxPoints).data;
-
-          traces = [{
-            x: sampledDates,
-            y: sampledY as number[],
-            type: 'scatter' as const,
-            mode: 'lines' as const,
-            name: selectedPnLAsset,
-            line: { color: colorFor(selectedPnLAsset), width: 3 },
-            hovertemplate: `${selectedPnLAsset}: %{y:.2f} USD<extra></extra>`,
-          }];
+          series.push({
+            type: 'line', name: selectedPnLAsset, data: sampledY as number[], showSymbol: false,
+            lineStyle: { color: colorFor(selectedPnLAsset), width: 3 }, itemStyle: { color: colorFor(selectedPnLAsset) },
+          });
         }
 
+        const option: EChartsOption = {
+          xAxis: { type: 'category', data: sampledDates },
+          yAxis: { type: 'value', name: 'P&L (USD)' },
+          tooltip: { trigger: 'axis' },
+          legend: { show: true },
+          series,
+        };
+
         return (
-          <Plot
-            data={traces as Data[]}
-            layout={{
-              autosize: true,
-              height: expanded ? undefined : 400,
-              margin: { t: 30, r: 10, l: 50, b: 30 },
-              hovermode: 'x unified',
-              paper_bgcolor: 'transparent',
-              plot_bgcolor: 'transparent',
-              yaxis: { title: { text: 'P&L (USD)' } },
-              legend: {
-                orientation: 'h',
-                y: -0.2,
-              },
-            }}
-            style={{ width: '100%', height: expanded ? '100%' : undefined }}
+          <EChart
+            option={option}
+            style={{ width: '100%', height: expanded ? '100%' : 400 }}
           />
         );
       }}

@@ -2,10 +2,10 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { getAssetColor } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
-import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { EChart } from '@/components/charts/echarts';
 import { sliceStartIndexForIsoDates, sampleDataWithDates } from '@/lib/timeframe';
 import { useDashboardData } from '../../DashboardDataProvider';
-import type { Data } from 'plotly.js';
+import type { EChartsOption } from 'echarts';
 
 export function AltcoinVsBtcChart() {
   const { txs, assets, dailyPos, historicalPrices, priceIndex, loadingTxs } = useDashboardData();
@@ -15,7 +15,6 @@ export function AltcoinVsBtcChart() {
 
   const hist = useMemo(() => ({ prices: historicalPrices }), [historicalPrices]);
 
-  // Altcoin Holdings BTC Value - Use dailyPos instead of filtering transactions
   const altcoinVsBtc = useMemo(() => {
     if (!hist || !hist.prices || assets.length === 0 || !dailyPos || dailyPos.length === 0) {
       return { dates: [] as string[], performance: {} as Record<string, number[]> };
@@ -24,12 +23,10 @@ export function AltcoinVsBtcChart() {
     const priceMap = new Map<string, number>();
     for (const p of hist.prices) priceMap.set(p.date + '|' + p.asset.toUpperCase(), p.price_usd);
 
-    // Use priceIndex.dates if available, otherwise derive from historicalPrices
     const dates = priceIndex.dates.length > 0
       ? priceIndex.dates
       : Array.from(new Set(hist.prices.map(p => p.date))).sort();
 
-    // Build position map from dailyPos with forward-fill
     const positionsByAsset = new Map<string, Array<{ date: string; position: number }>>();
     for (const pos of dailyPos) {
       if (!positionsByAsset.has(pos.asset)) {
@@ -38,7 +35,6 @@ export function AltcoinVsBtcChart() {
       positionsByAsset.get(pos.asset)!.push({ date: pos.date, position: pos.position });
     }
 
-    // Sort positions by date for each asset
     for (const positions of positionsByAsset.values()) {
       positions.sort((a, b) => a.date.localeCompare(b.date));
     }
@@ -52,7 +48,6 @@ export function AltcoinVsBtcChart() {
       const positions = positionsByAsset.get(asset);
 
       for (const date of dates) {
-        // Get position: find most recent position <= current date
         let position = 0;
         if (positions && positions.length > 0) {
           let idx = assetIndices.get(asset) ?? 0;
@@ -106,38 +101,37 @@ export function AltcoinVsBtcChart() {
         const idx = sliceStartIndexForIsoDates(altcoinVsBtc.dates, timeframe);
         const dates = altcoinVsBtc.dates.slice(idx);
 
-        // Sample data points for performance (max 100 points)
         const maxPoints = expanded ? 200 : 100;
-        const buildTrace = (asset: string) => {
+
+        const buildSeries = (asset: string) => {
           const yData = (altcoinVsBtc.performance[asset] || []).slice(idx);
           const sampled = sampleDataWithDates(dates, yData, maxPoints);
           return {
-            x: sampled.dates,
-            y: sampled.data,
-            type: 'scatter' as const,
-            mode: 'lines' as const,
-            name: asset,
-            line: { color: colorFor(asset) },
+            type: 'line' as const, name: asset, data: sampled.data as number[], showSymbol: false,
+            lineStyle: { color: colorFor(asset) }, itemStyle: { color: colorFor(asset) },
           };
         };
-        const traces =
-          selectedAltcoin === 'ALL'
-            ? assets.filter(a => a !== 'BTC').map(buildTrace)
-            : [buildTrace(selectedAltcoin)];
+
+        const assetsToShow = selectedAltcoin === 'ALL'
+          ? assets.filter(a => a !== 'BTC')
+          : [selectedAltcoin];
+
+        // Use sampled dates from first asset
+        const firstYData = (altcoinVsBtc.performance[assetsToShow[0] ?? ''] || []).slice(idx);
+        const sampledDates = sampleDataWithDates(dates, firstYData, maxPoints).dates;
+
+        const option: EChartsOption = {
+          xAxis: { type: 'category', data: sampledDates },
+          yAxis: { type: 'value', name: 'BTC Value of Holdings' },
+          tooltip: { trigger: 'axis' },
+          legend: { show: true },
+          series: assetsToShow.map(buildSeries),
+        };
+
         return (
-          <Plot
-            data={traces as unknown as Data[]}
-            layout={{
-              autosize: true,
-              height: expanded ? undefined : 320,
-              margin: { t: 30, r: 10, l: 40, b: 40 },
-              legend: { orientation: 'h' },
-              yaxis: { title: { text: 'BTC Value of Holdings' } },
-              hovermode: 'x unified',
-              paper_bgcolor: 'transparent',
-              plot_bgcolor: 'transparent',
-            }}
-            style={{ width: '100%', height: expanded ? '100%' : undefined }}
+          <EChart
+            option={option}
+            style={{ width: '100%', height: expanded ? '100%' : 320 }}
           />
         );
       }}

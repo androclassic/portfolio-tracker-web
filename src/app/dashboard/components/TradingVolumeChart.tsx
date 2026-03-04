@@ -2,17 +2,16 @@
 import React, { useMemo, useState } from 'react';
 import { getAssetColor, isStablecoin } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
-import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { EChart } from '@/components/charts/echarts';
 import { startIsoForTimeframe } from '@/lib/timeframe';
 import { useDashboardData } from '../../DashboardDataProvider';
-import type { Data } from 'plotly.js';
+import type { EChartsOption } from 'echarts';
 
 export function TradingVolumeChart() {
   const { txs, loadingTxs } = useDashboardData();
 
   const [sideFilter, setSideFilter] = useState<'all' | 'buys' | 'sells'>('all');
 
-  // Compute per-asset USD volume from transactions, optionally filtered by side.
   const volumeByAsset = useMemo(() => {
     if (!txs || txs.length === 0) return new Map<string, { total: number; byDate: Map<string, number> }>();
 
@@ -32,11 +31,9 @@ export function TradingVolumeChart() {
     for (const tx of txs) {
       const date = tx.datetime.slice(0, 10);
 
-      // To-side volume (deposits, withdrawals, swap destination)
       if (sideFilter !== 'sells' && tx.toAsset && tx.toQuantity && tx.toPriceUsd) {
         addVolume(tx.toAsset.toUpperCase(), Math.abs(tx.toQuantity) * tx.toPriceUsd, date);
       }
-      // From-side volume (swaps source / withdrawals source)
       if (sideFilter !== 'buys' && tx.fromAsset && tx.fromQuantity && tx.fromPriceUsd) {
         addVolume(tx.fromAsset.toUpperCase(), Math.abs(tx.fromQuantity) * tx.fromPriceUsd, date);
       }
@@ -68,14 +65,12 @@ export function TradingVolumeChart() {
           return <div className="chart-empty">No transaction data available</div>;
         }
 
-        // Filter by timeframe
         const startIso = startIsoForTimeframe(timeframe);
         const filtered: Array<{ asset: string; volume: number }> = [];
 
         for (const [asset, data] of volumeByAsset) {
           let vol = 0;
           if (!startIso) {
-            // 'all' timeframe
             vol = data.total;
           } else {
             for (const [date, usd] of data.byDate) {
@@ -89,36 +84,50 @@ export function TradingVolumeChart() {
           return <div className="chart-empty">No volume for the selected timeframe</div>;
         }
 
-        // Sort ascending so largest bar is at top in horizontal layout
+        // Sort ascending so largest bar is at top
         filtered.sort((a, b) => a.volume - b.volume);
 
         const assets = filtered.map(f => f.asset);
         const volumes = filtered.map(f => f.volume);
         const colors = filtered.map(f => getAssetColor(f.asset));
 
-        const traces: Data[] = [
-          {
-            type: 'bar',
-            orientation: 'h',
-            x: volumes,
-            y: assets,
-            marker: { color: colors },
-            text: volumes.map(v => v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(0)}`),
-            textposition: 'outside',
-            hovertemplate: '%{y}: $%{x:,.0f}<extra></extra>',
+        const option: EChartsOption = {
+          xAxis: { type: 'value', name: 'Volume (USD)' },
+          yAxis: { type: 'category', data: assets, axisLabel: { show: true } },
+          tooltip: {
+            trigger: 'axis',
+            axisPointer: { type: 'shadow' },
+            formatter: (params: unknown) => {
+              const p = (params as { name: string; value: number }[])[0];
+              if (!p) return '';
+              return `${p.name}: $${p.value.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+            },
           },
-        ];
+          legend: { show: false },
+          grid: { left: 60, right: 80 },
+          series: [
+            {
+              type: 'bar',
+              data: volumes.map((v, i) => ({
+                value: v,
+                itemStyle: { color: colors[i] },
+              })),
+              label: {
+                show: true,
+                position: 'right',
+                formatter: (params: unknown) => {
+                  const v = Number((params as { value: number }).value) || 0;
+                  return v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(0)}`;
+                },
+              },
+            },
+          ],
+        };
 
         return (
-          <Plot
-            data={traces}
-            layout={{
-              yaxis: { automargin: true },
-              xaxis: { title: { text: 'Volume (USD)' } },
-              showlegend: false,
-              height: expanded ? undefined : Math.max(300, filtered.length * 32 + 80),
-            }}
-            style={{ width: '100%', height: expanded ? '100%' : undefined }}
+          <EChart
+            option={option}
+            style={{ width: '100%', height: expanded ? '100%' : Math.max(300, filtered.length * 32 + 80) }}
           />
         );
       }}

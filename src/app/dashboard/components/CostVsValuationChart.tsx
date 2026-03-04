@@ -2,11 +2,11 @@
 import React, { useCallback, useMemo } from 'react';
 import { isStablecoin } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
-import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { EChart } from '@/components/charts/echarts';
 import { sliceStartIndexForIsoDates, sampleDataPoints } from '@/lib/timeframe';
 import { useDashboardData } from '../../DashboardDataProvider';
 import { getEURCPrice } from '../lib/chart-helpers';
-import type { Data } from 'plotly.js';
+import type { EChartsOption } from 'echarts';
 
 export function CostVsValuationChart() {
   const { txs, assets, dailyPos, priceIndex, fxRateMap, latestPrices, historicalPrices, loadingTxs } = useDashboardData();
@@ -169,37 +169,27 @@ export function CostVsValuationChart() {
         const maxPoints = expanded ? 200 : 100;
         const sampled = sampleDataPoints(dates, [costBasisSlice, portfolioValueSlice], maxPoints);
 
+        const option: EChartsOption = {
+          xAxis: { type: 'category', data: sampled.dates },
+          yAxis: { type: 'value', name: 'USD Value' },
+          tooltip: { trigger: 'axis' },
+          legend: { show: true },
+          series: [
+            {
+              type: 'line', name: 'Cost Basis', data: sampled.dataArrays[0]!, showSymbol: false,
+              lineStyle: { color: '#5b8cff', width: 2 }, itemStyle: { color: '#5b8cff' },
+            },
+            {
+              type: 'line', name: 'Portfolio Value', data: sampled.dataArrays[1]!, showSymbol: false,
+              lineStyle: { color: '#16a34a', width: 2 }, itemStyle: { color: '#16a34a' },
+            },
+          ],
+        };
+
         return (
-          <Plot
-            data={[
-              {
-                x: sampled.dates,
-                y: sampled.dataArrays[0]!,
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Cost Basis',
-                line: { color: '#5b8cff', width: 2 },
-              },
-              {
-                x: sampled.dates,
-                y: sampled.dataArrays[1]!,
-                type: 'scatter',
-                mode: 'lines',
-                name: 'Portfolio Value',
-                line: { color: '#16a34a', width: 2 },
-              },
-            ] as Data[]}
-            layout={{
-              autosize: true,
-              height: expanded ? undefined : 400,
-              margin: { t: 30, r: 10, l: 50, b: 30 },
-              legend: { orientation: 'h' },
-              yaxis: { title: { text: 'USD Value' } },
-              hovermode: 'x unified',
-              paper_bgcolor: 'transparent',
-              plot_bgcolor: 'transparent',
-            }}
-            style={{ width: '100%', height: expanded ? '100%' : undefined }}
+          <EChart
+            option={option}
+            style={{ width: '100%', height: expanded ? '100%' : 400 }}
           />
         );
       }}

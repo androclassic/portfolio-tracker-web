@@ -2,11 +2,11 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { isStablecoin } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
-import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
+import { EChart } from '@/components/charts/echarts';
 import { sliceStartIndexForIsoDates, sampleDataWithDates } from '@/lib/timeframe';
 import { useDashboardData } from '../../DashboardDataProvider';
 import { getEURCPrice } from '../lib/chart-helpers';
-import type { Data } from 'plotly.js';
+import type { EChartsOption } from 'echarts';
 
 export function BtcRatioChart() {
   const { txs, assets, historicalPrices, fxRateMap, loadingTxs, loadingCurr, loadingHist } = useDashboardData();
@@ -132,93 +132,51 @@ export function BtcRatioChart() {
         const idx = sliceStartIndexForIsoDates(btcRatio.dates, timeframe);
         const dates = btcRatio.dates.slice(idx);
 
-        // Sample data points for performance (max 100 points)
         const maxPoints = expanded ? 200 : 100;
 
+        let yData: number[];
+        let yAxisName: string;
+        let seriesName: string;
+        let tooltipFmt: ((p: { value: number }[]) => string) | undefined;
+
         if (selectedBtcChart === 'ratio') {
-          const ratioData = btcRatio.btcPercentage.slice(idx);
-          const sampled = sampleDataWithDates(dates, ratioData, maxPoints);
-          return (
-            <Plot
-              data={[
-                {
-                  x: sampled.dates,
-                  y: sampled.data,
-                  type: 'scatter',
-                  mode: 'lines',
-                  name: 'BTC Ratio',
-                  line: { color: '#f7931a', width: 2 },
-                },
-              ] as Data[]}
-              layout={{
-                autosize: true,
-                height: expanded ? undefined : 320,
-                margin: { t: 30, r: 10, l: 40, b: 40 },
-                yaxis: { title: { text: 'BTC Ratio (%)' } },
-                hovermode: 'x unified',
-                paper_bgcolor: 'transparent',
-                plot_bgcolor: 'transparent',
-              }}
-              style={{ width: '100%', height: expanded ? '100%' : undefined }}
-            />
-          );
+          yData = btcRatio.btcPercentage.slice(idx);
+          yAxisName = 'BTC Ratio (%)';
+          seriesName = 'BTC Ratio';
         } else if (selectedBtcChart === 'portfolio-btc') {
-          const portfolioData = btcRatio.portfolioInBtc.slice(idx);
-          const sampled = sampleDataWithDates(dates, portfolioData, maxPoints);
-          return (
-            <Plot
-              data={[
-                {
-                  x: sampled.dates,
-                  y: sampled.data,
-                  type: 'scatter',
-                  mode: 'lines',
-                  name: 'Portfolio Value',
-                  line: { color: '#f7931a', width: 2 },
-                  hovertemplate: '%{y:.4f} BTC<extra></extra>',
-                },
-              ] as Data[]}
-              layout={{
-                autosize: true,
-                height: expanded ? undefined : 320,
-                margin: { t: 30, r: 10, l: 50, b: 40 },
-                yaxis: { title: { text: 'Portfolio Value (BTC)' } },
-                hovermode: 'x unified',
-                paper_bgcolor: 'transparent',
-                plot_bgcolor: 'transparent',
-              }}
-              style={{ width: '100%', height: expanded ? '100%' : undefined }}
-            />
-          );
+          yData = btcRatio.portfolioInBtc.slice(idx);
+          yAxisName = 'Portfolio Value (BTC)';
+          seriesName = 'Portfolio Value';
+          tooltipFmt = (params) => params.map(p => `${p.value.toFixed(4)} BTC`).join('<br/>');
         } else {
-          // Accumulation chart
-          const accumulationData = btcRatio.btcValue.slice(idx);
-          const sampled = sampleDataWithDates(dates, accumulationData, maxPoints);
-          return (
-            <Plot
-              data={[
-                {
-                  x: sampled.dates,
-                  y: sampled.data,
-                  type: 'scatter',
-                  mode: 'lines',
-                  name: 'BTC Accumulated',
-                  line: { color: '#f7931a', width: 2 },
-                },
-              ] as Data[]}
-              layout={{
-                autosize: true,
-                height: expanded ? undefined : 320,
-                margin: { t: 30, r: 10, l: 40, b: 40 },
-                yaxis: { title: { text: 'BTC Units' } },
-                hovermode: 'x unified',
-                paper_bgcolor: 'transparent',
-                plot_bgcolor: 'transparent',
-              }}
-              style={{ width: '100%', height: expanded ? '100%' : undefined }}
-            />
-          );
+          yData = btcRatio.btcValue.slice(idx);
+          yAxisName = 'BTC Units';
+          seriesName = 'BTC Accumulated';
         }
+
+        const sampled = sampleDataWithDates(dates, yData, maxPoints);
+
+        const option: EChartsOption = {
+          xAxis: { type: 'category', data: sampled.dates },
+          yAxis: { type: 'value', name: yAxisName },
+          tooltip: {
+            trigger: 'axis',
+            formatter: tooltipFmt as never,
+          },
+          series: [
+            {
+              type: 'line', name: seriesName, data: sampled.data as number[], showSymbol: false,
+              lineStyle: { color: '#f7931a', width: 2 }, itemStyle: { color: '#f7931a' },
+            },
+          ],
+        };
+
+        return (
+          <EChart
+            option={option}
+            style={{ width: '100%', height: expanded ? '100%' : 320 }}
+          />
+        );
       }}
     </ChartCard>
   );
