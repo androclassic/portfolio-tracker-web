@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { getAssetColor, isFiatCurrency } from '@/lib/assets';
 import { ChartCard } from '@/components/ChartCard';
 import { EChart } from '@/components/charts/echarts';
@@ -16,9 +16,18 @@ function formatUnits(v: number): string {
 }
 
 export function StackedCompositionChart() {
-  const { stacked, loadingTxs, loadingCurr, loadingHist } = useDashboardData();
+  const { stacked, historicalPrices, loadingTxs, loadingCurr, loadingHist } = useDashboardData();
 
-  const [stackedMode, setStackedMode] = useState<'usd' | 'percent'>('usd');
+  const [stackedMode, setStackedMode] = useState<'usd' | 'percent' | 'btc'>('usd');
+
+  // Build BTC price lookup by date
+  const btcPriceByDate = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of historicalPrices) {
+      if (p.asset.toUpperCase() === 'BTC') map.set(p.date, p.price_usd);
+    }
+    return map;
+  }, [historicalPrices]);
 
   const colorFor = useCallback((asset: string): string => getAssetColor(asset), []);
   const isLoading = loadingTxs || loadingCurr || loadingHist;
@@ -29,8 +38,9 @@ export function StackedCompositionChart() {
       headerActions={() => (
         <label className="chart-control">
           Mode
-          <select value={stackedMode} onChange={e => setStackedMode(e.target.value as 'usd' | 'percent')}>
+          <select value={stackedMode} onChange={e => setStackedMode(e.target.value as 'usd' | 'percent' | 'btc')}>
             <option value="usd">USD</option>
+            <option value="btc">BTC</option>
             <option value="percent">Percent</option>
           </select>
         </label>
@@ -58,12 +68,21 @@ export function StackedCompositionChart() {
         const series: EChartsOption['series'] = cryptoAssets.map(asset => {
           const usdValues = stacked.perAssetUsd.get(asset) || [];
           const unitValues = (stacked.perAssetUnits.get(asset) || []).slice(idx);
-          const yData = stackedMode === 'usd'
-            ? usdValues.slice(idx)
-            : usdValues.slice(idx).map((value, i) => {
-                const total = stacked.totals[i + idx] || 1;
-                return total > 0 ? (value / total) * 100 : 0;
-              });
+          let yData: number[];
+          if (stackedMode === 'usd') {
+            yData = usdValues.slice(idx);
+          } else if (stackedMode === 'btc') {
+            yData = usdValues.slice(idx).map((value, i) => {
+              const date = dates[i];
+              const btcPrice = date ? btcPriceByDate.get(date) : undefined;
+              return btcPrice && btcPrice > 0 ? value / btcPrice : 0;
+            });
+          } else {
+            yData = usdValues.slice(idx).map((value, i) => {
+              const total = stacked.totals[i + idx] || 1;
+              return total > 0 ? (value / total) * 100 : 0;
+            });
+          }
 
           const sampledY = sampleDataWithDates(dates, yData, maxPoints).data as number[];
           const sampledUnits = sampleDataWithDates(dates, unitValues, maxPoints).data as number[];
@@ -85,7 +104,7 @@ export function StackedCompositionChart() {
           xAxis: { type: 'category', data: sampledDates },
           yAxis: {
             type: 'value',
-            name: stackedMode === 'usd' ? 'USD Value' : 'Percentage',
+            name: stackedMode === 'usd' ? 'USD Value' : stackedMode === 'btc' ? 'BTC Value' : 'Percentage',
           },
           tooltip: {
             trigger: 'axis',
@@ -101,6 +120,8 @@ export function StackedCompositionChart() {
                 const unitStr = formatUnits(units);
                 if (stackedMode === 'usd') {
                   html += `<br/><span style="color:${p.color}">\u25CF</span> ${p.seriesName}: $${p.value.toLocaleString('en-US', { maximumFractionDigits: 2 })} (${unitStr} ${p.seriesName})`;
+                } else if (stackedMode === 'btc') {
+                  html += `<br/><span style="color:${p.color}">\u25CF</span> ${p.seriesName}: ${p.value.toFixed(6)} BTC (${unitStr} ${p.seriesName})`;
                 } else {
                   html += `<br/><span style="color:${p.color}">\u25CF</span> ${p.seriesName}: ${p.value.toFixed(2)}% (${unitStr} ${p.seriesName})`;
                 }
