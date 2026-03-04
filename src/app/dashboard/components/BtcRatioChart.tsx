@@ -113,7 +113,6 @@ export function BtcRatioChart() {
       title="Bitcoin Overview"
       headerActions={() => (
         <label className="chart-control">
-          Chart Type
           <select value={selectedBtcChart} onChange={e => setSelectedBtcChart(e.target.value)}>
             <option value="accumulation">Accumulation</option>
             <option value="ratio">BTC Ratio</option>
