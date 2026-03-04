@@ -157,6 +157,7 @@ export function PositionsChart() {
             <EChart
               option={option}
               style={{ width: '100%', height: expanded ? '100%' : 320 }}
+              notMerge
             />
           );
         }

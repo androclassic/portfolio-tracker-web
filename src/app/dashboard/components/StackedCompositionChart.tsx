@@ -137,6 +137,7 @@ export function StackedCompositionChart() {
           <EChart
             option={option}
             style={{ width: '100%', height: expanded ? '100%' : 400 }}
+            notMerge
           />
         );
       }}
