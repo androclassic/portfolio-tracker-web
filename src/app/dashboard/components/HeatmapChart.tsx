@@ -145,8 +145,22 @@ export function HeatmapChart() {
                 show: true,
                 formatter: (params: unknown) => {
                   const p = params as { data: { name: string; value: number; _pnl: number } };
-                  return `${p.data.name}\n$${p.data._pnl.toFixed(2)}`;
+                  return `{name|${p.data.name}}\n{value|$${p.data._pnl.toFixed(2)}}`;
                 },
+                rich: {
+                  name: { fontSize: 14, fontWeight: 'bold' as const, padding: [0, 0, 2, 0] },
+                  value: { fontSize: 12 },
+                },
+                overflow: 'truncate' as const,
+                ellipsis: '..',
+              },
+              upperLabel: {
+                show: false,
+              },
+              itemStyle: {
+                borderWidth: 1,
+                borderColor: 'rgba(0,0,0,0.2)',
+                gapWidth: 2,
               },
               breadcrumb: { show: false },
               roam: false,

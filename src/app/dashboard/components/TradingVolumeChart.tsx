@@ -115,11 +115,15 @@ export function TradingVolumeChart() {
               label: {
                 show: true,
                 position: 'right',
+                color: 'inherit',
+                fontSize: 12,
+                fontWeight: 'bold' as const,
                 formatter: (params: unknown) => {
                   const v = Number((params as { value: number }).value) || 0;
                   return v >= 1000 ? `$${(v / 1000).toFixed(1)}k` : `$${v.toFixed(0)}`;
                 },
               },
+              barMaxWidth: 32,
             },
           ],
         };

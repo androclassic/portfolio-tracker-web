@@ -67,12 +67,16 @@ function buildTheme(): EChartsOption {
       },
     },
     legend: {
+      type: 'scroll',
       orient: 'horizontal',
       bottom: 0,
-      textStyle: { color: text },
+      textStyle: { color: text, fontSize: 11 },
       icon: 'roundRect',
       itemWidth: 14,
       itemHeight: 8,
+      pageIconColor: muted,
+      pageIconInactiveColor: border,
+      pageTextStyle: { color: muted },
     },
     xAxis: {
       axisLine: { lineStyle: { color: border } },

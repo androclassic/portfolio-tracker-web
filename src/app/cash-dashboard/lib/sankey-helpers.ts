@@ -376,7 +376,7 @@ export function createSankeyData(event: TaxableEvent, transactions?: Tx[]): { op
       tooltip: { trigger: 'item', triggerOn: 'mousemove' },
       series: [{
         type: 'sankey',
-        nodeGap: 14,
+        nodeGap: 4,
         nodeWidth: 18,
         layoutIterations: 32,
         data: nodes.map((label, i) => ({
@@ -498,7 +498,7 @@ export function createSankeyData(event: TaxableEvent, transactions?: Tx[]): { op
     tooltip: { trigger: 'item', triggerOn: 'mousemove' },
     series: [{
       type: 'sankey',
-      nodeGap: 15,
+      nodeGap: 4,
       nodeWidth: 20,
       layoutIterations: 32,
       data: nodeNames.map((name, i) => ({
@@ -981,7 +981,7 @@ export function createSankeyExplorerData(event: TaxableEvent, opts: {
     tooltip: { trigger: 'item', triggerOn: 'mousemove' },
     series: [{
       type: 'sankey',
-      nodeGap: Math.max(2, Math.min(30, opts.nodePad)),
+      nodeGap: 4,
       nodeWidth: Math.max(6, Math.min(30, opts.nodeThickness)),
       layoutIterations: 32,
       data: nodeKeys.map((key, i) => ({
