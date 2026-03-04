@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { getServerAuth } from '@/lib/auth';
 import { rateLimitStandard } from '@/lib/rate-limit';
+import { apiUnauthorized } from '@/lib/api/responses';
 
 export type ServerAuthContext = NonNullable<
   Awaited<ReturnType<typeof getServerAuth>>
@@ -20,7 +21,7 @@ export function withServerAuth(
   return async function authWrappedHandler(req: NextRequest): Promise<Response> {
     const auth = await getServerAuth(req);
     if (!auth) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return apiUnauthorized();
     }
     return handler(req, auth);
   };

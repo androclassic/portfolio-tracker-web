@@ -1,6 +1,5 @@
 import { Transaction as Tx, TransactionHelpers } from '@/lib/types';
 import { SUPPORTED_ASSETS } from '@/lib/assets';
-import { computeNetHoldings } from '@/lib/portfolio-engine';
 
 export interface HoldingData {
   asset: string;
@@ -28,11 +27,6 @@ export interface PortfolioSummary {
 export const getAssetName = (symbol: string): string => {
   const asset = SUPPORTED_ASSETS.find(a => a.symbol === symbol);
   return asset ? asset.name : symbol;
-};
-
-// Calculate current holdings from transactions
-export const calculateHoldings = (txs: Tx[]): Record<string, number> => {
-  return computeNetHoldings(txs);
 };
 
 // Calculate cost basis for an asset

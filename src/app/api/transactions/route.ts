@@ -5,6 +5,7 @@ import { TtlCache } from '@/lib/cache';
 import type { Transaction } from '@prisma/client';
 import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 import { createLogger } from '@/lib/logger';
+import { apiCreated, apiError, apiValidationError, apiNotFound, apiDeleted } from '@/lib/api/responses';
 
 const log = createLogger('Transactions API');
 
@@ -36,6 +37,19 @@ const TxSchema = z.object({
   }
 );
 
+const TxUpdateSchema = z.object({
+  type: z.enum(['Deposit','Withdrawal','Swap']).optional(),
+  datetime: z.string().optional(),
+  feesUsd: z.number().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  fromAsset: z.string().nullable().optional(),
+  fromQuantity: z.number().nonnegative().nullable().optional(),
+  fromPriceUsd: z.number().nullable().optional(),
+  toAsset: z.string().min(1).optional(),
+  toQuantity: z.number().nonnegative().optional(),
+  toPriceUsd: z.number().nullable().optional(),
+});
+
 const TxBatchSchema = z.object({
   portfolioId: z.number().optional(),
   transactions: z.array(TxSchema).min(1),
@@ -66,13 +80,13 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const batchParsed = TxBatchSchema.safeParse(json);
   const singleParsed = batchParsed.success ? null : TxSchema.safeParse(json);
   if (!batchParsed.success && singleParsed && !singleParsed.success) {
-    return NextResponse.json({ error: singleParsed.error.flatten() }, { status: 400 });
+    return apiValidationError(singleParsed.error);
   }
 
   const portfolioIdRaw = Number((json as { portfolioId?: number }).portfolioId || 1);
   const portfolioId = Number.isFinite(portfolioIdRaw) ? portfolioIdRaw : -1;
   const portfolio = await prisma.portfolio.findFirst({ where: { id: portfolioId, userId: auth.userId } });
-  if (!portfolio) return NextResponse.json({ error: 'Invalid portfolio' }, { status: 403 });
+  if (!portfolio) return apiError('Invalid portfolio', 403);
 
   // At this point, we know either batchParsed succeeded or singleParsed succeeded (due to earlier validation)
   // If batchParsed failed, singleParsed must have succeeded (we would have returned an error otherwise)
@@ -83,7 +97,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   } else {
     // We know singleParsed exists and succeeded (we would have returned an error otherwise)
     if (!singleParsed || !singleParsed.success) {
-      return NextResponse.json({ error: 'Invalid transaction data' }, { status: 400 });
+      return apiError('Invalid transaction data');
     }
     txs = [singleParsed.data];
   }
@@ -114,19 +128,19 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
     // Ignore import errors in production builds
   });
   
-  return NextResponse.json(batchParsed.success ? created : created[0], { status: 201 });
+  return apiCreated(batchParsed.success ? created : created[0]);
 });
 
 export const PUT = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const json = await req.json();
   const id = Number(json?.id);
-  if (!Number.isFinite(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
-  const parsed = TxSchema.partial().safeParse(json);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  if (!Number.isFinite(id)) return apiError('Invalid id');
+  const parsed = TxUpdateSchema.safeParse(json);
+  if (!parsed.success) return apiValidationError(parsed.error);
   const { datetime, ...rest } = parsed.data;
   // Ensure the transaction belongs to the authenticated user's portfolio
   const existing = await prisma.transaction.findFirst({ where: { id, portfolio: { userId: auth.userId } } });
-  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!existing) return apiNotFound('Transaction');
   const updated = await prisma.transaction.update({ 
     where: { id }, 
     data: { 
@@ -141,10 +155,10 @@ export const PUT = withServerAuthRateLimit(async (req: NextRequest, auth) => {
 export const DELETE = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const url = new URL(req.url);
   const id = Number(url.searchParams.get('id'));
-  if (!Number.isFinite(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+  if (!Number.isFinite(id)) return apiError('Invalid id');
   const existing = await prisma.transaction.findFirst({ where: { id, portfolio: { userId: auth.userId } } });
-  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!existing) return apiNotFound('Transaction');
   await prisma.transaction.delete({ where: { id } });
   try { txCache.clear(); } catch {}
-  return NextResponse.json({ ok: true });
+  return apiDeleted();
 });

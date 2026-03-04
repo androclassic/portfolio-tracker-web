@@ -8,7 +8,7 @@ import { jsonFetcher } from '@/lib/swr-fetcher';
 import { createLogger } from '@/lib/logger';
 import type { Transaction as Tx } from '@/lib/types';
 import { TransactionHelpers } from '@/lib/types';
-import { calculateHoldings } from '@/lib/portfolio-utils';
+import { computeNetHoldings } from '@/lib/portfolio-engine';
 import AuthGuard from '@/components/AuthGuard';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 import TransactionModal from './TransactionModal';
@@ -98,7 +98,7 @@ export default function TransactionsPage() {
 
   const currentHoldings = useMemo(() => {
     if (!txs) return {};
-    return calculateHoldings(txs);
+    return computeNetHoldings(txs);
   }, [txs]);
 
   // Show fees column only if any transaction has fees

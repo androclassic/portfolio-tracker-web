@@ -8,6 +8,7 @@ import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 import { getHistoricalExchangeRateSyncStrict } from '@/lib/exchange-rates';
 import { getHistoricalPrices } from '@/lib/prices/service';
 import { createLogger } from '@/lib/logger';
+import { apiError } from '@/lib/api/responses';
 
 const log = createLogger('Import');
 
@@ -78,7 +79,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   const portfolio = await prisma.portfolio.findFirst({ 
     where: { id: Number.isFinite(portfolioId) ? portfolioId : -1, userId: auth.userId } 
   });
-  if (!portfolio) return NextResponse.json({ error: 'Invalid portfolio' }, { status: 403 });
+  if (!portfolio) return apiError('Invalid portfolio', 403);
   
   const ct = req.headers.get('content-type') || '';
 
@@ -86,7 +87,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   if (ct.includes('multipart/form-data')) {
     const fd = await req.formData();
     const file = fd.get('file') as File | null;
-    if (!file) return NextResponse.json({ error: 'file field is required' }, { status: 400 });
+    if (!file) return apiError('file field is required');
     csvText = await file.text();
   } else if (ct.startsWith('text/csv')) {
     csvText = await req.text();
@@ -95,11 +96,11 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
       const json = await req.json();
       csvText = json?.csvText || '';
     } catch {
-      return NextResponse.json({ error: 'Unsupported content-type' }, { status: 400 });
+      return apiError('Unsupported content-type');
     }
   }
 
-  if (!csvText.trim()) return NextResponse.json({ error: 'Empty CSV' }, { status: 400 });
+  if (!csvText.trim()) return apiError('Empty CSV');
 
   const rows = parseCsv(csvText, { columns: true, skip_empty_lines: true }) as Array<Record<string, unknown>>;
   
@@ -167,7 +168,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   
   // Verify CSV has required columns for new format
   if (rows.length === 0) {
-    return NextResponse.json({ error: 'CSV file is empty' }, { status: 400 });
+    return apiError('CSV file is empty');
   }
   
   const firstRow = rows[0];
@@ -179,9 +180,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   );
   
   if (!hasRequiredColumns) {
-    return NextResponse.json({ 
-      error: 'CSV must have columns: type, datetime, from_asset, from_quantity, to_asset, to_quantity (and optionally from_price_usd, to_price_usd, fees_usd, notes)'
-    }, { status: 400 });
+    return apiError('CSV must have columns: type, datetime, from_asset, from_quantity, to_asset, to_quantity (and optionally from_price_usd, to_price_usd, fees_usd, notes)');
   }
 
   const transactions: Array<Prisma.TransactionCreateManyInput> = [];

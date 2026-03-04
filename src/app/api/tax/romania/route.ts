@@ -5,6 +5,7 @@ import { getHistoricalExchangeRate, preloadExchangeRates } from '@/lib/exchange-
 import type { LotStrategy } from '@/lib/tax/lot-strategy';
 import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 import { createLogger } from '@/lib/logger';
+import { apiServerError } from '@/lib/api/responses';
 
 const log = createLogger('Tax');
 
@@ -79,10 +80,7 @@ export const GET = withServerAuthRateLimit(async (req: NextRequest, auth) => {
     return NextResponse.json(taxReport, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     log.error('Romania tax calculation error', error);
-    return NextResponse.json(
-      { error: (error as Error)?.message || 'Internal server error' },
-      { status: 500 }
-    );
+    return apiServerError(error);
   }
 });
 
