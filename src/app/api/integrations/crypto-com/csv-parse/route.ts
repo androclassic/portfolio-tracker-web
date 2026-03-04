@@ -3,6 +3,9 @@ import { parse as parseCsv } from 'csv-parse/sync';
 import { isCryptoComAppCsv, parseCryptoComAppCsv } from '@/lib/integrations/crypto-com-csv';
 import { readCsvTextFromRequest } from '@/lib/integrations/csv-request';
 import { withServerAuthRateLimit } from '@/lib/api/route-auth';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Crypto.com CSV');
 
 export const POST = withServerAuthRateLimit(async (req: NextRequest) => {
   try {
@@ -41,7 +44,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to parse CSV';
-    console.error('[Crypto.com CSV] Parse error:', error);
+    log.error('Parse error', error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 });

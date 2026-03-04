@@ -4,6 +4,9 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import AuthGuard from '@/components/AuthGuard';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Settings');
 
 interface ApiKey {
   id: string;
@@ -74,7 +77,7 @@ export default function SettingsPage() {
         setApiKeys(data.apiKeys || []);
       }
     } catch (err) {
-      console.error('Failed to fetch API keys:', err);
+      log.error('Failed to fetch API keys', err);
     } finally {
       setIsLoading(false);
     }
@@ -87,7 +90,7 @@ export default function SettingsPage() {
       const data = await res.json();
       setPortfolios(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error('Failed to fetch portfolios:', err);
+      log.error('Failed to fetch portfolios', err);
     }
   }
 
@@ -98,7 +101,7 @@ export default function SettingsPage() {
       const data = await res.json();
       setConnections(data.connections || []);
     } catch (err) {
-      console.error('Failed to fetch connections:', err);
+      log.error('Failed to fetch connections', err);
     }
   }
 
@@ -197,7 +200,7 @@ export default function SettingsPage() {
         await fetchApiKeys();
       }
     } catch (err) {
-      console.error('Failed to revoke key:', err);
+      log.error('Failed to revoke key', err);
     }
   }
 
@@ -207,7 +210,7 @@ export default function SettingsPage() {
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err);
+      log.error('Failed to copy', err);
     }
   }
 

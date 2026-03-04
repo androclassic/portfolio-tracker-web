@@ -1,6 +1,9 @@
 import { DEFAULT_PROVIDERS, PriceProvider, CurrentPrices, HistoricalPoint } from './providers';
 import { TtlCache } from '../cache';
 import { prisma } from '@/lib/prisma';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Price Service');
 
 const currentPricesCache = new TtlCache<string, CurrentPrices>(60_000); // 1 min
 const historicalPricesCache = new TtlCache<string, HistoricalPoint[]>(5 * 60_000); // 5 min
@@ -83,7 +86,7 @@ async function getHistoricalPricesFromDB(
       }));
     }
   } catch (error) {
-    console.warn('[Price Service] Error reading from DB cache:', error);
+    log.warn('Error reading from DB cache', error);
   }
   return [];
 }
@@ -123,7 +126,7 @@ async function storeHistoricalPricesInDB(prices: HistoricalPoint[]): Promise<voi
       );
     }
   } catch (error) {
-    console.warn('[Price Service] Error storing in DB cache:', error);
+    log.warn('Error storing in DB cache', error);
   }
 }
 
@@ -234,7 +237,7 @@ export async function getHistoricalPrices(
       fetchedData.push(...res);
       if (fetchedData.length > 0) break; // Got data, stop trying providers
     } catch (error) {
-      console.warn(`[Price Service] Provider ${provider.name} failed:`, error);
+      log.warn(`Provider ${provider.name} failed`, error);
       // Continue to next provider
     }
   }
@@ -266,7 +269,7 @@ export async function getHistoricalPrices(
     historicalPricesCache.set(key, result);
     // Store in database (async, don't wait)
     storeHistoricalPricesInDB(fetchedData.length > 0 ? fetchedData : result).catch(err => {
-      console.warn('[Price Service] Failed to store in DB:', err);
+      log.warn('Failed to store in DB', err);
     });
   }
 

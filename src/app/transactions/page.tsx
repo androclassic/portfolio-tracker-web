@@ -5,6 +5,7 @@ import { usePortfolio } from '../PortfolioProvider';
 import { getAssetColor, isStablecoin, isFiatCurrency } from '@/lib/assets';
 import CryptoIcon from '../components/CryptoIcon';
 import { jsonFetcher } from '@/lib/swr-fetcher';
+import { createLogger } from '@/lib/logger';
 import type { Transaction as Tx } from '@/lib/types';
 import { TransactionHelpers } from '@/lib/types';
 import { calculateHoldings } from '@/lib/portfolio-utils';
@@ -13,6 +14,8 @@ import { useIsMobile } from '@/hooks/useMediaQuery';
 import TransactionModal from './TransactionModal';
 import { useTransactionFilters } from './useTransactionFilters';
 import TransactionPagination from './TransactionPagination';
+
+const log = createLogger('Transactions');
 
 const fetcher = jsonFetcher;
 
@@ -57,7 +60,7 @@ export default function TransactionsPage() {
           await new Promise(resolve => setTimeout(resolve, 300 * retries));
           continue;
         } else {
-          console.warn(`Deleted transaction ${deletedId} still appears after ${maxRetries} retries`);
+          log.warn(`Deleted transaction ${deletedId} still appears after ${maxRetries} retries`);
           break;
         }
       } else {
@@ -117,7 +120,7 @@ export default function TransactionsPage() {
         alert(errorData.error || 'Failed to delete transaction. Please try again.');
       }
     } catch (error) {
-      console.error('Error deleting transaction:', error);
+      log.error('Error deleting transaction', error);
       alert('Network error. Please try again.');
     } finally {
       setIsSaving(false);
@@ -199,7 +202,7 @@ export default function TransactionsPage() {
                         window.URL.revokeObjectURL(downloadUrl);
                       }
                     } catch (error) {
-                      console.error('Export failed:', error);
+                      log.error('Export failed', error);
                     }
                   }}
                   className="btn btn-success"
@@ -257,7 +260,7 @@ Withdrawal,2024-02-28T11:00:00Z,BTC,0.05,55000,USD,2750,1,12,Withdrew some BTC t
                           alert(errorData.error || 'Failed to import transactions. Please check the file format.');
                         }
                       } catch (error) {
-                        console.error('Error importing transactions:', error);
+                        log.error('Error importing transactions', error);
                         alert('Network error. Please try again.');
                       } finally {
                         setIsSaving(false);

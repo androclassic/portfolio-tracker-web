@@ -4,7 +4,10 @@ import { isFiatCurrency } from '@/lib/assets';
 import { SupportedAsset } from '@/lib/assets';
 import { getTransactionDefaults } from '@/lib/transaction-helpers';
 import { fetchHistoricalWithLocalCache } from '@/lib/prices-cache';
+import { createLogger } from '@/lib/logger';
 import type { Transaction as Tx } from '@/lib/types';
+
+const log = createLogger('Transaction Form');
 
 export type TransactionType = 'Deposit' | 'Withdrawal' | 'Swap';
 
@@ -327,7 +330,7 @@ export function useTransactionForm({ editingTransaction, currentHoldings }: UseT
         return recalculate({ ...prev, ...updates } as TransactionFormData, `${side}Asset`);
       });
     } catch (error) {
-      console.error('Failed to get transaction defaults:', error);
+      log.error('Failed to get transaction defaults', error);
     } finally {
       setIsLoadingPrice(false);
     }

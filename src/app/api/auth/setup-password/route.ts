@@ -4,6 +4,9 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { rateLimitAuth } from '@/lib/rate-limit';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Auth');
 
 export async function POST(request: NextRequest) {
   const limited = rateLimitAuth(request);
@@ -65,7 +68,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Setup password error:', error);
+    log.error('Setup password error', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

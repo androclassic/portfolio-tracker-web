@@ -3,6 +3,9 @@ import { useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Setup Password');
 
 export default function SetupPasswordPage() {
   const [password, setPassword] = useState('');
@@ -49,7 +52,7 @@ export default function SetupPasswordPage() {
       });
 
       const result = await response.json();
-      console.log('Setup password response:', { status: response.status, result });
+      log.debug('Setup password response', { status: response.status, result });
 
       if (response.ok) {
         setSuccess(true);
@@ -58,7 +61,7 @@ export default function SetupPasswordPage() {
           window.location.href = '/overview';
         }, 1000);
       } else {
-        console.error('Setup password failed:', result);
+        log.error('Setup password failed', result);
         setError(result.error || 'Failed to set password');
       }
     } catch {

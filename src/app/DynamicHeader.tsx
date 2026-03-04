@@ -7,6 +7,9 @@ import { Suspense } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import PortfolioSelector from './PortfolioSelector';
 import ThemeToggle from './ThemeToggle';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Header');
 
 export default function DynamicHeader() {
   const { data: session, status } = useSession();
@@ -25,7 +28,7 @@ export default function DynamicHeader() {
     try {
       await signOut({ callbackUrl: '/login' });
     } catch (error) {
-      console.error('Logout error:', error);
+      log.error('Logout error', error);
       // Fallback redirect
       window.location.href = '/login';
     } finally {

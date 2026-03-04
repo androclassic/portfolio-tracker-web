@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { warmHistoricalPricesCache } from '@/lib/prices/warm-cache';
 import { withServerAuthRateLimit } from '@/lib/api/route-auth';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Cache Warm API');
 
 /**
  * API route to warm the historical prices cache
@@ -16,7 +19,7 @@ export const GET = withServerAuthRateLimit(async (req: NextRequest) => {
   void req;
   try {
     warmHistoricalPricesCache().catch(error => {
-      console.error('[Cache Warm API] Background warming failed:', error);
+      log.error('Background warming failed', error);
     });
 
     return NextResponse.json({
@@ -24,7 +27,7 @@ export const GET = withServerAuthRateLimit(async (req: NextRequest) => {
       status: 'started',
     });
   } catch (error) {
-    console.error('[Cache Warm API] Error starting cache warm:', error);
+    log.error('Error starting cache warm', error);
     return NextResponse.json(
       { error: 'Failed to start cache warming' },
       { status: 500 }
@@ -47,7 +50,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest) => {
       ...result,
     });
   } catch (error) {
-    console.error('[Cache Warm API] Error during cache warm:', error);
+    log.error('Error during cache warm', error);
     return NextResponse.json(
       { error: 'Cache warming failed' },
       { status: 500 }

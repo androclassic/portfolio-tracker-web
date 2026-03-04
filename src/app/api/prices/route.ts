@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getHistoricalPrices } from '@/lib/prices/service';
 import { withIpRateLimit } from '@/lib/api/route-auth';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Prices API');
 
 /**
  * API endpoint for historical prices
@@ -27,7 +30,7 @@ export const GET = withIpRateLimit(async (req: NextRequest) => {
     
     // Log slow requests for debugging
     if (duration > 1000) {
-      console.log(`[Prices API] Slow request: ${symbols.join(',')} (${duration.toFixed(0)}ms)`);
+      log.warn('Slow request', { symbols: symbols.join(','), duration: duration.toFixed(0) + 'ms' });
     }
     
     return NextResponse.json(
@@ -40,7 +43,7 @@ export const GET = withIpRateLimit(async (req: NextRequest) => {
       }
     );
   } catch (error) {
-    console.error('[Prices API] Error:', error);
+    log.error('Error', error);
     return NextResponse.json(
       { prices: [], error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

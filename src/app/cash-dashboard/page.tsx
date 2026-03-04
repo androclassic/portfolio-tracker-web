@@ -8,11 +8,14 @@ import { PlotlyChart as Plot } from '@/components/charts/plotly/PlotlyChart';
 import { ChartCard } from '@/components/ChartCard';
 import { startIsoForTimeframe } from '@/lib/timeframe';
 import { SankeyExplorer } from './components/SankeyExplorer';
+import { createLogger } from '@/lib/logger';
 
 import type { Layout, Data } from 'plotly.js';
 import { jsonFetcher } from '@/lib/swr-fetcher';
 import type { Transaction as Tx } from '@/lib/types';
 import type { RomaniaTaxReport } from '@/lib/tax/romania-v2';
+
+const log = createLogger('Cash Dashboard');
 
 const fetcher = jsonFetcher;
 
@@ -628,7 +631,7 @@ export default function CashDashboardPage(){
                           const url = `/api/tax/romania/export?year=${selectedTaxYear}&assetStrategy=${selectedAssetLotStrategy}&cashStrategy=${selectedCashLotStrategy}${selectedId && selectedId !== 'all' ? `&portfolioId=${selectedId}` : ''}`;
                           triggerDownloadOnce(`tax-export-full-${selectedTaxYear}-${selectedId || 'none'}`, url);
                         } catch (error) {
-                          console.error('Export failed:', error);
+                          log.error('Export failed', error);
                         }
                       }}
                       className="btn btn-primary btn-sm"
@@ -688,7 +691,7 @@ export default function CashDashboardPage(){
                                       const url = `/api/tax/romania/export?year=${selectedTaxYear}&assetStrategy=${selectedAssetLotStrategy}&cashStrategy=${selectedCashLotStrategy}&eventId=${event.transactionId}${selectedId && selectedId !== 'all' ? `&portfolioId=${selectedId}` : ''}`;
                                       triggerDownloadOnce(`tax-export-event-${event.transactionId}-${selectedTaxYear}-${selectedId || 'none'}`, url);
                                     } catch (error) {
-                                      console.error('Export failed:', error);
+                                      log.error('Export failed', error);
                                     }
                                   }}
                                   className="btn btn-success btn-sm"
@@ -834,7 +837,7 @@ export default function CashDashboardPage(){
               </div>
               <div className="chart-modal-body" style={{ padding: '1.5rem', overflowY: 'auto' }}>
                 <SankeyExplorer event={event} transactions={txs} onTransactionClick={(txId) => {
-                  console.log('Transaction clicked:', txId);
+                  log.info('Transaction clicked', { txId });
                 }} />
               </div>
             </div>

@@ -3,7 +3,10 @@ import { useState } from 'react';
 import { useTransactionForm } from './useTransactionForm';
 import TransactionForm from './TransactionForm';
 import { buildTransactionPayload, parseApiErrors } from './buildTransactionPayload';
+import { createLogger } from '@/lib/logger';
 import type { Transaction as Tx } from '@/lib/types';
+
+const log = createLogger('Transaction');
 
 interface TransactionModalProps {
   mode: 'add' | 'edit';
@@ -63,7 +66,7 @@ export default function TransactionModal({
         form.setGlobalErrors(parseApiErrors(errorData));
       }
     } catch (error) {
-      console.error('Error saving transaction:', error);
+      log.error('Error saving transaction', error);
       form.setGlobalErrors(['Network error. Please try again.']);
     } finally {
       setIsSaving(false);

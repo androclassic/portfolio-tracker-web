@@ -1,6 +1,9 @@
 import { prisma } from '@/lib/prisma';
 import { getHistoricalPrices } from './service';
 import { isStablecoin } from '../assets';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Cache Warm');
 
 /**
  * Get all unique assets and date ranges from all transactions
@@ -77,11 +80,11 @@ export async function warmHistoricalPricesCache(): Promise<{
     const { assets, dateRanges } = await getAssetsAndDateRanges();
 
     if (assets.length === 0) {
-      console.log('[Cache Warm] No assets found in transactions');
+      log.info('No assets found in transactions');
       return result;
     }
 
-    console.log(`[Cache Warm] Found ${assets.length} assets across ${dateRanges.length} date ranges`);
+    log.info(`Found ${assets.length} assets across ${dateRanges.length} date ranges`);
 
     // Process assets in batches to avoid overwhelming the API
     const assetBatchSize = 5;
@@ -90,8 +93,8 @@ export async function warmHistoricalPricesCache(): Promise<{
       
       for (const dateRange of dateRanges) {
         try {
-          console.log(
-            `[Cache Warm] Fetching prices for ${assetBatch.join(', ')} from ${new Date(dateRange.start * 1000).toISOString().slice(0, 10)} to ${new Date(dateRange.end * 1000).toISOString().slice(0, 10)}`
+          log.info(
+            `Fetching prices for ${assetBatch.join(', ')} from ${new Date(dateRange.start * 1000).toISOString().slice(0, 10)} to ${new Date(dateRange.end * 1000).toISOString().slice(0, 10)}`
           );
           
           const prices = await getHistoricalPrices(
@@ -107,7 +110,7 @@ export async function warmHistoricalPricesCache(): Promise<{
           await new Promise(resolve => setTimeout(resolve, 500));
         } catch (error) {
           const errorMsg = `Error fetching prices for ${assetBatch.join(', ')} (${dateRange.start}-${dateRange.end}): ${error instanceof Error ? error.message : String(error)}`;
-          console.error('[Cache Warm]', errorMsg);
+          log.error(errorMsg);
           result.errors.push(errorMsg);
         }
       }
@@ -115,12 +118,12 @@ export async function warmHistoricalPricesCache(): Promise<{
       result.assetsProcessed += assetBatch.length;
     }
 
-    console.log(
-      `[Cache Warm] Complete: ${result.assetsProcessed} assets, ${result.dateRangesProcessed} date ranges, ${result.totalPricesFetched} prices cached`
+    log.info(
+      `Complete: ${result.assetsProcessed} assets, ${result.dateRangesProcessed} date ranges, ${result.totalPricesFetched} prices cached`
     );
   } catch (error) {
     const errorMsg = `Fatal error during cache warm: ${error instanceof Error ? error.message : String(error)}`;
-    console.error('[Cache Warm]', errorMsg);
+    log.error(errorMsg);
     result.errors.push(errorMsg);
   }
 

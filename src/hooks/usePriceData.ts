@@ -2,7 +2,10 @@ import { useMemo } from 'react';
 import useSWR from 'swr';
 import { jsonFetcher } from '@/lib/swr-fetcher';
 import { fetchHistoricalWithLocalCache } from '@/lib/prices-cache';
+import { createLogger } from '@/lib/logger';
 import type { PricesResp, HistResp } from '@/lib/types';
+
+const log = createLogger('Price Data');
 
 interface UsePriceDataOptions {
   symbols: string[];
@@ -25,12 +28,12 @@ export function usePriceData({ symbols, dateRange, includeCurrentPrices = true }
     histKey,
     async (key: string) => {
       const perfStart = performance.now();
-      console.log(`[Performance] 📊 Starting historical prices fetch for ${symbols.length} symbols`);
+      log.debug(`Starting historical prices fetch for ${symbols.length} symbols`);
       const parsed = JSON.parse(key.slice(5)) as { symbols: string[]; start: number; end: number };
       const result = await fetchHistoricalWithLocalCache(parsed.symbols, parsed.start, parsed.end);
       const perfEnd = performance.now();
       const duration = perfEnd - perfStart;
-      console.log(`[Performance] 📊 Historical prices fetched: ${result?.prices?.length || 0} prices in ${duration.toFixed(2)}ms (${(duration / 1000).toFixed(2)}s)`);
+      log.debug(`Historical prices fetched: ${result?.prices?.length || 0} prices in ${duration.toFixed(2)}ms (${(duration / 1000).toFixed(2)}s)`);
       return result;
     }
   );

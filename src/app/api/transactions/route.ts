@@ -4,6 +4,9 @@ import { z } from 'zod';
 import { TtlCache } from '@/lib/cache';
 import type { Transaction } from '@prisma/client';
 import { withServerAuthRateLimit } from '@/lib/api/route-auth';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Transactions API');
 
 const TxSchema = z.object({
   type: z.enum(['Deposit','Withdrawal','Swap']),
@@ -105,7 +108,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   // This ensures prices are pre-fetched for new assets
   import('@/lib/prices/warm-cache').then(({ warmHistoricalPricesCache }) => {
     warmHistoricalPricesCache().catch(err => {
-      console.warn('[Transactions API] Background cache warm failed:', err);
+      log.warn('Background cache warm failed', err);
     });
   }).catch(() => {
     // Ignore import errors in production builds

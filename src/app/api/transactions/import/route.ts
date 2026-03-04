@@ -7,6 +7,9 @@ import { validateAssetList, isFiatCurrency, isStablecoin } from '@/lib/assets';
 import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 import { getHistoricalExchangeRateSyncStrict } from '@/lib/exchange-rates';
 import { getHistoricalPrices } from '@/lib/prices/service';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Import');
 
 function parseFloatSafe(v: unknown): number | null {
   if (v == null) return null;
@@ -137,7 +140,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
         const { preloadExchangeRates } = await import('@/lib/exchange-rates');
         await preloadExchangeRates(minDate, maxDate);
       } catch (err) {
-        console.warn('[Import] Failed to preload exchange rates:', err);
+        log.warn('Failed to preload exchange rates', err);
       }
       
       // Preload historical prices for crypto assets
@@ -156,7 +159,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
             await getHistoricalPrices(cryptoAssets, startUnixSec, endUnixSec);
           }
         } catch (err) {
-          console.warn('[Import] Failed to preload historical prices:', err);
+          log.warn('Failed to preload historical prices', err);
         }
       }
     }
@@ -215,7 +218,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
         }
       }
     } catch (err) {
-      console.warn('[Import] Failed to load historical prices:', err);
+      log.warn('Failed to load historical prices', err);
     }
   }
   
@@ -437,7 +440,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   if (imported > 0) {
     import('@/lib/prices/warm-cache').then(({ warmHistoricalPricesCache }) => {
       warmHistoricalPricesCache().catch(err => {
-        console.warn('[Import API] Background cache warm failed:', err);
+        log.warn('Background cache warm failed', err);
       });
     }).catch(() => {
       // Ignore import errors in production builds

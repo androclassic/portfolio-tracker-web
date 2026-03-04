@@ -4,6 +4,9 @@ import { withServerAuthRateLimit } from '@/lib/api/route-auth';
 import { prisma } from '@/lib/prisma';
 import { decrypt } from '@/lib/encryption';
 import { credentialsFetchBodySchema } from '@/lib/integrations/request-schemas';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Crypto.com');
 
 export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
   try {
@@ -61,8 +64,8 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
     try {
       normalized = normalizeTrades(rawTrades);
     } catch (normError) {
-      console.error('[Crypto.com] Normalization error:', normError);
-      console.error('[Crypto.com] Raw trade sample:', JSON.stringify(rawTrades.slice(0, 2)));
+      log.error('Normalization error', normError);
+      log.error('Raw trade sample', JSON.stringify(rawTrades.slice(0, 2)));
       return NextResponse.json({
         error: `Failed to process trades: ${normError instanceof Error ? normError.message : 'unknown error'}`,
         rawCount: rawTrades.length,
@@ -77,7 +80,7 @@ export const POST = withServerAuthRateLimit(async (req: NextRequest, auth) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to fetch trades';
-    console.error('[Crypto.com] API error:', message);
+    log.error('API error', message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 });

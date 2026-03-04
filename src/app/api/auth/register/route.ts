@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import { rateLimitAuth } from '@/lib/rate-limit';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Auth');
 
 export async function POST(request: NextRequest) {
   const limited = rateLimitAuth(request);
@@ -66,10 +69,10 @@ export async function POST(request: NextRequest) {
       });
 
       if (!response.ok) {
-        console.error('Verification email failed:', response.status);
+        log.error('Verification email failed', { status: response.status });
       }
     } catch (emailError: unknown) {
-      console.error('Verification email error:', (emailError as Error)?.message);
+      log.error('Verification email error', (emailError as Error)?.message);
       // Don't fail the registration if email sending fails
     }
 
@@ -83,7 +86,7 @@ export async function POST(request: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Registration error:', error);
+    log.error('Registration error', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

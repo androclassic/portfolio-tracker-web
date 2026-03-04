@@ -1,4 +1,7 @@
 import { SupportedAsset } from './assets';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Transaction Helpers');
 
 // Get current date in YYYY-MM-DD format for datetime-local input
 export function getCurrentDate(): string {
@@ -24,7 +27,7 @@ export async function getCurrentPrice(symbol: string): Promise<number | null> {
     const prices = data.prices || {};
     return prices[symbol.toUpperCase()] || null;
   } catch (error) {
-    console.error('Failed to fetch current price:', error);
+    log.error('Failed to fetch current price', error);
     return null;
   }
 }

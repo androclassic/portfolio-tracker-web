@@ -1,6 +1,9 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('Portfolio');
 
 export type Portfolio = { id: number; name: string };
 
@@ -31,21 +34,21 @@ export default function PortfolioProvider({ children }: { children: React.ReactN
       
       // Handle authentication errors gracefully
       if (res.status === 401) {
-        console.log('Portfolio API: Not authenticated, setting empty portfolios');
+        log.info('Not authenticated, setting empty portfolios');
         setPortfolios([]);
         setSelectedIdState(null);
         return;
       }
       
       if (!res.ok || !ct.includes('application/json')) {
-        console.log('Portfolio API failed:', { status: res.status, statusText: res.statusText, contentType: ct });
+        log.warn('API failed', { status: res.status, statusText: res.statusText, contentType: ct });
         return;
       }
       loaded = await res.json();
-      console.log('Portfolio API success:', loaded);
+      log.debug('API success', loaded);
       setPortfolios(loaded);
     } catch (err) {
-      console.log('Portfolio API error:', err);
+      log.error('API error', err);
       return;
     }
     const raw = localStorage.getItem('portfolio:selectedId');
@@ -64,7 +67,7 @@ export default function PortfolioProvider({ children }: { children: React.ReactN
   // Listen for auth changes and refresh portfolios
   useEffect(() => {
     const handleAuthChange = () => {
-      console.log('Auth changed, refreshing portfolios...');
+      log.debug('Auth changed, refreshing portfolios');
       // Clear current data first in case of logout
       setPortfolios([]);
       setSelectedIdState(null);
