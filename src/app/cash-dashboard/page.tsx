@@ -500,6 +500,9 @@ export default function CashDashboardPage(){
               return <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>No cash balances to display</div>;
             }
             const option: EChartsOption = {
+              xAxis: { show: false },
+              yAxis: { show: false },
+              grid: { show: false, left: 0, right: 0, top: 0, bottom: 0 },
               tooltip: { trigger: 'item' },
               series: [{
                 type: 'pie',

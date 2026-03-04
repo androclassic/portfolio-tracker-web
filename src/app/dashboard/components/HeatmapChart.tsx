@@ -130,6 +130,9 @@ export function HeatmapChart() {
         }));
 
         const option: EChartsOption = {
+          xAxis: { show: false },
+          yAxis: { show: false },
+          grid: { show: false, left: 0, right: 0, top: 0, bottom: 0 },
           tooltip: {
             formatter: (params: unknown) => {
               const p = params as { data: { name: string; _pnl: number } };

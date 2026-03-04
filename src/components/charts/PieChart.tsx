@@ -38,6 +38,9 @@ export function PieChart({ model, getHoverText, textinfo = 'label+percent', styl
     const innerRadius = hole > 0 ? `${Math.round(hole * 100)}%` : '0%';
 
     return {
+      xAxis: { show: false },
+      yAxis: { show: false },
+      grid: { show: false, left: 0, right: 0, top: 0, bottom: 0 },
       tooltip: {
         trigger: 'item',
         formatter: getHoverText

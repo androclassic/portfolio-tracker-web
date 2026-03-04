@@ -134,6 +134,61 @@ export function BtcRatioChart() {
 
         const maxPoints = expanded ? 200 : 100;
 
+        if (selectedBtcChart === 'accumulation') {
+          // 3-line chart: Total Portfolio BTC, Altcoin BTC Value, BTC Held
+          const btcHeld = btcRatio.btcValue.slice(idx);
+          const totalBtc = btcRatio.portfolioInBtc.slice(idx);
+          const altBtc = totalBtc.map((t, i) => Math.max(0, t - (btcHeld[i] ?? 0)));
+
+          const sampledDates = sampleDataWithDates(dates, dates, maxPoints).dates;
+          const sampledTotal = sampleDataWithDates(dates, totalBtc, maxPoints).data as number[];
+          const sampledAlt = sampleDataWithDates(dates, altBtc, maxPoints).data as number[];
+          const sampledHeld = sampleDataWithDates(dates, btcHeld, maxPoints).data as number[];
+
+          const option: EChartsOption = {
+            xAxis: { type: 'category', data: sampledDates },
+            yAxis: { type: 'value', name: 'BTC Amount' },
+            tooltip: {
+              trigger: 'axis',
+              formatter: (params: unknown) => {
+                const ps = params as { seriesName: string; value: number; dataIndex: number; color: string }[];
+                if (!Array.isArray(ps) || ps.length === 0) return '';
+                const date = sampledDates[ps[0]!.dataIndex] ?? '';
+                let html = `<b>${date}</b>`;
+                for (const p of ps) {
+                  html += `<br/><span style="color:${p.color}">\u25CF</span> ${p.seriesName}: ${p.value.toFixed(4)} BTC`;
+                }
+                return html;
+              },
+            },
+            legend: { show: true },
+            series: [
+              {
+                type: 'line', name: 'Total Portfolio BTC', data: sampledTotal, showSymbol: false,
+                lineStyle: { color: '#5b8cff', width: 2 }, itemStyle: { color: '#5b8cff' },
+              },
+              {
+                type: 'line', name: 'Altcoin BTC Value', data: sampledAlt, showSymbol: false,
+                lineStyle: { color: '#16a34a', width: 1.5 }, itemStyle: { color: '#16a34a' },
+                areaStyle: { color: 'rgba(22, 163, 74, 0.15)' },
+              },
+              {
+                type: 'line', name: 'BTC Held', data: sampledHeld, showSymbol: false,
+                lineStyle: { color: '#f7931a', width: 1.5 }, itemStyle: { color: '#f7931a' },
+                areaStyle: { color: 'rgba(247, 147, 26, 0.15)' },
+              },
+            ],
+          };
+
+          return (
+            <EChart
+              option={option}
+              style={{ width: '100%', height: expanded ? '100%' : 320 }}
+            />
+          );
+        }
+
+        // Single-line modes: ratio and portfolio-btc
         let yData: number[];
         let yAxisName: string;
         let seriesName: string;
@@ -143,15 +198,11 @@ export function BtcRatioChart() {
           yData = btcRatio.btcPercentage.slice(idx);
           yAxisName = 'BTC Ratio (%)';
           seriesName = 'BTC Ratio';
-        } else if (selectedBtcChart === 'portfolio-btc') {
+        } else {
           yData = btcRatio.portfolioInBtc.slice(idx);
           yAxisName = 'Portfolio Value (BTC)';
           seriesName = 'Portfolio Value';
           tooltipFmt = (params) => params.map(p => `${p.value.toFixed(4)} BTC`).join('<br/>');
-        } else {
-          yData = btcRatio.btcValue.slice(idx);
-          yAxisName = 'BTC Units';
-          seriesName = 'BTC Accumulated';
         }
 
         const sampled = sampleDataWithDates(dates, yData, maxPoints);

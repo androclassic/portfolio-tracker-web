@@ -18,7 +18,7 @@ export function createSankeyData(event: TaxableEvent, transactions?: Tx[]): { op
 
   if (sourceTrace.length === 0) {
     return {
-      option: { title: { text: 'No source data available' } }
+      option: { xAxis: { show: false }, yAxis: { show: false }, grid: { show: false }, title: { text: 'No source data available' } }
     };
   }
 
@@ -367,6 +367,9 @@ export function createSankeyData(event: TaxableEvent, transactions?: Tx[]): { op
     });
 
     const option: EChartsOption = {
+      xAxis: { show: false },
+      yAxis: { show: false },
+      grid: { show: false, left: 0, right: 0, top: 0, bottom: 0 },
       title: {
         text: `Money flow to withdrawal - ${new Date(event.datetime).toLocaleDateString()}`,
         subtext: `Net P/L: ${event.gainLossUsd >= 0 ? '+' : ''}$${event.gainLossUsd.toFixed(2)}`,
@@ -489,6 +492,9 @@ export function createSankeyData(event: TaxableEvent, transactions?: Tx[]): { op
   });
 
   const option: EChartsOption = {
+    xAxis: { show: false },
+    yAxis: { show: false },
+    grid: { show: false, left: 0, right: 0, top: 0, bottom: 0 },
     title: {
       text: `Source Flow - ${new Date(event.datetime).toLocaleDateString()}`,
       subtext: `Gain/Loss: ${event.gainLossUsd >= 0 ? '+' : ''}$${event.gainLossUsd.toFixed(2)}`,
@@ -972,6 +978,9 @@ export function createSankeyExplorerData(event: TaxableEvent, opts: {
   });
 
   const option: EChartsOption = {
+    xAxis: { show: false },
+    yAxis: { show: false },
+    grid: { show: false, left: 0, right: 0, top: 0, bottom: 0 },
     title: {
       text: `Money flow to withdrawal - ${new Date(event.datetime).toLocaleDateString()}`,
       subtext: `Net P/L: ${event.gainLossUsd >= 0 ? '+' : ''}$${event.gainLossUsd.toFixed(2)}`,
