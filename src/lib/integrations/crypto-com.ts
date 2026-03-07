@@ -205,23 +205,30 @@ export function normalizeTrades(trades: CryptoComTrade[]): NormalizedTrade[] {
 
       const fromAsset = isBuy ? (quote || 'UNKNOWN') : (base || 'UNKNOWN');
       const toAsset = isBuy ? (base || 'UNKNOWN') : (quote || 'UNKNOWN');
+      const stableQuote = !!quote && isUsdStable(quote);
       const toQuantity = isBuy ? tradedQty : tradedQty * tradedPrice;
       const fromQuantity = isBuy ? tradedQty * tradedPrice : tradedQty;
 
-      const toPriceUsd = quote && isUsdStable(quote) ? tradedPrice : null;
-      const fromPriceUsd = quote && isUsdStable(quote)
+      // In quote-stable pairs, quote leg units are always worth ~$1.
+      const toPriceUsd = stableQuote ? (isBuy ? tradedPrice : 1) : null;
+      const fromPriceUsd = stableQuote
         ? (isBuy ? 1 : tradedPrice)
         : null;
+
+      // Exchange fees in stable quote currency should affect the stable leg quantity.
+      const stableFee = stableQuote && feeCurrency === quote ? fee : 0;
+      const adjustedFromQuantity = isBuy ? fromQuantity + stableFee : fromQuantity;
+      const adjustedToQuantity = isBuy ? toQuantity : Math.max(0, toQuantity - stableFee);
 
       return {
         externalId: String(trade.trade_id || trade.order_id || Date.now()),
         datetime: new Date(trade.create_time).toISOString(),
         type: 'Swap' as const,
         fromAsset,
-        fromQuantity,
+        fromQuantity: adjustedFromQuantity,
         fromPriceUsd,
         toAsset,
-        toQuantity,
+        toQuantity: adjustedToQuantity,
         toPriceUsd,
         feesUsd: feeCurrency && isUsdStable(feeCurrency) && fee > 0 ? fee : null,
         feeCurrency,
