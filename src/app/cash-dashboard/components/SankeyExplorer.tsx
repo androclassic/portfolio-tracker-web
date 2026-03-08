@@ -2,7 +2,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { getAssetColor } from '@/lib/assets';
 import { EChart } from '@/components/charts/echarts';
-import CryptoIcon from '../../components/CryptoIcon';
+import CryptoIcon from '@/components/CryptoIcon';
 import { createSankeyExplorerData, type BuyLotTraceWithFundingSells } from '../lib/sankey-helpers';
 import type { TaxableEvent } from '@/lib/tax/romania-v2';
 import type { Transaction as Tx } from '@/lib/types';

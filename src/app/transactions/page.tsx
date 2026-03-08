@@ -3,7 +3,7 @@ import useSWR, { useSWRConfig } from 'swr';
 import { useMemo, useState } from 'react';
 import { usePortfolio } from '../PortfolioProvider';
 import { getAssetColor, isStablecoin, isFiatCurrency } from '@/lib/assets';
-import CryptoIcon from '../components/CryptoIcon';
+import CryptoIcon from '@/components/CryptoIcon';
 import { jsonFetcher } from '@/lib/swr-fetcher';
 import { createLogger } from '@/lib/logger';
 import type { Transaction as Tx } from '@/lib/types';

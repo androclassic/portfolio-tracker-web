@@ -2,6 +2,7 @@
 import React from 'react';
 import { HoldingData, formatCurrency, formatBTC } from '@/lib/portfolio-utils';
 import { useIsMobile } from '@/hooks/useMediaQuery';
+import CryptoIcon from '@/components/CryptoIcon';
 
 interface HoldingsTableProps {
   holdings: HoldingData[];
@@ -60,21 +61,7 @@ function MobileHoldings({ holdings }: { holdings: HoldingData[] }) {
               marginBottom: '0.5rem',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div style={{
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: '50%',
-                  backgroundColor: holding.color,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  fontWeight: 'bold',
-                  fontSize: '0.8rem',
-                  flexShrink: 0,
-                }}>
-                  {holding.asset.charAt(0)}
-                </div>
+                <CryptoIcon symbol={holding.asset} size={36} alt={`${holding.asset} logo`} />
                 <div>
                   <div style={{ fontWeight: '600', fontSize: '0.95rem' }}>
                     {holding.name}
@@ -191,21 +178,7 @@ function DesktopTable({ holdings }: { holdings: HoldingData[] }) {
                 </td>
                 <td style={{ padding: '1rem 1.5rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div style={{
-                      width: '36px',
-                      height: '36px',
-                      borderRadius: '50%',
-                      backgroundColor: holding.color,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'white',
-                      fontWeight: 'bold',
-                      fontSize: '0.8rem',
-                      flexShrink: 0,
-                    }}>
-                      {holding.asset.charAt(0)}
-                    </div>
+                    <CryptoIcon symbol={holding.asset} size={36} alt={`${holding.asset} logo`} />
                     <div>
                       <div style={{ fontWeight: '600' }}>{holding.name}</div>
                       <div style={{ color: 'var(--muted)', fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>

@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { searchAssets, SupportedAsset, getAssetColor } from '../../lib/assets';
-import CryptoIcon from './CryptoIcon';
+import CryptoIcon from '@/components/CryptoIcon';
 
 interface AssetInputProps {
   value: string;
