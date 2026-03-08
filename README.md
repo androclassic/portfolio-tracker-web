@@ -60,6 +60,17 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+### Coin logos (local, source-controlled)
+
+Coin logos are loaded from `public/coin-logos` (not fetched at runtime).
+
+Use this command periodically to download missing logos, or refresh all tracked logo files:
+
+```bash
+npm run logos:sync
+npm run logos:sync -- --refresh-all
+```
+
 ## Docker (recommended for self-hosting)
 
 ```bash

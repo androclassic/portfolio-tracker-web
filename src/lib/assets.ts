@@ -156,52 +156,56 @@ export function getAssetColor(symbol: string): string {
   return ASSET_COLORS[symbol.toUpperCase()] || '#9aa3b2';
 }
 
-// Icon URL generators with fallbacks
-export function getAssetIconUrl(symbol: string, size: number = 32): string[] {
-  const sym = symbol.toLowerCase();
-  return [
-    // Primary: CoinGecko (more reliable)
-    `https://assets.coingecko.com/coins/images/${getCoinGeckoId(symbol)}/small/small.png`,
-    // Fallback 1: Alternative CoinGecko CDN
-    `https://coin-images.coingecko.com/coins/images/${getCoinGeckoId(symbol)}/small/${sym}.png`,
-    // Fallback 2: Original cryptoicons (if it comes back online)
-    `https://cryptoicons.org/api/icon/${sym}/${size}`,
-  ];
+export const ASSET_LOGO_KEY_MAP: Record<string, string> = {
+  BTC: 'btc',
+  ETH: 'eth',
+  USDT: 'usdt',
+  BNB: 'bnb',
+  SOL: 'sol',
+  USDC: 'usdc',
+  XRP: 'xrp',
+  DOGE: 'doge',
+  ADA: 'ada',
+  PEPE: 'pepe',
+  AVAX: 'avax',
+  SHIB: 'shib',
+  DOT: 'dot',
+  LINK: 'link',
+  TRX: 'trx',
+  MATIC: 'matic',
+  ICP: 'icp',
+  UNI: 'uni',
+  LTC: 'ltc',
+  ATOM: 'atom',
+  SUI: 'sui',
+  ALGO: 'algo',
+  CRO: 'cro',
+  EGLD: 'egld',
+  DAI: 'dai',
+  BUSD: 'busd',
+};
+
+export const ASSET_LOGO_ALIASES: Record<string, string> = {
+  XBT: 'BTC',
+  POL: 'MATIC',
+};
+
+function getLogoKey(symbol: string): string | null {
+  const normalized = symbol.trim().toUpperCase();
+  const aliased = ASSET_LOGO_ALIASES[normalized] ?? normalized;
+  return ASSET_LOGO_KEY_MAP[aliased] ?? null;
 }
 
-// Map crypto symbols to CoinGecko IDs
-function getCoinGeckoId(symbol: string): string {
-  const coinGeckoMap: Record<string, string> = {
-    'BTC': '1',
-    'ETH': '279',
-    'USDT': '825',
-    'BNB': '1839',
-    'SOL': '4128',
-    'USDC': '3408',
-    'XRP': '44',
-    'DOGE': '5',
-    'ADA': '4943',
-    'PEPE': '24478',
-    'AVAX': '12559',
-    'SHIB': '11939',
-    'DOT': '12171',
-    'LINK': '1975',
-    'TRX': '1958',
-    'MATIC': '4713',
-    'ICP': '8916',
-    'UNI': '7083',
-    'LTC': '2',
-    'ATOM': '3794',
-    'SUI': '26375',
-    'ALGO': '4030',
-    'CRO': '3635',
-    'EGLD': '6892',
-    'DAI': '9956',
-    'BUSD': '4687',
-    'EURC': '20641',
-  };
-  
-  return coinGeckoMap[symbol.toUpperCase()] || symbol.toLowerCase();
+// Known symbols use deterministic logo URLs; unknown ones intentionally fall back.
+export function getAssetIconUrl(symbol: string, size: number = 32): string[] {
+  const logoKey = getLogoKey(symbol);
+  if (!logoKey) {
+    return [];
+  }
+
+  const normalizedSize = Math.min(Math.max(Math.round(size), 16), 256);
+  // Local assets are source-controlled; query param only helps avoid stale browser cache.
+  return [`/coin-logos/${logoKey}.png?v=${normalizedSize}`];
 }
 
 // Fiat currency conversion rates (base: USD)
